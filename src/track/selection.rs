@@ -8,13 +8,27 @@
 //!
 //! Missing estimates are omitted rather than drawn as zero.  Exact rates and
 //! evidence remain in SVG tooltips; visual values are capped only to keep one
-//! very large estimate from flattening the rest of the scan.
+//! very large estimate from flattening the rest of the scan, and a ratio held
+//! at a cap is drawn open beside an end written as a bound, `ω ≥ 8`.  The
+//! sites past the threshold are named over their marks while there are few
+//! enough to read.
 
 use crate::scale::Scale;
 use crate::style::{LinePattern, Symbol};
 use crate::svg::{text_exact, text_rounded, text_width, Anchor};
 use crate::theme::{mix, Theme};
+use crate::track::axis::group_thousands;
 use crate::track::{DrawContext, Track};
+
+/// How far over its mark an episodic site's capsule is centred, and how far
+/// over the mark its top stands: the lift, half its height and its ring.
+const CAPSULE_LIFT: f64 = 7.0;
+const CAPSULE_RISE: f64 = CAPSULE_LIFT + 2.1 + 0.8;
+
+/// The most sites past the threshold the evidence panel names over their
+/// marks. Past it the names are a wall of numbers, and the tooltips name
+/// each site still.
+const NAMED_SITES: usize = 30;
 
 /// Statistical quantity shown in the evidence half of a [`SelectionTrack`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -420,6 +434,9 @@ impl SelectionTrack {
             size,
             Anchor::Start,
         );
+        let right = x + ctx.px(6.0) + text_width(&evidence, size);
+        ctx.svg
+            .keep_clear(ctx.band.x, y - size, right - ctx.band.x, size * 1.3);
     }
 
     fn draw_evidence(&self, ctx: &mut DrawContext<'_>, top: f64, height: f64) {
@@ -436,8 +453,34 @@ impl SelectionTrack {
                 .max(threshold * 1.12),
             SelectionEvidence::Posterior => 1.0,
         };
-        let usable = (height - ctx.px(8.0)).max(2.0);
+        // The sites past the threshold are named over their marks while
+        // there are few enough to read, and the panel keeps a line at its top
+        // for the names of the tallest. Nine diamonds over a protein with no
+        // number on any had a reader working the sites out with awk.
+        let selected = self
+            .sites
+            .iter()
+            .filter(|site| ctx.region.contains(site.pos) && self.is_selected(site))
+            .filter(|site| self.evidence_value(site).is_some())
+            .count();
+        let named = (1..=NAMED_SITES).contains(&selected);
+        let name_size = ctx.theme.font_size * 0.78;
+        // A name goes over the capsule of an episodic site, which stands
+        // over its mark, so the room is taller by a capsule where one could
+        // be named.
+        let capsules = named
+            && self
+                .sites
+                .iter()
+                .any(|site| site.episodic.is_some() && self.is_selected(site));
+        let room = match (named, capsules) {
+            (false, _) => 0.0,
+            (true, false) => name_size + ctx.px(3.0),
+            (true, true) => name_size + ctx.px(3.0 + CAPSULE_RISE),
+        };
+        let usable = (height - ctx.px(8.0) - room).max(2.0);
         let map_y = |value: f64| bottom - value.clamp(0.0, max) / max * usable;
+        let mut marks: Vec<(f64, f64, u64)> = Vec::new();
 
         ctx.svg.line(
             ctx.band.x,
@@ -515,9 +558,32 @@ impl SelectionTrack {
                 ctx.px(1.15),
             );
             if let Some(episodic) = site.episodic {
-                draw_episodic_capsule(ctx, x, y - ctx.px(7.0), site, episodic, self);
+                draw_episodic_capsule(ctx, x, y - ctx.px(CAPSULE_LIFT), site, episodic, self);
             }
             ctx.svg.end_group();
+            if named && selected {
+                let top = if site.episodic.is_some() {
+                    y - ctx.px(CAPSULE_RISE)
+                } else {
+                    y - radius
+                };
+                marks.push((x, top - ctx.px(2.5), site.pos));
+            }
+        }
+        if named {
+            for (x, y, text) in site_names(marks, name_size, ctx.band.x, ctx.band.right()) {
+                let width = text_width(&text, name_size);
+                ctx.svg
+                    .keep_clear(x - width / 2.0, y - name_size, width, name_size * 1.3);
+                ctx.svg.text(
+                    x,
+                    y,
+                    &text,
+                    &ctx.theme.foreground,
+                    name_size,
+                    Anchor::Middle,
+                );
+            }
         }
     }
 
@@ -525,6 +591,20 @@ impl SelectionTrack {
         let mid = top + height / 2.0;
         let half = (height / 2.0 - ctx.px(4.0)).max(1.0);
         let log_cap = self.saturation.log2().max(1.0);
+        let cap = log_cap.exp2();
+        // A ratio past either end of the strip stands at the end, where it
+        // reads as that end: sites of ω 8.80 and 8.91 stood at `ω 8`, and 44
+        // under an eighth at `1/8`, as if each were exactly that. Such a mark
+        // is drawn open, and the end it is held at is written as a bound.
+        let past_high = |omega: f64| omega.is_infinite() || omega > cap;
+        let past_low = |omega: f64| omega <= 0.0 || omega < 1.0 / cap;
+        let shown = || {
+            self.sites
+                .iter()
+                .filter(|site| ctx.region.contains(site.pos))
+                .filter_map(SelectionSite::omega)
+        };
+        let (any_high, any_low) = (shown().any(past_high), shown().any(past_low));
         let neutral_top = omega_y(self.neutral_upper, mid, half, log_cap);
         let neutral_bottom = omega_y(self.neutral_lower, mid, half, log_cap);
         ctx.svg.rect_opacity(
@@ -543,16 +623,25 @@ impl SelectionTrack {
             &ctx.theme.rule,
             ctx.theme.tokens.hairline,
         );
+        let bound = |past: bool, at: &'static str| if past { at } else { "" };
         self.axis_text(
             ctx,
             top + ctx.px(6.0),
-            &format!("ω {}", text_rounded(self.saturation, 1)),
+            &format!(
+                "ω {}{}",
+                bound(any_high, "≥ "),
+                text_rounded(self.saturation, 1)
+            ),
         );
         self.axis_text(ctx, mid + ctx.px(3.0), "ω 1");
         self.axis_text(
             ctx,
             top + height,
-            &format!("1/{}", text_rounded(self.saturation, 1)),
+            &format!(
+                "{}1/{}",
+                bound(any_low, "≤ "),
+                text_rounded(self.saturation, 1)
+            ),
         );
 
         for site in &self.sites {
@@ -581,19 +670,36 @@ impl SelectionTrack {
                 &color,
                 ctx.px(if selected { 1.8 } else { 1.05 }),
             );
-            ctx.svg.symbol_ringed(
-                x,
-                y,
-                ctx.px(if selected { 3.6 } else { 2.15 }),
-                if selected {
-                    Symbol::Diamond
-                } else {
-                    Symbol::Circle
-                },
-                &color,
-                ctx.theme.surface(),
-                ctx.px(1.0),
-            );
+            let symbol = if selected {
+                Symbol::Diamond
+            } else {
+                Symbol::Circle
+            };
+            let radius = ctx.px(if selected { 3.6 } else { 2.15 });
+            if past_high(omega) || past_low(omega) {
+                // Open: an edge in its colour round the page, as wide as the
+                // filled mark it stands for.
+                let edge = ctx.px(1.2);
+                ctx.svg.symbol_ringed(
+                    x,
+                    y,
+                    radius + ctx.px(1.0) - edge,
+                    symbol,
+                    ctx.theme.surface(),
+                    &color,
+                    edge,
+                );
+            } else {
+                ctx.svg.symbol_ringed(
+                    x,
+                    y,
+                    radius,
+                    symbol,
+                    &color,
+                    ctx.theme.surface(),
+                    ctx.px(1.0),
+                );
+            }
             ctx.svg.end_group();
         }
     }
@@ -611,6 +717,84 @@ impl SelectionTrack {
             Anchor::End,
         );
     }
+}
+
+/// The names written over the marks of the sites past the threshold, each
+/// `(x, baseline, text)`, from marks `(x, top, position)`.
+///
+/// Sites whose names would touch share one, written as their numbers with
+/// runs of three or more as ranges, `58, 59, 63-65`, centred over them and
+/// kept inside the band. Positions are written from one, as the ruler writes
+/// them.
+fn site_names(
+    mut marks: Vec<(f64, f64, u64)>,
+    size: f64,
+    left: f64,
+    right: f64,
+) -> Vec<(f64, f64, String)> {
+    marks.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let gap = size * 0.5;
+    // Each group: its leftmost and rightmost mark, its highest top, and the
+    // positions it names.
+    let mut groups: Vec<(f64, f64, f64, Vec<u64>)> = Vec::new();
+    let reach = |group: &(f64, f64, f64, Vec<u64>)| -> (f64, f64) {
+        let width = text_width(&listed(&group.3), size);
+        let centre = ((group.0 + group.1) / 2.0)
+            .max(left + width / 2.0)
+            .min(right - width / 2.0);
+        (centre - width / 2.0, centre + width / 2.0)
+    };
+    for (x, top, pos) in marks {
+        groups.push((x, x, top, vec![pos.saturating_add(1)]));
+        // A group that grew may reach the one before it, so merging walks
+        // back until two neighbours stand apart.
+        while groups.len() > 1 {
+            let last = groups.len() - 1;
+            if reach(&groups[last - 1]).1 + gap <= reach(&groups[last]).0 {
+                break;
+            }
+            let (from, to, top, positions) = groups.pop().expect("two groups");
+            let before = groups.last_mut().expect("two groups");
+            before.0 = before.0.min(from);
+            before.1 = before.1.max(to);
+            before.2 = before.2.min(top);
+            before.3.extend(positions);
+        }
+    }
+    groups
+        .iter()
+        .map(|group| {
+            let (from, to) = reach(group);
+            ((from + to) / 2.0, group.2, listed(&group.3))
+        })
+        .collect()
+}
+
+/// Positions as a reader lists them: in order, a run of three or more as its
+/// two ends.
+fn listed(positions: &[u64]) -> String {
+    let mut sorted = positions.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let mut parts: Vec<String> = Vec::new();
+    let mut at = 0;
+    while at < sorted.len() {
+        let mut end = at;
+        while end + 1 < sorted.len() && sorted[end + 1] == sorted[end] + 1 {
+            end += 1;
+        }
+        if end - at >= 2 {
+            parts.push(format!(
+                "{}-{}",
+                group_thousands(sorted[at]),
+                group_thousands(sorted[end])
+            ));
+        } else {
+            parts.extend(sorted[at..=end].iter().map(|pos| group_thousands(*pos)));
+        }
+        at = end + 1;
+    }
+    parts.join(", ")
 }
 
 fn finite_nonnegative(value: f64) -> Option<f64> {
@@ -832,6 +1016,118 @@ mod tests {
         assert!(svg.contains("<polygon"), "selected sites need a shape cue");
         assert!(!svg.contains("NaN"));
         assert!(!svg.contains("inf\""));
+    }
+
+    /// The sites past the threshold are named over their marks while there
+    /// are thirty or fewer, sites whose names would touch sharing one: nine
+    /// diamonds with no number on any sent a reader to awk for 58, 59, 63,
+    /// 64, 65, 181, 183, 184 and 185.
+    #[test]
+    fn the_sites_past_the_threshold_are_named_while_few() {
+        let site = |at: u64, p: f64| SelectionSite::new(at - 1).rates(0.2, 1.4).p_value(p);
+        let mut sites: Vec<SelectionSite> = (1..=300).map(|at| site(at, 0.6)).collect();
+        for at in [58, 59, 63, 64, 65, 181, 183, 184, 185] {
+            sites[at as usize - 1] = site(at, 0.01);
+        }
+        let region = Region::new("site", 0, 300).unwrap();
+        let svg = Figure::new(region.clone())
+            .push(SelectionTrack::new(sites.clone()))
+            .to_svg();
+        assert!(svg.contains(">58, 59, 63-65</text>"), "{svg}");
+        assert!(svg.contains(">181, 183-185</text>"), "{svg}");
+        // Thirty-one are a wall of numbers, and none is written.
+        let many: Vec<SelectionSite> = (1..=300)
+            .map(|at| site(at, if at % 9 == 0 { 0.01 } else { 0.6 }))
+            .collect();
+        let svg = Figure::new(region).push(SelectionTrack::new(many)).to_svg();
+        assert!(!svg.contains(">9, "), "{svg}");
+        assert!(!svg.contains(">9</text>"), "{svg}");
+
+        assert_eq!(listed(&[65, 58, 63, 59, 64]), "58, 59, 63-65");
+        assert_eq!(listed(&[1_200, 1_201]), "1,200, 1,201");
+        assert_eq!(listed(&[761_155, 761_156, 761_157]), "761,155-761,157");
+        // A name is kept inside the band at its ends.
+        let names = site_names(vec![(1.0, 50.0, 0)], 10.0, 0.0, 100.0);
+        assert!(names[0].0 >= text_width("1", 10.0) / 2.0, "{names:?}");
+    }
+
+    /// The name of an episodic site goes over its capsule, which stands over
+    /// its mark: written over the mark, `46` sat on the capsule.
+    #[test]
+    fn a_name_goes_over_an_episodic_capsule() {
+        let svg = Figure::new(Region::new("site", 0, 60).unwrap())
+            .push(SelectionTrack::new(vec![
+                SelectionSite::new(10).rates(1.0, 0.5).p_value(0.5),
+                SelectionSite::new(45)
+                    .rates(0.2, 1.4)
+                    .p_value(0.004)
+                    .episodic_rates(0.05, 2.8, 0.22),
+            ]))
+            .to_svg();
+        let at = svg.find(">46</text>").expect("the name");
+        let open = svg[..at].rfind("<text").unwrap();
+        let baseline: f64 = svg[open..at]
+            .split(" y=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        // The capsule's backing, the one rounded rect of the page colour in
+        // the site's group, and its top.
+        let group = &svg[svg.find("<title>position 46").unwrap()..];
+        let backing = group.split("<rect ").nth(1).unwrap();
+        let top: f64 = backing
+            .split(" y=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            baseline < top,
+            "the name at {baseline} reaches the capsule at {top}"
+        );
+    }
+
+    /// A ratio past an end of the effect strip stands at the end, and read
+    /// as exactly that: ω 8.80 and 8.91 at `ω 8`. It is drawn open and the
+    /// end is written as a bound, only where a mark in view is held there.
+    #[test]
+    fn a_ratio_held_at_an_end_of_the_strip_is_open_and_the_end_a_bound() {
+        let theme = Theme::light();
+        let drawn = |sites: Vec<SelectionSite>| {
+            Figure::new(Region::new("site", 0, 40).unwrap())
+                .push(SelectionTrack::new(sites))
+                .to_svg()
+        };
+        let past = drawn(vec![
+            SelectionSite::new(5).rates(0.1, 0.88).p_value(0.5),
+            SelectionSite::new(20).rates(1.0, 0.05).p_value(0.5),
+            SelectionSite::new(30).rates(1.0, 1.2).p_value(0.5),
+        ]);
+        assert!(past.contains(">ω ≥ 8</text>"), "{past}");
+        assert!(past.contains(">≤ 1/8</text>"), "{past}");
+        // Two open marks, each a disc of the page inside an edge.
+        let open = format!("fill=\"{}\"", theme.surface());
+        let effect = past.split(">ω ≥ 8</text>").nth(1).unwrap();
+        let discs = effect
+            .split("<g><title>")
+            .filter(|mark| mark.matches("<circle").count() == 2)
+            .filter(|mark| mark.split("<circle").nth(2).unwrap().contains(&open))
+            .count();
+        assert_eq!(discs, 2, "{effect}");
+
+        let within = drawn(vec![
+            SelectionSite::new(5).rates(0.1, 0.8).p_value(0.5),
+            SelectionSite::new(20).rates(1.0, 0.125).p_value(0.5),
+        ]);
+        assert!(within.contains(">ω 8</text>"), "{within}");
+        assert!(within.contains(">1/8</text>"), "{within}");
     }
 
     #[test]

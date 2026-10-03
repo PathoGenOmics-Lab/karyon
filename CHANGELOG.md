@@ -461,6 +461,47 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--panel-columns N` lays the panels of several places `N` to a row, in the
+  order the places are written, through `Panels::columns` and
+  `Panels::row_major`, each panel at its `--width` and the key in the room
+  the last row leaves, or under them; a line of one place is refused, as one
+  panel has nothing to stand beside, and so is a line of none, a genome
+  drawn whole or a tree, which is told it names none. Two genes side by side
+  could be drawn only from Rust, and `--columns 2`, a sample sheet's option,
+  was refused after the genes. No committed figure moves.
+- `Marker::ThinLine`, a key drawn as a stroke half as thick as a line, for a
+  line drawn thinner than another of its colour.
+- `--color` after a variants track paints every call that colour, in place of
+  a colour each consequence, and each consequence keeps its shape, on the
+  marks and in the key; ticks, in the band or on a circle, take it with no
+  key, since a tick has no shape to tell a consequence by. There are four
+  shapes, so more consequences in view than four, in the band or across the
+  panels of several places, are refused with `--style tick` as a way out:
+  six consequences in dark red drew `stop_gained` and `upstream_gene_variant`
+  as one circle. The library's is `VariantTrack::uniform_color`. A figure
+  whose calls had to be dark red had no way to say so: `--color` was refused
+  after calls, and `--colors` paints a sample sheet. No committed figure
+  moves.
+- `SvgWriter::keep_clear` asks that nothing laid over the tracks once they
+  are drawn cross a rectangle, and `SvgWriter::kept_clear` gives back what
+  was asked. A legend drawn in a band, a selection scan's key and the names
+  it writes over its sites, and a phylodynamic trajectory's key ask it, and
+  the dashed edges of a shaded stretch leave them out.
+- `Marker::Ring`, a key drawn as an open circle edged in its colour, for a
+  point drawn open because it lacks what the filled ones are coloured by.
+- `Track::notes`, with a default of none, says what a track leaves off the
+  page at the zoom it is drawn at, a sentence each, and `Figure::notes`
+  gathers them from every track, as `Figure::key` gathers keys. They are for
+  the person drawing the figure and not drawn into it; the command line
+  prints them.
+- `VariantTrack::category_order` gives each category it names the palette
+  slot of its place in the list, whether the track holds a call of it or
+  not, and the rest the slots after it by first appearance, so two tracks
+  cut from one list at different windows can paint a category alike.
+  `read::point::ranked` puts the categories of a set of calls in the order
+  the command line deals them, and `read::point::severity` is the rank behind
+  it: Ensembl's order of the Sequence Ontology consequences, then the shapes
+  of calls nothing annotated, then any other word.
 - `read::hic` reads Juicer's `.hic` a window at a time, with no dependency:
   `header_of` for its sequences, their lengths and its resolutions,
   `contacts` for the cells of the map of a window's sequence with itself at
@@ -1505,6 +1546,191 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Where the guide and the page on the PDF writer describe `-o fig.pdf`, they
+  say plainly that its text is in the standard Helvetica and Courier, named
+  and not embedded, and what that means for a paper: `pdffonts` lists each
+  face with `no` under `emb`, and a journal's upload check that wants every
+  font embedded, as PDF/X and PDF/A do, flags it, which the Ghostscript line
+  given beside it answers. `-o` in the full help says so as well. The guide
+  said it in a clause, so a figure made for a paper went to its check
+  unwarned, and the locus in Courier was taken for a face gone missing.
+  Nothing is embedded still: a face is 300 to 400 kilobytes, and cutting a
+  subset of one is most of a PDF library.
+- The formats page called a cell a `.hic` does not list a count of nought,
+  and nothing said what the figure draws there. It is left as the page, not
+  painted the pale end of the key, which is a cell listed at nought, and a
+  triangle is as deep as the farthest cell listed: a map of contacts no more
+  than 200 kb apart ended in a jagged edge 200 kb from its diagonal with the
+  page below, and read as cells left undrawn. The formats
+  page, the guide, the pairs page, the `PairTrack` notes and the help on
+  `--resolution` say so, and the pairs page offers `--axis` before the file
+  for a ruler along the diagonal.
+- `karyon help variants` and the guide's table of tracks say calls are
+  coloured by the consequence an annotator wrote in `ANN` or `BCSQ`, or by
+  the shape of the call where none is written, where both said only `point
+  calls`. The page on reads, calls and genes, where readers start, offers
+  `--shade`, which only the whole-genome page did, and says the codons' CDS
+  is read from the `genes.gff3` on the line, which was kept there by
+  guesswork. `Many samples in windows`, opened for sample sheets and found to
+  be a heatmap, is `A heatmap of many samples` and points to the sample
+  sheet, whose entry on the formats page now names `--genotypes` and
+  `--heatmap` among the tracks that read one. The formats page says VEP's
+  `ANN` is read when VEP is run with `--vcf_info_field ANN`, and that its own
+  `CSQ` is not.
+- The genotypes page said a call of the other allele is a blue cell and a
+  heterozygote the half-strength blue, and the alternative text of its figure
+  spoke of blue cells, where an alternate call is drawn in the ink of the text
+  and a heterozygote in a grey mixed from it: a reader of a cohort of forty
+  looking for blue found 247 near-black cells. It names the ink, dark on a
+  light page and light on a dark one, and the mid grey, and a test ties the
+  words to the colours the track draws.
+- A window that lies inside one interval of a genetic map, read by
+  `--recombination` or `--with-recombination`, says on standard error that
+  its one rate is drawn flat across it, and over which interval: following
+  the `--rename 1=NC_000962.3` a refusal offers, a chromosome 1 map laid over
+  a window of another genome drew a flat 0.41 cM/Mb line and said nothing.
+  The rename is still offered, as the one sequence a file names is the
+  documented case of a PLINK table beside a FASTA. No committed figure moves.
+- A figure placed on a gene's name whose annotation draws the gene once for
+  several transcripts says so on standard error, once, naming the flag:
+  `NOVA1: 3 transcripts drawn as one model; --isoforms after genes.gtf.gz
+  draws a row each`. Three isoforms were merged into one model with nothing
+  printed, and `--isoforms` was found only in `karyon help features`. No
+  committed figure moves.
+- A sequence drawn as far as a table of windows reaches is not said to stop
+  short of its end where the table's last window is cut short of the others,
+  as `bedtools makewindows` and `mosdepth --by` cut the one at a sequence's
+  end. `NC_000962.3 --heatmap depths.tsv`, ending `4,400,000 4,411,532` after
+  windows of 100,000, was said to be drawn to 4,411,532 `since no file says
+  how long it is`, which is the sequence's length. The short `--help` names
+  the tracks drawn across a genome with no place by their flags,
+  `--windows`, `--copy-number`, `--manhattan` and a bedGraph or bigWig of
+  `--coverage`, where `a scan, bedGraph or segment table` read as taking a
+  heatmap's table of windows too, and says a BAM is its depth over a place,
+  since one named alone is refused; `--heatmap` says in the full help that
+  it is drawn over a place. No committed figure moves.
+- A copy-number track is keyed with what it draws, and named apart from the
+  depth of the same sample. `CopyNumberTrack` answers `Track::key` with the
+  marks the segments in view use, which a figure gathers: `total copies` for
+  the thick grey bar of a balanced total, `minor allele` for the thinner one,
+  keyed half as thick, then gain, loss and the states of the lane while it is
+  shown. `tumour.bedgraph tumour.cns --ploidy 2` explained none of them,
+  though a genotypes or pairs track beside it got a key, and labelled both
+  tracks `tumour`; a segment table named on its own is now `tumour copy
+  number`. A tooltip says `1 copy (1 + 0)`, not `1 copies`. The Start here
+  `genome-copies.svg` gains the key and grows from 208 to 236.5 px, and the
+  tooltips of `example-copy-number.svg` and `genome-copies.svg` that said
+  `1 copies` say `1 copy`.
+- A colour, a height, or the top or the log of a scale, written after a track
+  that could have one, is refused by that track's name, and not sent to an
+  earlier track that takes it. `--color` after `calls.vcf.gz` said to write it
+  right after `genes.gff3`, which would have painted the genes and not the
+  calls. An option no track of its kind could want, as `--threshold` after
+  genes or `--max` after a track with no scale, still names the track it
+  belongs to.
+- A track's axis title is left out where its name says the same, and `karyon
+  help manhattan` says a column of p-values is titled `-log10 p` already.
+  `--label '-log10 p'` on a scan of p-values printed `-log10 p` twice in the
+  gutter, one line over the other. `--max` in `karyon help coverage` and
+  `karyon help heatmap` says how data past it is marked.
+- A phylodynamic trajectory's reference line leaves its words off where
+  they are only its number and the axis writes that number, and its tooltip
+  says the number once, `reference at 1`, or after its name, `R = 1,
+  reference at 1`. `--threshold 1` wrote a pink `1` beside the axis's `1`,
+  on the second week's estimate, where it read as a tick of the data, and
+  titled the line `reference 1 1`, as the Start here `time.svg` did.
+- The dashed edges of a `--shade` leave out the keys and names a band writes
+  where they would cross them. The edge of `--shade site:58-65` ran through
+  the `p ≤ 0.05` of a selection scan's key, and could cross a legend of
+  categories at the top of a band of calls the same way.
+- The ruler writes a step under a hundred bases in bases, `1,100,250`, and
+  keeps its last label, leaving out an interior one that would touch it. A
+  101 bp window was ruled `1100.25 kb` to `1100.34 kb`, two decimals of a
+  kilobase being a base count with a point in it, and ended on a bare tick at
+  1,100,350, whose label had given way to the one before.
+  `example-codons.svg`, `example-zoom.svg` and `gallery.svg` are ruled in
+  bases.
+- `SelectionTrack` names the sites past its threshold over their marks while
+  thirty or fewer are in view, sites whose names would touch sharing one, as
+  `58, 59, 63-65`, and draws a ratio held at an end of the effect tier open,
+  with that end written `ω ≥ 8` or `≤ 1/8`. Nine diamonds of a FEL scan had
+  no number on any, so the sites were worked out with awk, and sites of ω
+  8.80 and 8.91 stood at `ω 8` beside 44 under an eighth at `1/8`, each
+  reading as exactly the end. The evidence tier keeps a line at its top for
+  the names, so `example-selection-atlas.svg`,
+  `example-evolutionary-surveillance.svg` and the Start here `selection.svg`
+  move.
+- A scan coloured by linkage draws a variant the linkage file gives no r²
+  for as an open ring in the muted ink, keys it `no r² (5)` with the count in
+  view, and says how many in its notes, which the command line prints as `5
+  of 95 variants in view have no r² with snp00342, and are drawn as open
+  rings`. They were filled #c1becf, a shade off the #b5b2c6 of an r² of
+  nought, and the key showed only the ramp, so five variants missing from
+  `lead.ld` read as unlinked. The Start here `locus.svg` draws three.
+- A pinned `--max` below the data says so. A `CoverageTrack` strikes the
+  columns it cut short along the top of the band in the alert colour and
+  writes its top label `30+`, and a `MatrixTrack` puts a dot in each cell past
+  an end of its scale and writes the key's end `150+`, or `≤-3` below a
+  diverging one. Peaks of about 45 under `--max 30` were a flat top with
+  nothing to say the profile went on, and a depth of 174.8 under `--max 150`
+  was the colour of 150 beside a key that read `0 ... 150`. Only data in view
+  counts, so a zoom short of the peak says nothing; the axis strip keeps room
+  for the `+` wherever the data runs past the pin. A pin that is not a round
+  tick is a tick of its own there, `33+`, since the round ticks under it
+  stopped at 30 and no label said the profile went past.
+- `GenotypeTrack` names a mark of sites too close to draw apart, when it
+  carries an alternate copy and holds at most eight sites, with each site
+  and the sample's call there, and its key titles the ramp `alternate copies
+  among a pixel's calls` where a pixel pools sites. A pooled mark had no
+  tooltip of its own, so 85 of the 256 alternate calls of a cohort of forty
+  across rpoB could not be pointed at, and a pixel holding one alternate site
+  and one reference site was a grey that a cohort of one copy a sample reads
+  as a mixed call. A mark of more sites is left to its row's tooltip, so
+  20,000 sites of 200 samples over a megabase stay 1.08 MB. The Start here
+  `genotypes.svg` names its pooled marks.
+- `SquiggleTrack` holds the place of a base too narrow for its letter with a
+  dot in the row of letters, where some bases beside it are lettered, and
+  its `notes` say how many and the window that letters every base, which the
+  command line prints as `read_1: 1 of 18 bases are too narrow for their
+  letters at this width, each a dot where its letter would be;
+  sample:221-524 letters every base`. The letter was left out with no mark,
+  so over the first 400 samples of a read whose basecall starts
+  GGATCACAGTCTACACT a C of five samples went missing and the row read one
+  base short.
+- `--variants`, as a band and as a ring, deals its colours from the most
+  damaging consequence down rather than by which call comes first in the
+  window. Across the whole of rpoB, whose first call is synonymous, missense
+  was the second colour, and in a 60 bp zoom holding missense calls alone it
+  was the first, so one paper's two figures painted it pink and blue. A
+  colour now moves only when a zoom leaves out a more damaging consequence.
+  The calls in view are ranked rather than the file, since a VCF read a
+  window at a time through its index has only the window's, and a BCF draws
+  what the VCF it was written from draws. snpEff's own terms rank as the
+  Ensembl consequence each is a kind of, so `conservative_inframe_deletion`
+  is dealt with `inframe_deletion` and not after an insertion nobody
+  annotated. The panels of several places rank the consequences of every
+  panel together and are drawn again where one panel's own order differs, so
+  `NC_000962.3:760,200-760,400 NC_000962.3:761,100-761,170 calls.vcf.gz` no
+  longer keys synonymous and missense as one blue circle. The Start here
+  `reads.svg` and `circle.svg` swap their two colours, missense now the
+  first.
+- A feature that runs off the window has its name written on the page: inside
+  the part of it in view when the name fits there with a margin half the one a
+  feature in view keeps, else before the feature when it ends past the right
+  edge. One that ends in view is named after it as before where the name
+  fits there, ending at the edge where the usual gap leaves too little room,
+  else before it, else at the start of what shows, drawn back from the edge.
+  The name was centred on the whole feature or written after its end, so
+  sixty bases inside rpoB put rpoB at x = 6,026 of a 900 px figure, a 100 bp
+  window inside KAPPA3 put its name 80,000 px out, rpoC running off the edge
+  of the rpoB figure was a box with no name, and so was a gene ending 5 bp
+  before the end of a 10 kb window, whose name the clip took whole. The
+  packing keeps the room a name takes before its feature as it keeps the
+  room after it. `example.svg`, `example-dark.svg`,
+  `example-visual-system.svg` and `gallery.svg` move rpoB's name into the
+  part in view, the Start here `reads.svg`, `pairs.svg` and `genotypes.svg`
+  name rpoC, and `example-gene-models.svg` ends geneB-201 at the edge, which
+  it ran 2 px past.
 - A bigWig, a bigBed or a 2bit named for a second file of a track whose own
   file is piped in, as `--manhattan - --ld signal.bw`, is answered with the
   command that writes it as text. Whether the file was a pipe was read off

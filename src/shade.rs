@@ -15,7 +15,9 @@
 //! empty. A track that fills its band, a heatmap above all, leaves nothing for
 //! it to show through but the gaps between rows, so the two ends of the stretch
 //! are drawn again over the tracks as dashed hairlines, which mark it without
-//! changing a single colour a reader looks up.
+//! changing a single colour a reader looks up. The hairlines leave out the
+//! words a track asked [`SvgWriter::keep_clear`] to keep clear, its key and
+//! the names it writes over marks, which an edge struck through.
 //!
 //! # One colour for every shade
 //!
@@ -266,7 +268,9 @@ pub(crate) fn wash(
 /// their tooltips.
 ///
 /// `first_top` is where the first run's edges begin, under the row of names
-/// rather than through it.
+/// rather than through it. An edge leaves out every rectangle the tracks
+/// asked [`SvgWriter::keep_clear`] to keep clear that it would cross: a key
+/// at the top of a band, a name over a mark.
 pub(crate) fn edges(
     svg: &mut SvgWriter,
     columns: &[Column<'_>],
@@ -277,25 +281,56 @@ pub(crate) fn edges(
     if columns.iter().all(|column| column.edges.is_empty()) {
         return;
     }
+    let kept = svg.kept_clear().to_vec();
     svg.begin_titled_inert("");
     for column in columns {
         let color = column.shade.color.as_deref().unwrap_or(&theme.muted);
         for (index, (top, bottom)) in runs.iter().enumerate() {
             let top = if index == 0 { first_top } else { *top };
-            for x in &column.edges {
-                svg.line_pattern(
-                    *x,
-                    top,
-                    *x,
-                    *bottom,
-                    color,
-                    theme.tokens.hairline,
-                    LinePattern::Dashed,
-                );
+            for &x in &column.edges {
+                let crossed: Vec<(f64, f64)> = kept
+                    .iter()
+                    .filter(|(left, _, width, _)| x >= *left && x <= left + width)
+                    .map(|(_, y, _, height)| (*y, y + height))
+                    .collect();
+                for (from, to) in left_clear(top, *bottom, &crossed) {
+                    svg.line_pattern(
+                        x,
+                        from,
+                        x,
+                        to,
+                        color,
+                        theme.tokens.hairline,
+                        LinePattern::Dashed,
+                    );
+                }
             }
         }
     }
     svg.end_group();
+}
+
+/// What is left of `top` to `bottom` once every stretch of `clear` is taken
+/// out of it, top down.
+fn left_clear(top: f64, bottom: f64, clear: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut cuts: Vec<(f64, f64)> = clear
+        .iter()
+        .copied()
+        .filter(|(from, to)| *to > top && *from < bottom)
+        .collect();
+    cuts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut pieces = Vec::new();
+    let mut at = top;
+    for (from, to) in cuts {
+        if from > at {
+            pieces.push((at, from));
+        }
+        at = at.max(to);
+    }
+    if bottom > at {
+        pieces.push((at, bottom));
+    }
+    pieces
 }
 
 /// The names of the named columns, in the row the figure keeps for them
@@ -388,5 +423,122 @@ mod tests {
         // Outside the window is nothing at all.
         let away = [Shade::new(5_000, 6_000)];
         assert!(columns(&away, &region, &scale, 100.0, 1_100.0).is_empty());
+    }
+
+    /// The dashed edges of a shade leave out a key a band keeps at its top,
+    /// and a legend of categories, rather than striking through their words:
+    /// an edge ran through a selection scan's `p ≤ 0.05`.
+    #[test]
+    fn an_edge_leaves_out_the_keys_a_band_writes() {
+        use crate::{Figure, Region, SelectionSite, SelectionTrack, Variant, VariantTrack};
+        // Each dashed vertical segment, as x and its two ends.
+        let edges = |svg: &str| -> Vec<(f64, f64, f64)> {
+            svg.split("<line ")
+                .filter(|line| line.contains("stroke-dasharray"))
+                .filter_map(|line| {
+                    let at = |key: &str| -> f64 {
+                        line.split(&format!("{key}=\""))
+                            .nth(1)
+                            .unwrap()
+                            .split('"')
+                            .next()
+                            .unwrap()
+                            .parse()
+                            .unwrap()
+                    };
+                    let (x1, x2) = (at("x1"), at("x2"));
+                    ((x1 - x2).abs() < 1e-9).then(|| (x1, at("y1"), at("y2")))
+                })
+                .collect()
+        };
+        // The baseline of a piece of text and where it starts.
+        let text = |svg: &str, said: &str| -> (f64, f64) {
+            let at = svg.find(&format!(">{said}</text>")).unwrap();
+            let open = svg[..at].rfind("<text").unwrap();
+            let attr = |key: &str| -> f64 {
+                svg[open..at]
+                    .split(&format!(" {key}=\""))
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap()
+                    .parse()
+                    .unwrap()
+            };
+            (attr("x"), attr("y"))
+        };
+
+        let sites: Vec<SelectionSite> = (0..60)
+            .map(|at| SelectionSite::new(at).rates(1.0, 0.5).p_value(0.5))
+            .collect();
+        let svg = Figure::new(Region::new("site", 0, 60).unwrap())
+            .push(SelectionTrack::new(sites))
+            .shade(Shade::new(2, 8))
+            .to_svg();
+        let (left, baseline) = text(&svg, "p ≤ 0.05");
+        let lines = edges(&svg);
+        assert!(
+            lines.iter().any(|&(x, _, _)| x < left),
+            "an edge under the key: {svg}"
+        );
+        for &(x, from, to) in &lines {
+            if x < left + 40.0 {
+                assert!(
+                    !(from < baseline && to > baseline - 6.0),
+                    "an edge at {x} runs from {from} to {to} through the key at {baseline}"
+                );
+            }
+        }
+
+        let calls = vec![
+            Variant::new(10).category("missense_variant"),
+            Variant::new(50).category("synonymous_variant"),
+        ];
+        let svg = Figure::new(Region::new("chr1", 0, 60).unwrap())
+            .push(VariantTrack::new(calls))
+            .shade(Shade::new(5, 25))
+            .to_svg();
+        let (left, baseline) = text(&svg, "missense_variant");
+        let under: Vec<(f64, f64, f64)> = edges(&svg)
+            .into_iter()
+            .filter(|&(x, _, _)| x > left - 20.0 && x < left + 200.0)
+            .collect();
+        assert!(!under.is_empty(), "an edge under the legend: {svg}");
+        let crossing: Vec<(f64, f64, f64)> = under
+            .into_iter()
+            .filter(|&(_, from, to)| from < baseline && to > baseline - 6.0)
+            .collect();
+        assert!(crossing.is_empty(), "{crossing:?}: {svg}");
+
+        // And the names a scan writes over its sites past the threshold.
+        let sites: Vec<SelectionSite> = (0..60)
+            .map(|at| {
+                let p = if (30..33).contains(&at) { 0.01 } else { 0.5 };
+                SelectionSite::new(at).rates(1.0, 0.5).p_value(p)
+            })
+            .collect();
+        let svg = Figure::new(Region::new("site", 0, 60).unwrap())
+            .push(SelectionTrack::new(sites))
+            .shade(Shade::new(10, 31))
+            .to_svg();
+        let (centre, baseline) = text(&svg, "31-33");
+        let under: Vec<(f64, f64, f64)> = edges(&svg)
+            .into_iter()
+            .filter(|&(x, _, _)| (x - centre).abs() < 12.0)
+            .collect();
+        assert!(!under.is_empty(), "an edge under the name: {svg}");
+        for (x, from, to) in under {
+            assert!(
+                !(from < baseline && to > baseline - 6.0),
+                "an edge at {x} runs from {from} to {to} through the name at {baseline}"
+            );
+        }
+
+        assert_eq!(
+            left_clear(0.0, 10.0, &[(2.0, 3.0), (6.0, 12.0)]),
+            [(0.0, 2.0), (3.0, 6.0)]
+        );
+        assert_eq!(left_clear(0.0, 10.0, &[]), [(0.0, 10.0)]);
     }
 }

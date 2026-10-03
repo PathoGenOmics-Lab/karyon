@@ -48,8 +48,8 @@ karyon tumour.bedgraph --label depth tumour.cns --ploidy 2 --label copies -o cop
 ```
 
 <figure class="k-start" markdown>
-![A sample's depth in windows and its copy number across twelve chromosomes in alternating shades, each named under them: the depth rises over a gain on the second half of chromosome 3 and over all of 11, stands up in a tower over an amplification on 5, and falls over losses on 8 and 9, and the copies step the same way on a ladder of whole copies, with the loss of one allele marked along its foot on 7, 8 and 9](../assets/start/genome-copies.svg){ .k-light width="720" height="208" }
-![The same figure on the dark page](../assets/start/genome-copies-dark.svg){ .k-dark width="720" height="208" }
+![A sample's depth in windows and its copy number across twelve chromosomes in alternating shades, each named under them: the depth rises over a gain on the second half of chromosome 3 and over all of 11, stands up in a tower over an amplification on 5, and falls over losses on 8 and 9, and the copies step the same way on a ladder of whole copies, with the loss of one allele marked along its foot on 7, 8 and 9, and a key under them naming the thick grey bar of the total copies, the thin one of the minor allele and each colour](../assets/start/genome-copies.svg){ .k-light width="720" height="236" }
+![The same figure on the dark page](../assets/start/genome-copies-dark.svg){ .k-dark width="720" height="236" }
 </figure>
 
 `tumour.bedgraph` is the depth `mosdepth --by 500000` counts, and `tumour.cns`
@@ -59,8 +59,13 @@ file reaches on it, since neither says how long the chromosomes run. The depth
 follows the copies, and the lane along the foot of the copies says where one
 allele was lost: on 8 and 9 with the copy it took, and on 7 with the other
 allele doubled in its place, which the depth cannot show, since the copies
-there still add up to two. A chromosome a depth file has no row on would be a
-gap in its line, not a depth of nought.
+there still add up to two. The key under the chromosomes names what the
+copies are drawn with: the thick grey bar of the total, the thinner one of the
+minor allele, and the colours of a gain, a loss and a lost allele, each only
+where a segment has one. Named on its own, the segment table is called
+`tumour copy number`, apart from the depth's `tumour`; `--label` names either.
+A chromosome a depth file has no row on would be a gap in its line, not a
+depth of nought.
 
 | To | Write |
 |:--|:--|

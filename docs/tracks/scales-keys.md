@@ -59,7 +59,7 @@ The coordinate ruler: ticks on round 1-based coordinates, the numbers a reader w
 
 #### Notes
 
-Coordinates are 0-based everywhere in the crate except where a reader looks, and the ruler is one of those places: a tick reading `761,100` is the coordinate that goes into a browser's search box or a samtools region string, the same 1-based form `Region::parse` reads (see [Coordinates](../how-it-works/coordinates.md)). `tick_spacing` asks for a density, not a step; the step is rounded to 1, 2 or 5 times a power of ten so the labels stay round. One unit, bp, kb or Mb, is chosen from the largest label and the step together and used for the whole ruler, since a ruler that changes unit half way across has to be decoded rather than read.
+Coordinates are 0-based everywhere in the crate except where a reader looks, and the ruler is one of those places: a tick reading `761,100` is the coordinate that goes into a browser's search box or a samtools region string, the same 1-based form `Region::parse` reads (see [Coordinates](../how-it-works/coordinates.md)). `tick_spacing` asks for a density, not a step; the step is rounded to 1, 2 or 5 times a power of ten so the labels stay round. One unit, bp, kb or Mb, is chosen from the largest label and the step together and used for the whole ruler, since a ruler that changes unit half way across has to be decoded rather than read. Kilobases are written to one decimal at most, so a step under a hundred bases is written in bases, `1,100,250` rather than `1100.25 kb`. Where labels would touch, an interior one is left out and the last one stays, so the ruler always says where it ends.
 
 A ruler marks boundaries, which is right while a base is a fraction of a pixel. Once a base is a column you can see, as in a logo, a short motif or a figure of time points, `center_on_bases` puts each number under the column it counts. `counting` does that too and writes plain numbers, for an axis whose unit is not a base: the command line uses it under an alignment, a table over time, the sites of a gene and a read's samples, and names the unit in the margin.
 
@@ -179,7 +179,7 @@ On the `Legend` it draws:
 | `.line("mean depth", "#009e73")` | A key drawn as a stroke, for a series plotted as a line | none |
 | `.area("gene family", "#0072b2")` | A key drawn washed and edged, the way a large filled shape is drawn | none |
 | `.outline("unmatched", "#1b1f23")` | A key drawn as an empty square with an edge | none |
-| `.marked("reads", "#0072b2", Marker::Dot)` | A key with its `Marker` named | none |
+| `.marked("reads", "#0072b2", Marker::Dot)` | A key with its `Marker` named; `Marker::Ring` is an open circle edged in the colour, for a point drawn open | none |
 | `.ramp("identity", pale, dark, "70%", "100%")` | A continuous scale between two colours, with its end labels | none |
 | `.swatch(12.0)` | Size of one swatch, in pixels | `10` |
 | `.gap(20.0)` | Space between one key and the next, in pixels | `16` |

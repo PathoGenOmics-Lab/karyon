@@ -70,12 +70,13 @@
 //! other.
 
 use crate::genome::Genome;
+use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::LinePattern;
 use crate::svg::{finite_within, text_rounded, Anchor};
 use crate::theme::{mix, Theme};
 use crate::track::feature::span_label;
-use crate::track::legend::Legend;
+use crate::track::legend::{Legend, Marker};
 use crate::track::{DrawContext, Track};
 
 /// How many copies were called, and whether the alleles were told apart.
@@ -498,6 +499,22 @@ impl CopyNumberTrack {
 
     /// A key holding only the marks this data actually used.
     pub fn legend(&self, theme: &Theme) -> Legend {
+        self.legend_of(self.segments.iter(), theme)
+    }
+
+    /// The key to the marks `segments` are drawn with: the total's bar where
+    /// one sits at the ploidy, the minor allele's thinner bar where an allele
+    /// split was called, the colours of a gain and a loss, and the states the
+    /// lane along the foot paints.
+    ///
+    /// The two bars are grey and differ only in thickness, so each is keyed
+    /// as a line of its own width; a figure of a tumour keyed only its
+    /// colours, and the thick and the thin grey line were explained nowhere.
+    fn legend_of<'a>(
+        &self,
+        segments: impl Iterator<Item = &'a CopyNumberSegment> + Clone,
+        theme: &Theme,
+    ) -> Legend {
         // The theme is taken rather than the colours written down, because the
         // inks come from it unless the caller overrode them, and a key holding
         // literals names the wrong colour the first time a figure is drawn
@@ -514,31 +531,47 @@ impl CopyNumberTrack {
             .loh
             .clone()
             .unwrap_or_else(|| theme.color(2).to_string());
+        let neutral = self.neutral_of(theme);
 
-        let called = |f: fn(&CopyNumberSegment, f64) -> bool| {
-            self.segments
-                .iter()
+        let called = |f: &dyn Fn(&CopyNumberSegment, f64) -> bool| {
+            segments
+                .clone()
                 .any(|segment| segment.copy.is_called() && f(segment, self.ploidy))
         };
-        let has = |state: Allele| self.segments.iter().any(|s| self.state(s) == state);
+        let has = |state: Allele| segments.clone().any(|s| self.state(s) == state);
 
         let mut legend = Legend::new();
-        if called(|s, ploidy| s.copy.total() > ploidy) {
+        if called(&|s, ploidy| s.copy.total() == ploidy) {
+            legend = legend.line("total copies", neutral.clone());
+        }
+        if called(&|s, _| s.copy.minor().is_some()) {
+            legend = legend.marked("minor allele", neutral, Marker::ThinLine);
+        }
+        if called(&|s, ploidy| s.copy.total() > ploidy) {
             legend = legend.key("gain", gain);
         }
-        if called(|s, ploidy| s.copy.total() < ploidy) {
+        if called(&|s, ploidy| s.copy.total() < ploidy) {
             legend = legend.key("loss", loss.clone());
         }
-        if has(Allele::Lost) {
-            legend = legend.key("heterozygosity lost", lost);
-        }
-        if has(Allele::Absent) {
-            legend = legend.key("no copies", loss);
-        }
-        if has(Allele::Unresolved) {
-            legend = legend.key("allele split not called", theme.rule.clone());
+        if self.show_alleles {
+            if has(Allele::Lost) {
+                legend = legend.key("heterozygosity lost", lost);
+            }
+            if has(Allele::Absent) {
+                legend = legend.key("no copies", loss);
+            }
+            if has(Allele::Unresolved) {
+                legend = legend.key("allele split not called", theme.rule.clone());
+            }
         }
         legend
+    }
+
+    /// The grey of a balanced total and of the minor allele's bar.
+    fn neutral_of(&self, theme: &Theme) -> String {
+        self.neutral
+            .clone()
+            .unwrap_or_else(|| mix(&theme.foreground, theme.surface(), 0.45))
     }
 
     /// What the lane says over one segment.
@@ -561,16 +594,19 @@ impl CopyNumberTrack {
             return format!("{where_it_is}, no call");
         }
         let total = text_rounded(segment.copy.total(), 2);
+        // One copy, as a reader says it; `1 copies` was the tooltip over every
+        // segment that lost an allele of two.
+        let copies = if total == "1" { "copy" } else { "copies" };
         match (segment.copy.major(), segment.copy.minor()) {
             (Some(major), Some(minor)) => {
                 let split = format!("{} + {}", text_rounded(major, 2), text_rounded(minor, 2));
                 if minor == 0.0 && segment.copy.total() > 0.0 {
-                    format!("{where_it_is}, {total} copies ({split}), heterozygosity lost")
+                    format!("{where_it_is}, {total} {copies} ({split}), heterozygosity lost")
                 } else {
-                    format!("{where_it_is}, {total} copies ({split})")
+                    format!("{where_it_is}, {total} {copies} ({split})")
                 }
             }
-            _ => format!("{where_it_is}, {total} copies, allele split not called"),
+            _ => format!("{where_it_is}, {total} {copies}, allele split not called"),
         }
     }
 
@@ -617,6 +653,15 @@ impl Track for CopyNumberTrack {
         self.label.as_deref()
     }
 
+    /// The key to what is drawn over `region`: only the marks the segments in
+    /// view use, so a zoom into a gain is not keyed with a loss it left out.
+    fn key(&self, region: &Region, _px_per_bp: f64, theme: &Theme) -> Option<Legend> {
+        let shown = self.segments.iter().filter(|segment| {
+            segment.end > region.start() && segment.start < region.end() && !segment.is_empty()
+        });
+        Some(self.legend_of(shown, theme)).filter(|legend| !legend.is_empty())
+    }
+
     fn y_axis_width(&self, theme: &Theme) -> f64 {
         if !self.show_scale {
             return 0.0;
@@ -646,10 +691,7 @@ impl Track for CopyNumberTrack {
             .loss
             .clone()
             .unwrap_or_else(|| ctx.theme.color(0).to_string());
-        let neutral = self
-            .neutral
-            .clone()
-            .unwrap_or_else(|| mix(&ctx.theme.foreground, ctx.theme.surface(), 0.45));
+        let neutral = self.neutral_of(ctx.theme);
         let lost = self
             .loh
             .clone()
@@ -873,7 +915,6 @@ impl Track for CopyNumberTrack {
 mod tests {
     use super::*;
     use crate::figure::Figure;
-    use crate::region::Region;
     use crate::theme::Theme;
 
     fn region() -> Region {
@@ -1026,6 +1067,70 @@ mod tests {
         assert!(!keys.contains("loss"), "{keys}");
     }
 
+    /// The key a figure gathers is the marks drawn in view: the total's bar
+    /// and the minor allele's thinner one where they are there, and a gain
+    /// or a loss only where a segment in view has one. One copy is said in
+    /// the singular.
+    #[test]
+    fn the_key_in_view_names_the_bars_and_the_states_drawn_there() {
+        let theme = Theme::light();
+        let track = CopyNumberTrack::diploid(vec![
+            CopyNumberSegment::allelic(0, 3_000, 1.0, 1.0),
+            CopyNumberSegment::allelic(3_000, 6_000, 1.0, 0.0),
+            CopyNumberSegment::allelic(6_000, 10_000, 3.0, 1.0),
+        ]);
+        let said = |from: u64, to: u64| -> Vec<(String, Marker)> {
+            let region = Region::new("chr8", from, to).unwrap();
+            Track::key(&track, &region, 1.0, &theme)
+                .map(|legend| {
+                    legend
+                        .items()
+                        .iter()
+                        .filter_map(|item| match item {
+                            crate::LegendItem::Key { label, marker, .. } => {
+                                Some((label.clone(), *marker))
+                            }
+                            _ => None,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let whole = said(0, 10_000);
+        let labels: Vec<&str> = whole.iter().map(|(label, _)| label.as_str()).collect();
+        assert_eq!(
+            labels,
+            [
+                "total copies",
+                "minor allele",
+                "gain",
+                "loss",
+                "heterozygosity lost"
+            ]
+        );
+        assert_eq!(whole[0].1, Marker::Line);
+        assert_eq!(whole[1].1, Marker::ThinLine);
+        // A zoom into the gain keys the gain and its minor allele alone.
+        let gain = said(7_000, 9_000);
+        let labels: Vec<&str> = gain.iter().map(|(label, _)| label.as_str()).collect();
+        assert_eq!(labels, ["minor allele", "gain"]);
+        // A lane that is not drawn is not keyed.
+        let laneless = track.clone().show_alleles(false).legend(&theme);
+        assert!(
+            !format!("{:?}", laneless.items()).contains("heterozygosity lost"),
+            "{laneless:?}"
+        );
+        // And the figure's own key is the one in view.
+        let figure = Figure::new(Region::new("chr8", 7_000, 9_000).unwrap()).push(track.clone());
+        assert_eq!(figure.key().len(), 2);
+        let svg = drawn(track);
+        assert!(
+            svg.contains(", 1 copy (1 + 0), heterozygosity lost</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains(", 2 copies (1 + 1)</title>"), "{svg}");
+    }
+
     #[test]
     fn the_balanced_rule_is_drawn_over_an_empty_track() {
         // An empty band showing its rule says nothing was called here. An empty
@@ -1127,10 +1232,7 @@ mod tests {
         let apart = drawn(CopyNumberTrack::diploid(segments.clone()).across(&genome));
         assert!(risers(&apart).is_empty(), "{apart}");
         // Each segment is where it is on its own sequence.
-        assert!(
-            apart.contains("<title>chrA:1 to 5,005, 1 copies"),
-            "{apart}"
-        );
+        assert!(apart.contains("<title>chrA:1 to 5,005, 1 copy"), "{apart}");
         assert!(
             apart.contains("<title>chrB:1 to 4,995, 6 copies"),
             "{apart}"

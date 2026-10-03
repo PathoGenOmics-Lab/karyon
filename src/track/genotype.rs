@@ -68,6 +68,12 @@ const NO_ALLELE: u16 = u16::MAX;
 /// there is: a structural call's REF can run to thousands of bases.
 const SPELLED: usize = 12;
 
+/// The most sites a mark of several holds and still names, each with its
+/// call. Past it the row's tooltip is what a reader is told: twenty thousand
+/// sites of forty rows over a megabase, a mark of twenty-five sites a pixel,
+/// went from 0.94 MB to 5.7 MB with every mark named.
+const POOLED_NAMED: usize = 8;
+
 /// What one sample was called at one site.
 ///
 /// Eight bytes and no heap, since a cohort is many of them: fifty thousand
@@ -829,6 +835,52 @@ impl GenotypeTrack {
         )
     }
 
+    /// What a reader hovering a mark of sites too close to draw apart is
+    /// told, for a mark that carries an alternate copy: how many sites it
+    /// holds, how many of them carry an alternate allele, and the call at
+    /// each, so a shade between reference and alternate reads as the sites
+    /// it pools and not as a call that is part of each.
+    fn pooled_tooltip(&self, row: usize, sites: Range<usize>) -> String {
+        let name = self.samples.get(row).map_or("", String::as_str);
+        let held = &self.sites[sites];
+        let carrying = held
+            .iter()
+            .filter(|site| {
+                let call = site.call(row);
+                call.is_called() && call.alternate() > 0
+            })
+            .count();
+        let said: Vec<String> = held
+            .iter()
+            .map(|site| {
+                let state = match site.call(row).state() {
+                    GenotypeState::Alternate => "alternate",
+                    GenotypeState::Heterozygous => "heterozygous",
+                    GenotypeState::Reference => "reference",
+                    GenotypeState::NotCalled => "no call",
+                };
+                let alternates: Vec<&str> = site
+                    .alternates
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|alt| !placeholder(alt))
+                    .collect();
+                format!(
+                    "{} {}>{} {state}",
+                    group_thousands(site.position.saturating_add(1)),
+                    spelled(&site.reference),
+                    alternates.join(",")
+                )
+            })
+            .collect();
+        format!(
+            "{name}, {} sites too close to draw apart, {} carrying an alternate allele: {}",
+            group_thousands(held.len() as u64),
+            group_thousands(carrying as u64),
+            said.join("; ")
+        )
+    }
+
     /// What a reader hovering one cell is told, for a call that carries an
     /// alternate allele: where the site is, what it is, and the alleles of
     /// the call spelled out, so `1/2` says which two.
@@ -942,8 +994,16 @@ impl Track for GenotypeTrack {
             || (1..=LEVELS).any(|step| drawn.levels[step] && step != half && step != LEVELS);
         if ramp {
             if drawn.levels.iter().any(|drawn| *drawn) {
+                // Said of a pixel where a pixel can hold several sites: a
+                // shade between the ends was read, in a cohort of one copy a
+                // sample, as a call that is part alternate.
+                let title = if drawn.pooled {
+                    "alternate copies among a pixel's calls"
+                } else {
+                    "alternate copies among the calls"
+                };
                 key = key.ramp(
-                    "alternate copies among the calls",
+                    title,
                     Self::step_color(1, &hue, theme),
                     Self::step_color(LEVELS, &hue, theme),
                     "some",
@@ -1052,9 +1112,13 @@ impl Track for GenotypeTrack {
                         }
                     }
                     Cell::Pooled(stretches) => {
-                        // Runs of one class are one rectangle, and a pooled
-                        // pixel carries no tooltip of its own: the row's says
-                        // what a reader hovering it can be told.
+                        // Runs of one class are one rectangle, named as a
+                        // single cell is when it carries an alternate copy.
+                        // Left to the row's tooltip, 85 alternate calls of a
+                        // cohort of forty across rpoB could not be told from
+                        // the reference calls they were pooled with, and a
+                        // pixel shading one alternate site with one
+                        // reference site read as a mixed call.
                         let mut at = 0;
                         while at < stretches.len() {
                             let class = self.class(row, stretches[at].sites.clone());
@@ -1066,7 +1130,21 @@ impl Track for GenotypeTrack {
                             }
                             let from = stretches[at].from;
                             let to = stretches[end - 1].to;
+                            let sites = stretches[at].sites.start..stretches[end - 1].sites.end;
+                            let named = matches!(class, Some(step) if step > 0)
+                                && sites.len() <= POOLED_NAMED;
+                            if named {
+                                let said = if sites.len() == 1 {
+                                    self.cell_tooltip(&self.sites[sites.start], row)
+                                } else {
+                                    self.pooled_tooltip(row, sites)
+                                };
+                                ctx.svg.begin_titled(&said);
+                            }
                             self.paint(ctx, class, x0 + from, to - from, top, &hue);
+                            if named {
+                                ctx.svg.end_group();
+                            }
                             at = end;
                         }
                     }
@@ -1329,6 +1407,52 @@ mod tests {
         assert!(contrast(&reference, &missing) > 1.5);
     }
 
+    /// The page a reader of a cohort starts from names the colour of each
+    /// call, and the reader matches the figure against it. It said blue for
+    /// the other allele, and half-strength blue for a heterozygote, after the
+    /// hue had become the ink, and a reader looking for blue cells found 247
+    /// near-black ones. So the words are tied to the colours here: the
+    /// alternate cell is the ink the text is set in, and the heterozygous one
+    /// a grey, its three channels within 32 of each other.
+    #[test]
+    fn the_genotypes_page_names_the_colours_the_cells_are_drawn_in() {
+        const PAGE: &str = include_str!("../../docs/your-data/genotypes.md");
+        const REFERENCE: &str = include_str!("../../docs/tracks/variation.md");
+        let svg = drawn(
+            Region::new("chr1", 1_000, 3_000).unwrap(),
+            GenotypeTrack::new(names(2), vec![site(2_000, &["0/1", "1/1"])]).show_names(false),
+        );
+        let theme = Theme::light();
+        let fills: Vec<String> = marks(&svg).into_iter().map(|mark| mark.fill).collect();
+        assert!(
+            fills.contains(&theme.foreground),
+            "the alternate call is not the ink of the text: {fills:?}"
+        );
+        let heterozygous = GenotypeTrack::step_color(LEVELS / 2, &theme.foreground, &theme);
+        assert!(fills.contains(&heterozygous), "{fills:?}");
+        let channels: Vec<i64> = (0..3)
+            .map(|at| i64::from_str_radix(&heterozygous[1 + 2 * at..3 + 2 * at], 16).unwrap())
+            .collect();
+        let spread = channels.iter().max().unwrap() - channels.iter().min().unwrap();
+        assert!(spread < 32, "a heterozygote is {heterozygous}, not a grey");
+
+        assert!(
+            PAGE.contains("a cell in the ink of the text"),
+            "the page does not say an alternate call is the ink"
+        );
+        assert!(PAGE.contains("mid grey"), "nor that a heterozygote is grey");
+        assert!(
+            !PAGE.to_lowercase().contains("blue"),
+            "the page names a blue the track does not draw"
+        );
+        for line in REFERENCE
+            .lines()
+            .filter(|line| line.contains("genotypes.svg"))
+        {
+            assert!(!line.contains("blue"), "{line}");
+        }
+    }
+
     /// No record is the page, and no call is a cell: "nothing was called
     /// here" and "nothing is here" are different statements.
     #[test]
@@ -1457,6 +1581,53 @@ mod tests {
         assert!(
             !labels.contains(&"heterozygous call".to_string()),
             "{labels:?}"
+        );
+    }
+
+    /// A mark of sites too close to draw apart names each of them and the
+    /// row's call there, when it carries an alternate copy: an alternate
+    /// site pooled with a reference one five bases on was a grey a haploid
+    /// cohort reads as a mixed call, with nothing to say which site was
+    /// which. A mark of the reference alone is named by its row, as a
+    /// reference cell is.
+    #[test]
+    fn a_pooled_mark_names_its_sites_and_the_call_at_each() {
+        let sites = vec![
+            // Over a megabase these two are under one pixel, and the third
+            // a pixel and a half on, in the same cluster.
+            site(763_289, &["1", "0"]),
+            site(763_294, &["0", "0"]),
+            site(765_000, &["0", "1"]),
+            site(900_000, &["1", "0"]),
+        ];
+        let track = GenotypeTrack::new(names(2), sites);
+        let region = Region::parse("chr1:1-1,000,000").unwrap();
+        let svg = drawn(region.clone(), track.clone());
+        assert!(
+            svg.contains(
+                "<title>S1, 2 sites too close to draw apart, 1 carrying an alternate allele: \
+                 763,290 C&gt;T alternate; 763,295 C&gt;T reference</title>"
+            ),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>S1, 900,001, C&gt;T: T (alternate)</title>"),
+            "{svg}"
+        );
+        // A site of a cluster alone under its pixel is named as a cell is.
+        assert!(
+            svg.contains("<title>S2, 765,001, C&gt;T: T (alternate)</title>"),
+            "{svg}"
+        );
+        assert_eq!(svg.matches("sites too close").count(), 1, "{svg}");
+        // The key says a shade is a pixel's calls pooled, not one call's.
+        let key = track.key(&region, 0.0008, &Theme::light()).unwrap();
+        assert!(
+            key.items().iter().any(|item| matches!(
+                item,
+                LegendItem::Ramp { label, .. } if label == "alternate copies among a pixel's calls"
+            )),
+            "{key:?}"
         );
     }
 

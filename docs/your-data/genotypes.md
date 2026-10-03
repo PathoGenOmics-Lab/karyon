@@ -14,19 +14,22 @@ karyon rpoB genes.gff3 --genotypes cohort.vcf.gz --with-tree tree.nwk \
 ```
 
 <figure class="k-start" markdown>
-![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, blue cells where it carries the other allele, the blue cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="697" }
+![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, dark cells where it carries the other allele, the dark cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="697" }
 ![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" }
 </figure>
 
 One row per sample and one cell per site, each at its position under the gene.
-A short grey bar is a call of the reference, a blue cell a call of the other
-allele, and a pale cell no call. In the order of the tree, the alleles a clade
+A short grey bar is a call of the reference, a cell in the ink of the text a
+call of the other allele, dark on a light page and light on a dark one, and a
+pale cell no call. In the order of the tree, the alleles a clade
 shares are blocks rather than a speckle. Where sites are closer than a cell,
 their pixel is shaded by the share of alternate calls under it, and the key
-says so; zoom in and they come apart into cells. Each row's tooltip counts
+says so; a pixel of a few sites names each and its call in a tooltip, and
+zoomed in they come apart into cells. Each row's tooltip counts
 the sample's calls in the window, and a cell that carries an alternate allele
 names its call in a tooltip of its own. A diploid cohort's heterozygous calls
-are the half-strength blue.
+are a mid grey, the ink at a little over half strength, between the pale bar
+of the reference and the ink of the other allele.
 
 ## Your file
 

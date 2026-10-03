@@ -386,6 +386,9 @@ impl Track for PhylodynamicTrack {
             .collect();
         let shown = legible_ticks(&placed, y_of, size);
         let labels = plain_labels(&ticks, &self.unit);
+        // The values the axis writes, which a reference line at one of them
+        // need not write again.
+        let mut written: Vec<f64> = Vec::new();
         for ((&original, &transformed), label) in ticks.iter().zip(&placed).zip(&labels) {
             if !shown.contains(&transformed) {
                 continue;
@@ -402,6 +405,7 @@ impl Track for PhylodynamicTrack {
                 continue;
             }
             let y = y_of(transformed);
+            written.push(original);
             ctx.svg.line(
                 ctx.band.x,
                 y,
@@ -423,11 +427,7 @@ impl Track for PhylodynamicTrack {
         if let Some((reference, label)) = &self.reference {
             if let Some(value) = self.transformed(*reference) {
                 let y = y_of(value);
-                ctx.svg.begin_titled(&format!(
-                    "reference {} {}",
-                    text_rounded(*reference, 5),
-                    label
-                ));
+                ctx.svg.begin_titled(&reference_title(*reference, label));
                 ctx.svg.line_pattern(
                     ctx.band.x,
                     y,
@@ -526,8 +526,22 @@ impl Track for PhylodynamicTrack {
         // Last, so no point is drawn over the words, and at the left, over the
         // line, as a scan writes its threshold. At the right end they sat on
         // the latest estimate, which is the one a reader looks at first.
+        //
+        // Not where the words are only the number and the axis writes it
+        // already: `--threshold 1` wrote a pink `1` beside the axis's `1`,
+        // on the second week's estimate, read as a tick of the data.
+        let said = |label: &str, reference: f64| {
+            !label.is_empty()
+                && !(label == text_rounded(reference, 5)
+                    && written
+                        .iter()
+                        .any(|value| (value - reference).abs() <= reference.abs() * 1e-9))
+        };
         if let Some((reference, label)) = &self.reference {
-            if let Some(value) = self.transformed(*reference).filter(|_| !label.is_empty()) {
+            if let Some(value) = self
+                .transformed(*reference)
+                .filter(|_| said(label, *reference))
+            {
                 let y = y_of(value);
                 let size = ctx.theme.font_size * 0.74;
                 let gap = ctx.theme.tokens.row_gap;
@@ -574,6 +588,8 @@ impl PhylodynamicTrack {
         let chip = mix(ctx.theme.surface(), &ctx.theme.rule, 0.32);
         ctx.svg
             .rect_rounded(ctx.band.x + 2.0, top, width, height, height / 2.0, &chip);
+        // The key keeps the shaded stretches' edges off its words.
+        ctx.svg.keep_clear(ctx.band.x + 2.0, top, width, height);
         let mut x = ctx.band.x + 2.0 + ctx.px(8.0);
         ctx.svg.line(x, middle, x + swatch, middle, color, 2.0);
         x += swatch + gap;
@@ -613,6 +629,18 @@ impl PhylodynamicTrack {
                 Anchor::Start,
             );
         }
+    }
+}
+
+/// What a reader hovering a reference line is told: where it is, and what it
+/// is called where its name is more than the number. `reference 1 1` said
+/// the number twice.
+fn reference_title(value: f64, label: &str) -> String {
+    let at = text_rounded(value, 5);
+    if label.is_empty() || label == at {
+        format!("reference at {at}")
+    } else {
+        format!("{label}, reference at {at}")
     }
 }
 
@@ -701,6 +729,50 @@ mod tests {
         assert!(svg.contains("epidemic threshold"), "{svg}");
         assert!(svg.contains("fill-opacity=\"0.16\""), "{svg}");
         assert!(!svg.contains("NaN"), "{svg}");
+    }
+
+    /// A reference line whose words are only its number, where the axis
+    /// writes that number already, says nothing beside it: `--threshold 1`
+    /// wrote a pink `1` beside the axis's `1`, on an estimate. Its tooltip
+    /// says the number once, where it read `reference 1 1`. A name, or a
+    /// number the axis does not write, is still written.
+    #[test]
+    fn a_reference_the_axis_already_numbers_is_not_numbered_again() {
+        let points = || {
+            vec![
+                PhylodynamicPoint::new(0, 0.6),
+                PhylodynamicPoint::new(1, 1.0),
+                PhylodynamicPoint::new(2, 1.8),
+            ]
+        };
+        let drawn = |value: f64, label: &str| {
+            Figure::new(Region::new("week", 0, 3).unwrap())
+                .push(PhylodynamicTrack::new(points()).reference(value, label))
+                .to_svg()
+        };
+        let pink = |svg: &str| -> Vec<String> {
+            let ink = Theme::default().color(1).to_string();
+            svg.split("<text ")
+                .filter(|text| text.contains(&format!("fill=\"{ink}\"")))
+                .map(|text| {
+                    text[text.find('>').unwrap() + 1..text.find("</text>").unwrap()].to_string()
+                })
+                .collect()
+        };
+        let plain = drawn(1.0, "1");
+        assert!(plain.contains(">1</text>"), "the axis writes it: {plain}");
+        assert!(pink(&plain).is_empty(), "{plain}");
+        assert!(plain.contains("<title>reference at 1</title>"), "{plain}");
+
+        let named = drawn(1.0, "R = 1");
+        assert_eq!(pink(&named), ["R = 1"]);
+        assert!(
+            named.contains("<title>R = 1, reference at 1</title>"),
+            "{named}"
+        );
+
+        let between = drawn(1.15, "1.15");
+        assert_eq!(pink(&between), ["1.15"], "{between}");
     }
 
     #[test]

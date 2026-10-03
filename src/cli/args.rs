@@ -283,6 +283,13 @@ pub enum ArgError {
     CircleOfPart(Region),
     /// A circle of several places, which would be several circles.
     CircleOfSeveral,
+    /// `--panel-columns` where the figure has one place, and so one panel to
+    /// lay out.
+    ColumnsOfOnePlace,
+    /// `--panel-columns` where the figure names no place: a genome drawn
+    /// whole, or a tree, which is one panel and names no place a second
+    /// could be written beside.
+    ColumnsWithoutPlace,
     /// A circle with no place, where the sequence it is of is the place.
     CircleWithoutPlace,
     /// A place given to `--highlight` where no tree is there to take it.
@@ -494,6 +501,18 @@ impl fmt::Display for ArgError {
                 f,
                 "--circular draws one sequence, and this line names several places: draw \
                  each with a command of its own"
+            ),
+            ArgError::ColumnsOfOnePlace => write!(
+                f,
+                "--panel-columns lays the panels of several places side by side, and this \
+                 line names one place: write the others after it, as karyon rpoB katG \
+                 reads.bam --panel-columns 2"
+            ),
+            ArgError::ColumnsWithoutPlace => write!(
+                f,
+                "--panel-columns lays the panels of several places side by side, and this \
+                 line names none: write the places first, as karyon rpoB katG reads.bam \
+                 --panel-columns 2"
             ),
             ArgError::CircleWithoutPlace => write!(
                 f,
@@ -921,6 +940,49 @@ impl Kind {
     /// figure's reference rather than from a file named after it.
     pub fn reads_nothing(self) -> bool {
         matches!(self, Kind::Axis | Kind::Codons)
+    }
+
+    /// Whether `flag` changes how a track of this kind looks in a way the
+    /// track could want, whether or not this one takes it: a colour and a
+    /// height, which every track is drawn in, and the top of a scale or a log
+    /// one, for a track drawn against a scale of its own.
+    ///
+    /// Such an option written after one of these is refused by name and not
+    /// sent to an earlier track that takes it, since the reader wrote it for
+    /// the track it follows: `--color` after a VCF was sent to the genes
+    /// before it, where it would have painted the genes and not the calls.
+    fn styled_by(self, flag: &str) -> bool {
+        match flag {
+            "--color" | "--height" => true,
+            "--max" | "--log" => self.scaled(),
+            _ => false,
+        }
+    }
+
+    /// Whether a track of this kind draws its values against a scale of its
+    /// own: a depth, a stem's allele fraction, a count of reads, a ladder of
+    /// copies, a colour ramp, a rate over time.
+    fn scaled(self) -> bool {
+        matches!(
+            self,
+            Kind::Coverage
+                | Kind::CopyNumber
+                | Kind::Dynseq
+                | Kind::Junctions
+                | Kind::Variants
+                | Kind::Windows
+                | Kind::Manhattan
+                | Kind::Recombination
+                | Kind::Matrix
+                | Kind::Heatmap
+                | Kind::Logo
+                | Kind::Methylation
+                | Kind::Pairs
+                | Kind::Frequencies
+                | Kind::Phylodynamics
+                | Kind::Selection
+                | Kind::Squiggle
+        )
     }
 
     /// Whether `--aggregate` means anything here.
@@ -2118,6 +2180,10 @@ pub struct Invocation {
     /// `--same-scale`: the tracks that measure the same thing, as the depths
     /// of several samples, drawn on one scale, across every panel.
     pub same_scale: bool,
+    /// `--panel-columns`: how many panels of several places stand side by
+    /// side, in the order the places are written, a row at a time; one
+    /// column, each panel under the one before, where it is not given.
+    pub panel_columns: Option<usize>,
     /// `--colors COLUMN=VALUE:#rrggbb,...`: each column of a `--traits` sheet
     /// given colours, with the colour of each value named, in the order the
     /// columns were first written. Every sheet of the figure that has the
@@ -2314,6 +2380,7 @@ pub const FLAGS: &[&str] = &[
     "--no-region-label",
     "--no-legend",
     "--same-scale",
+    "--panel-columns",
     "--shade",
     "--circular",
     "--rename",
@@ -2679,6 +2746,13 @@ fn misplaced(args: &[String], flag: &'static str, track: &'static str) -> Option
         if last.kind.flag() != track {
             continue;
         }
+        // A colour, a height or a scale written after a track that could
+        // have one was meant for that track, whichever earlier track takes
+        // it: `--color` after calls.vcf sent the reader to put it after the
+        // genes, which would have painted the genes.
+        if last.kind.styled_by(flag) {
+            return None;
+        }
         let value = words.get(at + 1).map(String::as_str);
         let meant = earlier
             .iter()
@@ -2757,6 +2831,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     let mut more: Vec<Place> = Vec::new();
     let mut legend = true;
     let mut same_scale = false;
+    let mut panel_columns: Option<usize> = None;
     let mut circular = false;
     let mut shades: Vec<Shading> = Vec::new();
     let mut renames: Vec<(String, String)> = Vec::new();
@@ -3578,10 +3653,15 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 let track = once(&mut tracks, &mut given, "--color")?;
+                // Calls take one colour in place of a colour each consequence,
+                // and keep each consequence's shape: a figure whose calls had
+                // to be dark red had no way to say so, and the one hint it got
+                // moved the colour onto the genes.
                 if !matches!(
                     track.kind,
                     Kind::Coverage
                         | Kind::Features
+                        | Kind::Variants
                         | Kind::Junctions
                         | Kind::Phylodynamics
                         | Kind::Squiggle
@@ -3922,6 +4002,23 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             "--no-region-label" => region_label = false,
             "--no-legend" => legend = false,
             "--same-scale" => same_scale = true,
+            "--panel-columns" => {
+                figure_once(&mut given, "--panel-columns")?;
+                let text = value("--panel-columns")?;
+                // A whole number of columns, and a sheet a hundred panels
+                // across is already a strip no page holds.
+                panel_columns = Some(
+                    text.parse::<usize>()
+                        .ok()
+                        .filter(|columns| (1..=100).contains(columns))
+                        .ok_or_else(|| ArgError::BadValue {
+                            flag: "--panel-columns",
+                            given: text.clone(),
+                            expected: "a whole number of columns from 1 to 100, as 2 for two \
+                                       places side by side",
+                        })?,
+                );
+            }
             "--circular" => circular = true,
             "--shade" => {
                 // Taken as the next word whatever it is, as every value is,
@@ -4063,6 +4160,16 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
             }
         }
     }
+    // Late, as the places may follow it. Columns of one panel would be a
+    // figure drawn as though the option were not there. A line of a genome
+    // drawn whole, or of a tree, names no place, and was told it named one.
+    if panel_columns.is_some() && more.is_empty() {
+        return Err(if region.is_none() && named.is_none() {
+            ArgError::ColumnsWithoutPlace
+        } else {
+            ArgError::ColumnsOfOnePlace
+        });
+    }
     // Late, as a figure option may sit before the track and the sheet it
     // paints. Whether the sheets hold the column is for when they are read.
     if !colors.is_empty() && tracks.iter().all(|track| track.traits.is_none()) {
@@ -4098,6 +4205,7 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         renames,
         more,
         same_scale,
+        panel_columns,
         colors,
         shades,
         circular,
@@ -6523,6 +6631,59 @@ mod tests {
         assert!(matches!(error, ArgError::NoRegion), "{error:?}");
     }
 
+    /// `--panel-columns` takes a whole number of columns for a line of
+    /// several places, once, and is refused for a line of one.
+    #[test]
+    fn panel_columns_lay_out_several_places_and_only_several() {
+        assert_eq!(
+            draw("rpoB katG reads.bam --panel-columns 2").panel_columns,
+            Some(2)
+        );
+        assert_eq!(draw("rpoB katG reads.bam").panel_columns, None);
+        assert_eq!(
+            draw("--panel-columns=3 rpoB katG reads.bam").panel_columns,
+            Some(3)
+        );
+        let one = parse(&args("rpoB reads.bam --panel-columns 2")).unwrap_err();
+        assert!(matches!(one, ArgError::ColumnsOfOnePlace), "{one:?}");
+        assert!(one.to_string().contains("--panel-columns 2"), "{one}");
+        // A line of no place is not told it names one.
+        for line in [
+            "sampleA.bw --panel-columns 2",
+            "--tree tree.nwk --panel-columns 2",
+        ] {
+            let none = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(none, ArgError::ColumnsWithoutPlace),
+                "{line}: {none:?}"
+            );
+            assert!(!none.to_string().contains("one place"), "{line}: {none}");
+            assert!(none.to_string().contains("names none"), "{line}: {none}");
+        }
+        for bad in ["0", "two", "1.5", "101"] {
+            let error =
+                parse(&args(&format!("rpoB katG reads.bam --panel-columns {bad}"))).unwrap_err();
+            assert!(
+                matches!(
+                    error,
+                    ArgError::BadValue {
+                        flag: "--panel-columns",
+                        ..
+                    }
+                ),
+                "{bad}: {error:?}"
+            );
+        }
+        let twice = parse(&args(
+            "rpoB katG reads.bam --panel-columns 2 --panel-columns 3",
+        ))
+        .unwrap_err();
+        assert!(matches!(twice, ArgError::Twice { .. }), "{twice:?}");
+        // `--columns` stays a sheet's, and says so.
+        let traits = parse(&args("rpoB katG reads.bam --columns 2")).unwrap_err();
+        assert!(!matches!(traits, ArgError::ColumnsOfOnePlace), "{traits:?}");
+    }
+
     #[test]
     fn the_key_is_drawn_unless_it_is_asked_not_to_be() {
         assert!(draw("--tree t.nwk").legend);
@@ -6594,6 +6755,35 @@ mod tests {
         let error = parse(&args("NC_1:1-100 genes.gff3 --aggregate min")).unwrap_err();
         assert!(
             matches!(error, ArgError::WrongTrack { flag, .. } if flag == "--aggregate"),
+            "{error:?}"
+        );
+        // A colour, a height or a scale after a track that could have one was
+        // written for that track, and is not sent to an earlier one: the
+        // genes would have taken the colour meant for the genotypes, and the
+        // depth the height meant for the reads.
+        for (line, flag) in [
+            (
+                "NC_1:1-100 genes.gff3 --genotypes calls.vcf --color #8b0000",
+                "--color",
+            ),
+            (
+                "NC_1:1-100 reads.bam --pileup reads.bam --height 40",
+                "--height",
+            ),
+            ("NC_1:1-100 depth.bedgraph calls.vcf --max 0.5", "--max"),
+            ("NC_1:1-100 depth.bedgraph calls.vcf --log", "--log"),
+        ] {
+            let error = parse(&args(line)).unwrap_err();
+            assert!(
+                matches!(error, ArgError::WrongTrack { flag: said, .. } if said == flag),
+                "{line}: {error:?}"
+            );
+        }
+        // A scale's top after a track with no scale is still sent on.
+        let error = parse(&args("NC_1:1-100 depth.bedgraph genes.gff3 --max 30")).unwrap_err();
+        assert!(
+            matches!(&error, ArgError::Misplaced { flag, belongs, .. }
+                if *flag == "--max" && belongs == "depth.bedgraph"),
             "{error:?}"
         );
         // And the grammar is asked, not a copy of it.
@@ -7186,7 +7376,8 @@ mod tests {
             matches!(flag, "--label")
                 || (flag == "--height" && kind != Kind::Features)
                 || (flag == "--aggregate" && kind == Kind::Coverage)
-                || (flag == "--color" && matches!(kind, Kind::Coverage | Kind::Features))
+                || (flag == "--color"
+                    && matches!(kind, Kind::Coverage | Kind::Features | Kind::Variants))
                 || (flag == "--format" && matches!(kind, Kind::Coverage | Kind::Features))
                 || (flag == "--no-names" && matches!(kind, Kind::Features | Kind::Structural))
         };
@@ -7250,6 +7441,7 @@ mod tests {
                         | "--no-region-label"
                         | "--no-legend"
                         | "--same-scale"
+                        | "--panel-columns"
                         | "--circular"
                         | "--rename"
                         | "--colors"

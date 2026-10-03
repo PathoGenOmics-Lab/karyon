@@ -56,7 +56,7 @@ whole figure smaller rather than part of it.
 ## Text
 
 The SVG asks for Inter and JetBrains Mono, and the PDF sets its text in the
-fonts every reader has:
+standard faces every reader has, and embeds none of them:
 
 | The SVG's text | The PDF's |
 |:--|:--|
@@ -66,11 +66,16 @@ fonts every reader has:
 | a serif stack | Times |
 | ω, ≤, ≥, ≈, → and the rest of Greek and mathematics | Symbol |
 
-No font is embedded, so the text stays text: it can be searched, copied and read
-aloud, and the file stays small. A character none of those fonts has, such as a
-sample name in Cyrillic or Chinese, is drawn as a question mark, and the command
-line says which characters on standard error, as `Pdf::notes` does in Rust. The
-document's title and description keep every character either way.
+No font is embedded. The file names each face, and the reader draws it with a
+copy of its own made to Adobe's widths, Arial in Acrobat on Windows and Nimbus
+Sans in Ghostscript, so the letters differ a little from one reader to the
+next and where each label sits does not. The text stays text: it can be
+searched, copied and read aloud, and the file stays small. What it costs is a
+preflight check that wants every font embedded, which [Checking a
+PDF](#checking-a-pdf) meets. A character none of those fonts has, such as a
+sample name in Cyrillic or Chinese, is drawn as a question mark, and the
+command line says which characters on standard error, as `Pdf::notes` does in
+Rust. The document's title and description keep every character either way.
 
 Where a label sits was settled before the PDF existed, by the widths karyon
 measures text with. Those are never narrower than Helvetica, nor than
@@ -101,7 +106,8 @@ which macOS Preview draws with, and left out by Inkscape's import.
   and description are kept, as the PDF's title and subject and as the
   alternative text of the one tagged figure on the page, which is where a
   screen reader looks.
-- **The faces.** Helvetica and Courier, not Inter and JetBrains Mono, as above.
+- **The faces.** Helvetica and Courier, named and not embedded, not Inter and
+  JetBrains Mono, as above.
 - **Size on disk.** The file is not compressed. Most figures come out about
   the size of their SVG, and a figure of many dots up to four times it, since
   each circle is four curves: the [association scan](../your-data/scan.md) is
@@ -135,8 +141,13 @@ draw Helvetica-Bold as the regular weight when the machine has no face for it,
 which is the machine and not the file: Ghostscript, Quartz and Chrome draw it
 bold.
 
-A journal whose upload checks want every font embedded gets them from
-Ghostscript, which embeds faces drawn to the same widths:
+A journal's upload check, and the PDF/X and PDF/A standards that printers and
+archives hold a file to, want every font embedded, and they flag a karyon PDF
+as it comes, or turn it away: `pdffonts` shows `no` under `emb` for every
+face. Ghostscript writes a copy with each face embedded, as a subset of the
+letters the figure uses and drawn to the same widths, and `pdffonts` lists
+them as embedded afterwards, as `RUGQAK+Helvetica-Bold` with `yes` under both
+`emb` and `sub`:
 
 ```bash
 gs -o embedded.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress rpoB.pdf

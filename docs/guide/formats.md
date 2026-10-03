@@ -560,12 +560,25 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
   is shared, and a row with none, or an allele whose `AF` is `.`, is drawn at
   1.0: a call with no fraction is still a call.
 - **Category** is what an annotator wrote: the `ANN` entry naming this allele
-  (from snpEff or VEP), or else the first; or the first `BCSQ` consequence
-  (from bcftools csq), without the `*` of an uncertain one. With neither, it is
+  (from snpEff, or from VEP run with `--vcf_info_field ANN`), or else the
+  first; or the first `BCSQ` consequence (from bcftools csq), without the `*`
+  of an uncertain one. VEP's own `CSQ`, which it writes unless told
+  otherwise, is not read, and its calls are named by their shape. With neither, it is
   the shape of REF against ALT: `substitution`, `insertion` or `deletion` by
   length, `breakend` for square brackets, and `deletion` for `*`. A symbolic
   allele is named by its tag: `<DEL>` is `deletion`, `<INS:ME:ALU>` is
   `insertion`, and `<DUP>` is `dup`.
+- **Colour** goes to the categories in view from the most damaging down, in
+  Ensembl's ranking of the Sequence Ontology consequences (`stop_gained`
+  before `missense_variant` before `synonymous_variant`, a bcftools word such
+  as `missense` ranked as its `_variant`, snpEff's `a&b` as the worse of the
+  two, and a term of snpEff's own as the consequence it is a kind of:
+  `conservative_inframe_deletion` as `inframe_deletion`, `intergenic_region`
+  as `intergenic_variant`), then `substitution`, `insertion`, `deletion` and
+  `breakend`, then any other word alphabetically. A consequence keeps its
+  colour in a zoom into its gene unless the zoom leaves out one more
+  damaging, and the panels of several places rank the consequences of every
+  panel together, so one consequence is one colour across them.
 - **Reach**: a call is kept when what REF spells touches the window, not only
   its first base, since a deletion is written one base to the left of what it
   removes.
@@ -873,10 +886,16 @@ coarser resolutions.
 A block is a stretch of the diagonal at a distance from it, each band of
 distance twice as wide as the one before, so a window, a triangle on the
 diagonal, reads the stretches under it out to the band of its own width and
-no more. A cell that holds nothing is a count of nought, not a pair left
-unmeasured, so a `.hic` is always drawn as a triangle, unless `--style arcs`
-says otherwise. Counts fall by orders of magnitude away from the diagonal,
-which `--log` spreads.
+no more. A `.hic` keeps only the cells that hold a count, so a cell it does
+not list is a count of nought, not a pair left unmeasured, and a `.hic` is
+always drawn as a triangle, unless `--style arcs` says otherwise. The figure
+draws the cells the file lists and no others. A cell it does not list is left
+as the page, not painted the pale end of the key, which is the colour of a
+cell listed at nought, and the triangle is as deep as the farthest pair
+listed in the window: a map whose contacts reach 200 kb from the diagonal,
+as one loaded from pairs no further apart does, ends in a jagged edge 200 kb
+down, with the page below it. Counts fall by orders of magnitude away from
+the diagonal, which `--log` spreads.
 
 Version 9 is read, the version hictk writes. An older file lays its blocks on
 a grid rather than along the diagonal and writes its numbers in other widths,
@@ -1457,7 +1476,7 @@ S004    L1       human   NA     false
 
 | | |
 |:--|:--|
-| Read by | `--traits`, after `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` or `--tree`; `read::sheet::sheet` |
+| Read by | `--traits`, after `--genotypes`, `--heatmap`, `--matrix`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci` or `--tree`; `read::sheet::sheet` |
 | Columns | a required header, whose first field names the name column and every other field an attribute; then one row per name |
 | Coordinates | none: the strips sit beside the rows and do not move with the region |
 | Refused | an empty file; a header of one column; an empty or repeated column name; a row whose field count differs from the header's; an empty or repeated name |

@@ -573,6 +573,73 @@ mod tests {
         }
     }
 
+    /// A `.hic` keeps only the cells that hold a count, and the formats page
+    /// said a cell that holds nothing is a count of nought, which a reader
+    /// took to say it is drawn as one. It is not: a map listed out to twenty
+    /// bins from its diagonal stopped there in a jagged edge with the page
+    /// below, beside a key whose nought is a pale tint, and nothing said
+    /// which of the two a blank cell meant. The triangle draws the cells it
+    /// is given and no others, a cell given at nought in the pale end of the
+    /// key, as deep as its farthest pair, and the pages say so.
+    #[test]
+    fn a_cell_not_given_is_left_as_the_page_as_the_pages_say() {
+        const FORMATS: &str = include_str!("../../docs/guide/formats.md");
+        const GUIDE: &str = include_str!("../../docs/guide/cli.md");
+        // Ten bins of 100 bases, each paired with itself and the next two,
+        // one pair left out as a `.hic` leaves out a cell of nought, and one
+        // given at nought.
+        let mut pairs = Vec::new();
+        for a in 0..10u64 {
+            for apart in 0..3u64 {
+                let b = a + apart;
+                if b >= 10 || (a, apart) == (4, 1) {
+                    continue;
+                }
+                let value = if (a, apart) == (6, 2) { 0.0 } else { 5.0 };
+                let bin = |n: u64| (n * 100, n * 100 + 100);
+                pairs.push(Pair::spans(bin(a), bin(b), value));
+            }
+        }
+        let track = PairTrack::new(pairs.clone()).style(PairStyle::Triangle);
+        let svg = Figure::new(region()).push(track.clone()).to_svg();
+        let fills: Vec<&str> = svg
+            .split("<polygon ")
+            .skip(1)
+            .filter_map(|rest| rest.split("fill=\"").nth(1)?.split('"').next())
+            .collect();
+        assert_eq!(fills.len(), pairs.len(), "a cell drawn that was not given");
+        let theme = Theme::light();
+        let nought = mix(theme.surface(), &theme.accent, ZERO_TINT);
+        assert_eq!(
+            fills.iter().filter(|fill| **fill == nought).count(),
+            1,
+            "the pair given at nought is the pale end of the key: {fills:?}"
+        );
+        // Three bins apart at most is three tenths of the window: a triangle
+        // that reached the apex would be half the width deep.
+        let scale = Scale::new(&region(), 0.0, 1_000.0);
+        let depth = Track::height(&track, &scale);
+        assert!(depth < 200.0, "{depth}");
+
+        let flat = |text: &str| {
+            text.split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase()
+        };
+        for (page, text) in [("formats.md", FORMATS), ("cli.md", GUIDE)] {
+            let text = flat(text);
+            assert!(
+                text.contains("a cell it does not list is left as the page"),
+                "{page} does not say what a cell the file does not list is"
+            );
+            assert!(
+                text.contains("the triangle is as deep as the farthest"),
+                "{page} does not say how deep the triangle is"
+            );
+        }
+    }
+
     #[test]
     fn the_key_is_a_ramp_to_the_strongest_pair_or_the_ceiling() {
         let pairs = vec![Pair::new(100, 400, 0.4)];

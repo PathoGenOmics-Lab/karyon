@@ -18,6 +18,7 @@
 //! Every error names the flag that asked for the file and the file it was,
 //! since a stack is as many files as it has tracks.
 
+use std::cell::RefCell;
 use std::fmt;
 use std::fs;
 use std::io::{self, Read as _, Seek as _};
@@ -335,6 +336,23 @@ pub enum BuildError {
     ColorsOfNumbers {
         /// The column.
         column: String,
+    },
+    /// Calls drawn in one colour, as `--color` asks, with more consequences
+    /// in view than there are shapes to tell them apart by.
+    ///
+    /// In one colour a consequence is its shape alone, and the shapes come
+    /// round again after the fourth: six consequences in dark red drew
+    /// `stop_gained` and `upstream_gene_variant` as one circle, in the band
+    /// and in the key, and the exit was 0.
+    TooFewShapes {
+        /// What the calls' file was called.
+        path: String,
+        /// The colour `--color` gave.
+        color: String,
+        /// The consequences in view, in the order they are dealt.
+        categories: Vec<String>,
+        /// How many shapes there are to tell them apart by.
+        shapes: usize,
     },
     /// The tree would not parse.
     Tree {
@@ -935,6 +953,20 @@ impl fmt::Display for BuildError {
                 "--colors names {column}, a column of numbers, which is drawn as a ramp; \
                  --colors paints a column of words"
             ),
+            BuildError::TooFewShapes {
+                path,
+                color,
+                categories,
+                shapes,
+            } => write!(
+                f,
+                "--variants {path} --color '{color}' tells consequences apart by shape \
+                 alone, and there are {shapes} shapes for the {} consequences in view, {}: \
+                 drop --color for a colour each, draw the calls as ticks with --style tick, \
+                 which key none, or draw a place with {shapes} consequences or fewer",
+                categories.len(),
+                joined(categories)
+            ),
             BuildError::Tree { flag, path, cause } => write!(f, "{flag} {path}: {cause}"),
             BuildError::Unshaded { given, why } => match why {
                 ShadeRefusal::NothingToShade => write!(
@@ -1193,49 +1225,73 @@ pub fn build_sheet(
     if let Some(title) = &invocation.title {
         sheet = sheet.title(title);
     }
-    let mut legend = crate::track::legend::Legend::new();
+    // Side by side a row at a time, so the places read in the order they
+    // were written, left to right and then down, and the panels of a row
+    // start level. Never more columns than places: the key is laid out as
+    // one more panel, and in a row with room left it stood beside the
+    // places rather than under them. A last row the places leave short
+    // takes it in the room they leave.
+    if let Some(columns) = invocation.panel_columns {
+        sheet = sheet.columns(columns.min(places.len())).row_major();
+    }
     // Each shade is settled across every panel, once they are all drawn.
     let mut shading = Shading::new(invocation);
-    let mut names = Vec::with_capacity(places.len());
-    let mut figures = Vec::with_capacity(places.len());
-    // The width that letters the bases of every panel, said once under them
-    // all. Said a panel at a time, each panel named the width its own span
-    // needed, and a reader who took the first width still had the panels of
-    // longer places in blocks, which said so again.
-    let mut letters = None;
-    for place in &places {
-        let mut one = invocation.clone();
-        one.more = Vec::new();
-        one.title = None;
-        one.legend = false;
-        match place {
-            Place::Locus(region) => {
-                one.region = Some(region.clone());
-                one.named = None;
-                names.push(region.to_string());
+    // The calls of every panel deal their colours in one order, which is
+    // known once every panel has read its own.
+    let consequences = RefCell::new(Consequences::default());
+    let (legend, names, figures, letters) = loop {
+        let mut legend = crate::track::legend::Legend::new();
+        let mut names = Vec::with_capacity(places.len());
+        let mut figures = Vec::with_capacity(places.len());
+        // The width that letters the bases of every panel, said once under
+        // them all. Said a panel at a time, each panel named the width its own
+        // span needed, and a reader who took the first width still had the
+        // panels of longer places in blocks, which said so again.
+        let mut letters = None;
+        for place in &places {
+            let mut one = invocation.clone();
+            one.more = Vec::new();
+            one.title = None;
+            one.legend = false;
+            match place {
+                Place::Locus(region) => {
+                    one.region = Some(region.clone());
+                    one.named = None;
+                    names.push(region.to_string());
+                }
+                Place::Named(name) => {
+                    one.region = None;
+                    one.named = Some(name.clone());
+                    names.push(name.clone());
+                }
             }
-            Place::Named(name) => {
-                one.region = None;
-                one.named = Some(name.clone());
-                names.push(name.clone());
-            }
+            let (built, wanted) = build_one(
+                &one,
+                &mut kept,
+                &mut parsed,
+                theme.clone(),
+                None,
+                Some(&mut shading),
+                Some(&consequences),
+            )?;
+            letters = letters.max(wanted);
+            gather(&mut legend, &built.legend);
+            figures.push(built.figure);
         }
-        let (built, wanted) = build_one(
-            &one,
-            &mut kept,
-            &mut parsed,
-            theme.clone(),
-            None,
-            Some(&mut shading),
-        )?;
-        letters = letters.max(wanted);
-        gather(&mut legend, &built.legend);
-        figures.push(built.figure);
-    }
+        if !consequences.borrow_mut().settle() {
+            break (legend, names, figures, letters);
+        }
+        // Drawn again in the one order, with the shades looked for afresh
+        // and the genes they name kept.
+        let genes = shading.genes.take();
+        shading = Shading::new(invocation);
+        shading.genes = genes;
+    };
     settle_shades(invocation, &shading.fates, &mut kept)?;
     note_letters(&mut kept, letters);
     // One scale across the panels as well as down each: the depth over rpoB
     // and the depth over katG read off one ceiling, or the eye compares two.
+    let mut figures = figures;
     if invocation.same_scale {
         let extents = crate::Extent::join(figures.iter().flat_map(Figure::extents));
         figures = figures
@@ -1302,7 +1358,7 @@ pub fn build_figure(
     if invocation.circular {
         return Err(BuildError::Uncircled(CircleRefusal::NotAFigure));
     }
-    let (built, letters) = build_one(invocation, files, parsed, theme, window, None)?;
+    let (built, letters) = build_one(invocation, files, parsed, theme, window, None, None)?;
     note_letters(files, letters);
     Ok(built)
 }
@@ -1804,34 +1860,31 @@ fn ring_of(
             if variants.is_empty() {
                 return Err(empty("variants"));
             }
-            // A colour each consequence, in the order the file first names
-            // them, as a band of calls deals them. The reader names one for
-            // every call, from its shape where nothing annotated it, so the
-            // colour after the last is for a caller that hands over none.
-            let mut categories: Vec<String> = Vec::new();
-            for variant in &variants {
-                if let Some(category) = variant.category.as_ref() {
-                    if !categories.contains(category) {
-                        categories.push(category.clone());
-                    }
-                }
-            }
-            let unnamed = categories.len();
+            // A colour each consequence, from the most damaging down, as a
+            // band of calls deals them. The reader names one for every call,
+            // from its shape where nothing annotated it, so the colour after
+            // the last is for a caller that hands over none.
+            let ranked = read::point::ranked(&variants);
+            let slot = |category: Option<&String>| -> usize {
+                category
+                    .and_then(|category| ranked.iter().position(|known| known == category))
+                    .unwrap_or(ranked.len())
+            };
             let marks: Vec<(u64, usize)> = variants
                 .iter()
-                .map(|variant| {
-                    let index = variant
-                        .category
-                        .as_ref()
-                        .and_then(|category| categories.iter().position(|known| known == category))
-                        .unwrap_or(unnamed);
-                    (variant.pos, index)
-                })
+                .map(|variant| (variant.pos, slot(variant.category.as_ref())))
                 .collect();
-            for (index, category) in categories.iter().enumerate() {
-                legend = legend.line(category.clone(), theme.color(index));
+            // In one colour a tick on a ring has no shape left to say its
+            // consequence by, so no consequence is keyed.
+            if spec.color.is_none() {
+                for (index, category) in ranked.iter().enumerate() {
+                    legend = legend.line(category.clone(), theme.color(index));
+                }
             }
             let mut ring = crate::MarkerRing::categorised(marks);
+            if let Some(color) = &spec.color {
+                ring = ring.colors(vec![color.clone()]);
+            }
             if let Some(height) = spec.height {
                 ring = ring.thickness(height);
             }
@@ -1958,6 +2011,7 @@ fn build_one(
     theme: Theme,
     window: Option<&Region>,
     sheet: Option<&mut Shading>,
+    consequences: Option<&RefCell<Consequences>>,
 ) -> Result<(Built, Option<u64>), BuildError> {
     let tolerant = sheet.is_some();
     let mut kept = KeptStdin { files, stdin: None };
@@ -2018,6 +2072,7 @@ fn build_one(
     // three simulated users read it as the end of the chromosome.
     let reached = placed
         .as_ref()
+        .filter(|placed| !placed.ends_there)
         .and_then(|placed| placed.reached.as_ref())
         .filter(|_| window.is_none());
     if let Some(file) = reached {
@@ -2121,6 +2176,8 @@ fn build_one(
             genotyped,
             colors: &invocation.colors,
             width: invocation.width.unwrap_or(900.0),
+            gene: gene.map(String::as_str),
+            consequences,
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
@@ -2140,6 +2197,8 @@ fn build_one(
                         genotyped,
                         colors: &invocation.colors,
                         width: invocation.width.unwrap_or(900.0),
+                        gene: gene.map(String::as_str),
+                        consequences,
                     };
                     if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
                         again = Some(built);
@@ -2220,6 +2279,12 @@ fn build_one(
         })
         .map(|wanted| wanted as u64);
     gather(&mut legend, &key);
+    // What a track left off the page at this zoom, as bases of a read too
+    // narrow for their letters, said to the person drawing it and not drawn
+    // into the figure, which goes into the paper as it is.
+    for note in figure.notes() {
+        files.note(&note);
+    }
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
     }
@@ -2368,7 +2433,8 @@ fn build_genome(
         if let Ok(whole) = Region::new(sequence, 0, (*length).max(1)) {
             let mut one = invocation.clone();
             one.region = Some(whole);
-            return build_one(&one, files, |_, _| None, theme, None, None).map(|(built, _)| built);
+            return build_one(&one, files, |_, _| None, theme, None, None, None)
+                .map(|(built, _)| built);
         }
     }
     lengths.sort_by(|a, b| chromosome_order(&a.0, &b.0));
@@ -2993,6 +3059,53 @@ impl Shading {
     }
 }
 
+/// The order the calls of a figure of several places deal their colours in,
+/// one order for every panel.
+///
+/// Each panel reads the calls over its own place, and ranked on their own,
+/// the synonymous calls of one place and the missense calls of another were
+/// each dealt the first colour and the first shape: two consequences drawn
+/// as one blue circle in one figure. So the panels are drawn ranking their
+/// own calls, and drawn again in the order of every consequence they found
+/// where some panel's own order dealt one a slot that order does not.
+#[derive(Debug, Default)]
+struct Consequences {
+    /// The order every panel deals, once every panel has been read.
+    dealt: Option<Vec<String>>,
+    /// The orders the panels dealt on their own, the first time round.
+    own: Vec<Vec<String>>,
+}
+
+impl Consequences {
+    /// The order `calls` are dealt their colours in: the one every panel
+    /// shares, once it is known, and else their own, kept to rank with the
+    /// other panels'.
+    fn deal(&mut self, calls: &[crate::Variant]) -> Vec<String> {
+        if let Some(dealt) = &self.dealt {
+            return dealt.clone();
+        }
+        let own = read::point::ranked(calls);
+        self.own.push(own.clone());
+        own
+    }
+
+    /// Whether the panels are to be drawn again, in the order of every
+    /// consequence they found, which it then deals: where some panel's own
+    /// order is not the start of that one, and so gave a consequence a slot
+    /// another panel gives another.
+    fn settle(&mut self) -> bool {
+        if self.dealt.is_some() {
+            return false;
+        }
+        let all = read::point::in_rank(self.own.iter().flatten().map(String::as_str));
+        if self.own.iter().all(|own| all.starts_with(own)) {
+            return false;
+        }
+        self.dealt = Some(all);
+        true
+    }
+}
+
 /// A window as a reader writes one, `chr1:1-4,000`, for the messages a shade
 /// is answered with.
 fn written(region: &Region) -> String {
@@ -3350,6 +3463,11 @@ struct Placed {
     /// The file whose rows reach furthest, where no file says how long the
     /// sequence is and the figure ends where the rows do.
     reached: Option<String>,
+    /// Whether that file's last window is cut short of the width all its
+    /// others share, which a table of windows does only where the sequence
+    /// ends: its rows then reach the true end, and saying the figure stops
+    /// short of it would be wrong.
+    ends_there: bool,
 }
 
 /// The name the figure gives a sequence a file calls `name`: the one
@@ -3579,6 +3697,7 @@ fn survey<'a>(
             found.reaches.push(Reach::Read(
                 reached_by(spec.kind, &text, &aliases),
                 called(source),
+                ends_short(spec.kind, &text, &aliases),
             ));
         }
     }
@@ -3610,6 +3729,7 @@ fn located(
             gene: None,
             extent: None,
             reached: None,
+            ends_there: false,
         });
     }
 
@@ -3636,6 +3756,7 @@ fn located(
             return Ok(Placed {
                 region,
                 reached: None,
+                ends_there: false,
                 gene: Some(spelled.unwrap_or_else(|| name.to_string())),
                 extent: Some((*start, *end)),
             });
@@ -3657,28 +3778,36 @@ fn located(
 
     // The file whose rows reach furthest, the earlier of two that reach as
     // far.
-    let mut furthest: Option<(u64, String)> = None;
+    let mut furthest: Option<(u64, String, bool)> = None;
     for reach in reaches {
-        let (reach, file) = match reach {
-            Reach::Read(reach, file) => (reach, file),
+        let (reach, file, short) = match reach {
+            Reach::Read(reach, file, short) => (reach, file, short),
             Reach::Later(spec, source) => match whole_text(files, source) {
-                Ok(text) => (reached_by(spec.kind, &text, &aliases), called(source)),
+                Ok(text) => (
+                    reached_by(spec.kind, &text, &aliases),
+                    called(source),
+                    ends_short(spec.kind, &text, &aliases),
+                ),
                 Err(_) => continue,
             },
         };
         if let Some(reach) = reach {
-            if furthest.as_ref().map_or(true, |(known, _)| reach > *known) {
-                furthest = Some((reach, file));
+            if furthest
+                .as_ref()
+                .map_or(true, |(known, _, _)| reach > *known)
+            {
+                furthest = Some((reach, file, short));
             }
         }
     }
-    if let Some((end, file)) = furthest {
+    if let Some((end, file, short)) = furthest {
         if let Ok(region) = Region::new(name, 0, end.max(1)) {
             return Ok(Placed {
                 region,
                 gene: None,
                 extent: None,
                 reached: Some(file),
+                ends_there: short,
             });
         }
     }
@@ -3687,8 +3816,10 @@ fn located(
 
 /// How far a file's rows reach on a sequence, or where to find out.
 enum Reach<'a> {
-    /// As far as this, in the file called this, where they reach it at all.
-    Read(Option<u64>, String),
+    /// As far as this, in the file called this, where they reach it at all,
+    /// and whether the last of them is a window cut short, as [`ends_short`]
+    /// says.
+    Read(Option<u64>, String, bool),
     /// A file read through its index, whose rows are read whole for this only
     /// where nothing else places the figure.
     Later(&'a TrackSpec, &'a Source),
@@ -3713,6 +3844,76 @@ fn reached_by(kind: Kind, text: &str, aliases: &[&str]) -> Option<u64> {
             }
         })
         .max()
+}
+
+/// Whether the rows of a table of windows end in a window cut short of the
+/// width every other window of the sequence has, under any name the figure
+/// gives it: `4,400,000 4,411,532` after windows of a hundred thousand bases.
+///
+/// A tool that counts in windows cuts the last one where the sequence ends,
+/// as `bedtools makewindows` and `mosdepth --by` do, so a table ending in a
+/// short window reaches the true end of its sequence. Asked only of a table
+/// whose rows are windows, a heatmap's, a window track's and a bedGraph's of
+/// four columns or more, and only where at least two windows of one width
+/// come before it: a bedGraph of runs of one depth has windows of every
+/// width, and its last says nothing about where the sequence ends.
+fn ends_short(kind: Kind, text: &str, aliases: &[&str]) -> bool {
+    if !matches!(kind, Kind::Heatmap | Kind::Windows | Kind::Coverage) {
+        return false;
+    }
+    aliases.iter().any(|alias| {
+        let mut windows: Vec<(u64, u64)> = Vec::new();
+        for (_, line) in read::lines(text) {
+            let cols = read::columns(line);
+            if cols.len() < 4 || cols[0].trim() != *alias {
+                continue;
+            }
+            let start = cols[1].trim().parse::<u64>();
+            let end = cols[2].trim().parse::<u64>();
+            if let (Ok(start), Ok(end)) = (start, end) {
+                if end > start {
+                    windows.push((start, end));
+                }
+            }
+        }
+        let Some(last) = windows.iter().copied().max_by_key(|&(_, end)| end) else {
+            return false;
+        };
+        let others: Vec<u64> = windows
+            .iter()
+            .filter(|&&window| window != last)
+            .map(|(start, end)| end - start)
+            .collect();
+        others.len() >= 2
+            && others.iter().all(|width| *width == others[0])
+            && last.1 - last.0 < others[0]
+    })
+}
+
+/// Says so where one interval of a genetic map holds the whole window: its
+/// one rate is then a flat line from edge to edge, which reads as a rate
+/// measured flat across the window rather than the map having nothing finer
+/// to say there. A map of another sequence read under a `--rename` drew such
+/// a line over a window of a genome it was never measured on, and said
+/// nothing.
+fn note_one_interval(
+    files: &mut dyn Files,
+    path: &str,
+    rates: &[(u64, u64, f64)],
+    region: &Region,
+) {
+    if let [(start, end, rate)] = rates {
+        if *start <= region.start() && *end >= region.end() {
+            use crate::track::axis::group_thousands;
+            files.note(&format!(
+                "{path}: the window lies inside one interval of the map, {} to {}, so its one \
+                 rate, {} cM/Mb, is drawn flat across it",
+                group_thousands(start.saturating_add(1)),
+                group_thousands(*end),
+                crate::svg::text_rounded(*rate, 2)
+            ));
+        }
+    }
 }
 
 /// The largest bigBed read whole to look a gene up by its name. A bigBed is
@@ -4421,6 +4622,13 @@ struct Context<'a> {
     /// How wide the figure is drawn, in pixels, which says how many bases a
     /// pixel holds and so which zoom level of a bigWig to read.
     width: f64,
+    /// The gene the figure is placed on by its name, as its annotation
+    /// spells it, which an annotation drawn a gene at a time says it merged.
+    gene: Option<&'a str>,
+    /// The order the calls of a figure of several places deal their colours
+    /// in, which every panel shares; `None` for a figure of one place, whose
+    /// calls deal their own.
+    consequences: Option<&'a RefCell<Consequences>>,
 }
 
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
@@ -7045,6 +7253,12 @@ fn default_label(spec: &TrackSpec) -> Option<String> {
     if spec.kind == Kind::Genotypes {
         return Some(format!("{stem} genotypes"));
     }
+    // The same for a segment table, drawn as often as not under the depth it
+    // was called from, and named alike: `tumour.bedgraph tumour.cns` gave two
+    // bands both called `tumour`.
+    if spec.kind == Kind::CopyNumber {
+        return Some(format!("{stem} copy number"));
+    }
     Some(stem.to_string())
 }
 
@@ -7570,6 +7784,24 @@ fn built(
             if features.is_empty() {
                 return Err(empty("features"));
             }
+            // A gene the figure is placed on, drawn once for transcripts that
+            // differ, says so once: three isoforms drawn as one model printed
+            // nothing, and the flag that draws them apart was found only in
+            // the help on features. Only a gene drawn a gene at a time counts
+            // the transcripts it merged, so `--isoforms` says nothing here.
+            let merged = context.gene.and_then(|gene| {
+                features
+                    .iter()
+                    .find(|feature| feature.name.as_deref() == Some(gene))
+                    .filter(|feature| feature.transcripts > 1)
+                    .map(|feature| (gene, feature.transcripts))
+            });
+            if let Some((gene, count)) = merged {
+                files.note(&format!(
+                    "{gene}: {count} transcripts drawn as one model; --isoforms after {path} \
+                     draws a row each"
+                ));
+            }
             let mut track = FeatureTrack::new(features);
             if let Some(px) = spec.row_height {
                 track = track.row_height(px);
@@ -7593,7 +7825,42 @@ fn built(
             }
             // A stem is as tall as the allele fraction the VCF's AF gives, and
             // the axis says so; a file with no AF draws no axis to title.
-            let mut track = VariantTrack::new(variants).axis_title("AF");
+            // Colours are dealt from the most damaging consequence down
+            // rather than by which call comes first in the window, which
+            // painted one consequence two ways in a gene and a zoom into it,
+            // and in the one order every panel of several places deals.
+            let ranked = match context.consequences {
+                Some(sheet) => sheet.borrow_mut().deal(&variants),
+                None => read::point::ranked(&variants),
+            };
+            // In one colour a consequence is told by its shape alone, and the
+            // shapes come round again: a fifth consequence was drawn and keyed
+            // as the first, and the figure said the two were one. Ticks have
+            // no shape, and key none.
+            if let Some(color) = spec
+                .color
+                .as_ref()
+                .filter(|_| spec.style != Some(Style::Tick))
+            {
+                let mut shapes = Vec::new();
+                for slot in 0..ranked.len() {
+                    let shape = theme.symbol(slot);
+                    if !shapes.contains(&shape) {
+                        shapes.push(shape);
+                    }
+                }
+                if shapes.len() < ranked.len() {
+                    return Err(BuildError::TooFewShapes {
+                        path,
+                        color: color.clone(),
+                        categories: ranked,
+                        shapes: shapes.len(),
+                    });
+                }
+            }
+            let mut track = VariantTrack::new(variants)
+                .axis_title("AF")
+                .category_order(ranked);
             if let Some(height) = height {
                 track = track.height(height);
             }
@@ -7603,6 +7870,9 @@ fn built(
             // same panel as ticks is seventy-four kilobytes.
             if let Some(style) = spec.style.and_then(Style::variant) {
                 track = track.style(style);
+            }
+            if let Some(color) = &spec.color {
+                track = track.uniform_color(color);
             }
             // Named on its own, a VCF is its calls, which is what a VCF of one
             // sample is for. A cohort's holds a row of calls per sample too, and
@@ -7745,6 +8015,7 @@ fn built(
                         wanted: "recombination rates",
                     });
                 }
+                note_one_interval(files, &map_path, &rates, region);
                 track = track.recombination(rates);
             }
             // Drawn as -log10, and the axis says so, since the file said p.
@@ -8574,6 +8845,7 @@ fn built(
             if rates.is_empty() {
                 return Err(empty("rates"));
             }
+            note_one_interval(files, &path, &rates, region);
             // A line, since a rate is read for where it rises rather than for
             // the area under it, and the highest rate in a pixel, so a hotspot
             // narrower than a pixel is still drawn.
@@ -11830,6 +12102,56 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(error.contains("no read called r1; it holds r2"), "{error}");
     }
 
+    /// Bases too narrow for their letters are said, with the window that
+    /// letters them, and a window that letters every base says nothing.
+    #[test]
+    fn bases_of_a_read_too_narrow_for_their_letters_are_said() {
+        let signal: Vec<String> = (0..400).map(|i| (80 + i % 7).to_string()).collect();
+        let slow5 = format!(
+            "#slow5_version\t0.2.0\n\
+             #read_id\tread_group\tdigitisation\toffset\trange\tsampling_rate\t\
+             len_raw_signal\traw_signal\n\
+             r1\t0\t2048\t0\t2048\t4000\t400\t{}\n",
+            signal.join(",")
+        );
+        // Stride 5: a base of 20 samples, then one of 5, then 20 again.
+        let mut moves = vec!["5".to_string()];
+        for dwell in [
+            4, 4, 1, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+        ] {
+            moves.push("1".to_string());
+            moves.extend(std::iter::repeat("0".to_string()).take(dwell - 1));
+        }
+        let bases = "ACGTACGTACGTACGTACGTA";
+        let sam = format!(
+            "r1\t4\t*\t0\t0\t*\t*\t0\t0\t{bases}\t*\tmv:B:c,{}\n",
+            moves.join(",")
+        );
+        let held = [("reads.slow5", slow5.as_str()), ("calls.sam", sam.as_str())];
+        let (svg, notes) = drawn_noting("reads.slow5 --with-moves calls.sam", &held);
+        assert!(svg.unwrap().contains("<circle"));
+        let said: Vec<&String> = notes
+            .iter()
+            .filter(|note| note.contains("letters"))
+            .collect();
+        assert_eq!(said.len(), 1, "{notes:?}");
+        assert!(
+            said[0].starts_with("r1: 1 of 21 bases are too narrow for their letters"),
+            "{said:?}"
+        );
+        let window = said[0].rsplit("; ").next().unwrap();
+        let window = window.strip_suffix(" letters every base").unwrap();
+        let (svg, notes) = drawn_noting(
+            &format!("{window} reads.slow5 --with-moves calls.sam"),
+            &held,
+        );
+        assert!(!svg.unwrap().contains("<circle"));
+        assert!(
+            notes.iter().all(|note| !note.contains("letters")),
+            "{notes:?}"
+        );
+    }
+
     /// A SLOW5 holds many reads and the figure draws one, named for it, and
     /// says which when it had to choose.
     #[test]
@@ -12126,6 +12448,46 @@ chr2\t300\t.\tA\tG\t.\t.\t.
                 "no key for {base}: {svg}"
             );
         }
+    }
+
+    /// A table of windows whose last window is cut short of the others ends
+    /// where its sequence ends, and the figure does not say it stops short of
+    /// that; one whose windows are all whole, or a bedGraph of runs of every
+    /// width, says so as before.
+    #[test]
+    fn a_last_window_cut_short_says_the_sequence_ends_there() {
+        let table = |last_end: u64| -> String {
+            let mut text = String::from("chrom\tstart\tend\tS1\tS2\n");
+            for start in (0..400).step_by(100) {
+                text.push_str(&format!("NC_1\t{start}\t{}\t50\t60\n", start + 100));
+            }
+            text.push_str(&format!("NC_1\t400\t{last_end}\t55\t65\n"));
+            text
+        };
+        let short = table(437);
+        let whole = table(500);
+        let held = [("short.tsv", short.as_str()), ("whole.tsv", whole.as_str())];
+        let (svg, notes) = drawn_noting("NC_1 --heatmap short.tsv", &held);
+        assert_eq!(locus_of(&svg.unwrap()), "NC_1:1-437");
+        assert!(notes.is_empty(), "{notes:?}");
+        let (svg, notes) = drawn_noting("NC_1 --heatmap whole.tsv", &held);
+        assert_eq!(locus_of(&svg.unwrap()), "NC_1:1-500");
+        assert!(notes[0].starts_with("NC_1 is drawn to 500"), "{notes:?}");
+        // Windows and a bedGraph of windows cut short the same way.
+        let windows = short.lines().skip(1).map(|line| {
+            let cols: Vec<&str> = line.split('\t').collect();
+            format!("{}\t{}\t{}\t{}\n", cols[0], cols[1], cols[2], cols[3])
+        });
+        let windows: String = windows.collect();
+        let held = [("w.bedgraph", windows.as_str())];
+        for line in ["NC_1 w.bedgraph", "NC_1 --windows w.bedgraph"] {
+            let (_, notes) = drawn_noting(line, &held);
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+        }
+        // Runs of one depth have no one width, and a short last run is no end.
+        let runs = "NC_1\t0\t120\t5\nNC_1\t120\t130\t9\nNC_1\t130\t400\t5\nNC_1\t400\t410\t2\n";
+        let (_, notes) = drawn_noting("NC_1 runs.bedgraph", &[("runs.bedgraph", runs)]);
+        assert!(notes[0].starts_with("NC_1 is drawn to 410"), "{notes:?}");
     }
 
     /// PLINK writes 1 for the chromosome a FASTA calls NC_1, and every file
@@ -12685,6 +13047,36 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         }
     }
 
+    /// A segment table is keyed with the marks it draws, across a genome and
+    /// over a place, and named apart from the depth of the same sample: the
+    /// two were both `tumour`, and nothing said which grey line was which.
+    #[test]
+    fn a_copy_number_track_is_keyed_and_named_apart_from_its_depth() {
+        let depth = "1\t0\t1000\t60\n2\t0\t1000\t30\n";
+        let cns = "chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2\n\
+                   1\t0\t1000\t-\t0\t2\t1\t1\n\
+                   2\t0\t1000\t-\t-1\t1\t1\t0\n";
+        let held = [("tumour.bedgraph", depth), ("tumour.cns", cns)];
+        let keyed = |svg: &str, said: &str| svg.contains(&format!("<title>{said}, colour "));
+        let whole = drawn_from("tumour.bedgraph tumour.cns --ploidy 2", &held).unwrap();
+        let one = drawn_from("2 tumour.bedgraph tumour.cns --ploidy 2", &held).unwrap();
+        for svg in [&whole, &one] {
+            assert!(svg.contains(">tumour copy number</text>"), "{svg}");
+            assert!(svg.contains(">tumour</text>"), "{svg}");
+            for said in ["minor allele", "loss", "heterozygosity lost"] {
+                assert!(keyed(svg, said), "no {said} in {svg}");
+            }
+            assert!(!keyed(svg, "gain"), "{svg}");
+        }
+        // Balanced on 1 alone, which the place 2 leaves out.
+        assert!(keyed(&whole, "total copies"), "{whole}");
+        assert!(!keyed(&one, "total copies"), "{one}");
+        assert!(
+            one.contains(", 1 copy (1 + 0), heterozygosity lost</title>"),
+            "{one}"
+        );
+    }
+
     /// A segment table with no place is drawn across every sequence it
     /// calls, at the ploidy it was given, for the one sample asked for, and
     /// no riser joins the level one sequence ends on to the next one's.
@@ -12708,7 +13100,7 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         );
         // Each segment where it is on its own sequence, and none of them a
         // riser from one copy at the end of 1 to four at the start of 2.
-        assert!(svg.contains("<title>1:1 to 2,000, 1 copies"), "{svg}");
+        assert!(svg.contains("<title>1:1 to 2,000, 1 copy,"), "{svg}");
         assert!(svg.contains("<title>2:1 to 3,000, 4 copies"), "{svg}");
         let vertical = svg
             .split("<line ")
@@ -12900,6 +13292,53 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert!(alone.to_string().contains("no variants"), "{alone}");
     }
 
+    /// `--panel-columns` lays the panels of several places side by side, a
+    /// row at a time in the order the places are written, the key in the
+    /// room the last row leaves; asked for more columns than places, it lays
+    /// one row of them, and the key stays under them.
+    #[test]
+    fn several_places_stand_side_by_side_with_panel_columns() {
+        let genome = format!(">chr1\n{}\n", "ACGT".repeat(12_500));
+        let held = [("ref.fa", genome.as_str())];
+        // Where each panel of a sheet is put, in the order they were laid.
+        let placed = |svg: &str| -> Vec<(f64, f64)> {
+            svg.split("transform=\"translate(")
+                .skip(1)
+                .map(|rest| {
+                    let mut numbers = rest[..rest.find(')').unwrap()]
+                        .split(' ')
+                        .map(|n| n.parse::<f64>().unwrap());
+                    (numbers.next().unwrap(), numbers.next().unwrap())
+                })
+                .collect()
+        };
+        let two = "chr1:1-1,000 chr1:2,001-3,000 ref.fa";
+        let stacked = placed(&drawn_from(two, &held).unwrap());
+        let beside = placed(&drawn_from(&format!("{two} --panel-columns 2"), &held).unwrap());
+        // Two places and the key to their bases.
+        assert_eq!(stacked.len(), 3, "{stacked:?}");
+        assert!(stacked[1].1 > stacked[0].1, "stacked: {stacked:?}");
+        assert_eq!(beside.len(), 3, "{beside:?}");
+        assert_eq!(beside[0].1, beside[1].1, "one row: {beside:?}");
+        assert!(beside[1].0 > beside[0].0 + 900.0, "{beside:?}");
+        assert!(beside[2].1 > beside[0].1, "the key under them: {beside:?}");
+        assert_eq!(
+            drawn_from(&format!("{two} --panel-columns 3"), &held).unwrap(),
+            drawn_from(&format!("{two} --panel-columns 2"), &held).unwrap()
+        );
+        // Three places two to a row: the third under the first.
+        let three = placed(
+            &drawn_from(
+                "chr1:1-1,000 chr1:2,001-3,000 chr1:4,001-5,000 ref.fa --panel-columns 2",
+                &held,
+            )
+            .unwrap(),
+        );
+        assert_eq!(three[0].1, three[1].1, "{three:?}");
+        assert!(three[2].1 > three[0].1, "{three:?}");
+        assert!((three[2].0 - three[0].0).abs() < 10.0, "{three:?}");
+    }
+
     /// What is piped in is read once, for every panel of a sheet.
     /// A gene of two transcripts, as Ensembl writes one.
     const ISOFORMS: &str = "##gff-version 3
@@ -12938,6 +13377,68 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             .map(String::from)
             .collect();
         assert!(parse(&args).is_err());
+    }
+
+    /// A window inside one interval of a genetic map draws its one rate flat
+    /// from edge to edge, and says so, as a track of its own and under a
+    /// scan; a window across two intervals says nothing.
+    #[test]
+    fn a_window_inside_one_map_interval_says_its_rate_is_flat() {
+        let map = "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n\
+                   1\t1001\t0.41\t0.0\n1\t6001\t7.0\t0.002\n1\t9001\t0.5\t0.02\n";
+        let scan = "CHR SNP BP A1 P\n1 rs1 2500 A 0.5\n1 rs2 3000 A 1e-9\n";
+        let held = [("map.txt", map), ("gwas.assoc", scan)];
+        let said = "map.txt: the window lies inside one interval of the map, 1,001 to 6,000, so \
+                    its one rate, 0.41 cM/Mb, is drawn flat across it";
+        for line in [
+            "1:2,001-4,000 --recombination map.txt",
+            "1:2,001-4,000 gwas.assoc --with-recombination map.txt",
+        ] {
+            let (svg, notes) = drawn_noting(line, &held);
+            svg.unwrap();
+            assert_eq!(notes, [said], "{line}");
+        }
+        // Nor does a window one interval holds only part of, the map saying
+        // nothing of the rest.
+        for line in [
+            "1:2,001-7,000 --recombination map.txt",
+            "1:1-4,000 --recombination map.txt",
+        ] {
+            let (svg, notes) = drawn_noting(line, &held);
+            svg.unwrap();
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+        }
+    }
+
+    /// A gene the figure is placed on, drawn as one model of several
+    /// transcripts, says so once and names the flag that draws them apart;
+    /// a gene of one transcript, a place written as a span, and a figure
+    /// that asked for the transcripts say nothing.
+    #[test]
+    fn a_placed_gene_drawn_as_one_model_names_isoforms() {
+        let held = [("genes.gff3", ISOFORMS)];
+        let (svg, notes) = drawn_noting("GENE1 genes.gff3", &held);
+        svg.unwrap();
+        assert_eq!(
+            notes,
+            [
+                "GENE1: 2 transcripts drawn as one model; --isoforms after genes.gff3 draws a \
+              row each"
+            ]
+        );
+        for line in ["GENE1 genes.gff3 --isoforms", "7:1-10,000 genes.gff3"] {
+            let (svg, notes) = drawn_noting(line, &held);
+            svg.unwrap();
+            assert!(notes.is_empty(), "{line}: {notes:?}");
+        }
+        let single: String = ISOFORMS
+            .lines()
+            .filter(|line| !line.contains("t2"))
+            .map(|line| format!("{line}\n"))
+            .collect();
+        let (svg, notes) = drawn_noting("GENE1 genes.gff3", &[("genes.gff3", single.as_str())]);
+        svg.unwrap();
+        assert!(notes.is_empty(), "{notes:?}");
     }
 
     /// The depth of two samples, one reaching 97 and one 48, over the first
@@ -17530,6 +18031,178 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         assert!(svg.contains("chrC, 100,000 bases"), "{svg}");
     }
 
+    /// A consequence is the colour its rank gives it, not the colour of its
+    /// place in the window. Dealt by first appearance, missense was the
+    /// second colour across the whole gene, whose first call is synonymous,
+    /// and the first over a window of missense calls alone.
+    #[test]
+    fn a_consequence_keeps_its_colour_in_a_zoom_into_its_gene() {
+        let calls = "##fileformat=VCFv4.2\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t100\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t500\t.\tC\tT\t.\t.\tANN=T|missense_variant|MODERATE|g\n\
+                     chr1\t900\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n";
+        let colour = |line: &str, category: &str| -> String {
+            let mut held = Held::new();
+            held.insert("calls.vcf", calls);
+            let svg = held_figure(&mut held, line).unwrap();
+            let rest = svg
+                .split(&format!("<title>{category}, colour "))
+                .nth(1)
+                .unwrap_or_else(|| panic!("no {category} in the key of {line}: {svg}"));
+            rest[..rest.find("</title>").unwrap()].to_string()
+        };
+        let theme = Theme::default();
+        let whole = colour("chr1:1-1000 calls.vcf", "missense_variant");
+        assert_eq!(whole, theme.color(0));
+        for zoom in ["chr1:450-550", "chr1:50-600", "chr1:450-1000"] {
+            assert_eq!(
+                colour(&format!("{zoom} calls.vcf"), "missense_variant"),
+                whole
+            );
+        }
+        assert_eq!(
+            colour("chr1:1-1000 calls.vcf", "synonymous_variant"),
+            colour("chr1:50-600 calls.vcf", "synonymous_variant")
+        );
+    }
+
+    /// `--color` after calls paints every call that colour, in the band and
+    /// on a ring, and takes the consequences' colours out of the key; the
+    /// band keeps each consequence's shape, and a ring, whose ticks have
+    /// none, keys none.
+    #[test]
+    fn calls_given_a_colour_are_all_that_colour() {
+        let theme = Theme::default();
+        let calls = "##fileformat=VCFv4.2\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t100\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t500\t.\tC\tT\t.\t.\tANN=T|missense_variant|MODERATE|g\n";
+        let mut held = Held::new();
+        held.insert("calls.vcf", calls);
+        let svg = held_figure(&mut held, "chr1:1-1000 calls.vcf --color #8b0000").unwrap();
+        assert!(
+            svg.contains("<title>missense_variant, colour #8b0000</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>synonymous_variant, colour #8b0000</title>"),
+            "{svg}"
+        );
+        for slot in 0..2 {
+            assert!(
+                !svg.contains(theme.color(slot)),
+                "slot {slot} painted: {svg}"
+            );
+        }
+        // On a ring, every tick that colour and no consequence keyed.
+        let mut held = Held::new();
+        for (name, text) in circle_files() {
+            held.insert(name, text);
+        }
+        let invocation = invocation("chrC --circular calls.vcf --color #8b0000");
+        let region = whole_sequence(&invocation, &mut held).unwrap();
+        let rings = circle_rings(&invocation, &region, &theme, &mut held).unwrap();
+        assert!(rings.last().unwrap().legend.is_empty());
+        let svg = circle("chrC --circular calls.vcf --color #8b0000", &[]).unwrap();
+        assert!(svg.contains("#8b0000"), "{svg}");
+        assert!(!svg.contains(theme.color(0)), "{svg}");
+    }
+
+    /// The panels of several places deal their colours in one order. Ranked
+    /// a panel at a time, a place of synonymous calls and a place of a
+    /// missense call each dealt its own the first colour and the first shape,
+    /// and two consequences were one blue circle in one figure.
+    #[test]
+    fn the_panels_of_several_places_deal_a_consequence_one_colour() {
+        let calls = "##fileformat=VCFv4.2\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t100\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t200\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t500\t.\tC\tT\t.\t.\tANN=T|missense_variant|MODERATE|g\n\
+                     chr1\t800\t.\tC\tT\t.\t.\tANN=T|stop_gained|HIGH|g\n";
+        let theme = Theme::default();
+        let keyed = |svg: &str, category: &str| -> Vec<String> {
+            svg.split(&format!("<title>{category}, colour "))
+                .skip(1)
+                .map(|rest| rest[..rest.find("</title>").unwrap()].to_string())
+                .collect()
+        };
+        for line in [
+            "chr1:1-300 chr1:401-600 calls.vcf",
+            "chr1:401-600 chr1:1-300 calls.vcf",
+            "chr1:1-300 chr1:401-600 chr1:701-900 calls.vcf",
+        ] {
+            let mut held = Held::new();
+            held.insert("calls.vcf", calls);
+            let svg = held_figure(&mut held, line).unwrap();
+            let stop = keyed(&svg, "stop_gained");
+            let missense = keyed(&svg, "missense_variant");
+            let synonymous = keyed(&svg, "synonymous_variant");
+            assert_eq!(missense.len(), 1, "{line}");
+            assert_eq!(synonymous.len(), 1, "{line}");
+            // Missense is the most damaging the sheet holds, or the second
+            // where a third place holds a stop.
+            let first = if stop.is_empty() { 0 } else { 1 };
+            assert_eq!(missense[0], theme.color(first), "{line}");
+            assert_eq!(synonymous[0], theme.color(first + 1), "{line}");
+            assert!(stop.iter().all(|colour| colour == theme.color(0)), "{line}");
+        }
+    }
+
+    /// In one colour a consequence is told by its shape alone, and there are
+    /// four shapes: more consequences in view than that, in a figure or
+    /// across the panels of several places, are refused rather than drawn
+    /// two of them alike. Ticks, which key none, are drawn.
+    #[test]
+    fn calls_in_one_colour_are_refused_where_the_shapes_run_out() {
+        let mut calls =
+            String::from("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n");
+        for (pos, consequence) in [
+            (100, "stop_gained"),
+            (200, "frameshift_variant"),
+            (300, "missense_variant"),
+            (400, "synonymous_variant"),
+            (600, "upstream_gene_variant"),
+        ] {
+            calls.push_str(&format!(
+                "chr1\t{pos}\t.\tC\tT\t.\t.\tANN=T|{consequence}|LOW|g\n"
+            ));
+        }
+        let drawn = |line: &str| {
+            let mut held = Held::new();
+            held.insert("calls.vcf", calls.as_str());
+            held_figure(&mut held, line)
+        };
+        for line in [
+            "chr1:1-1000 calls.vcf --color #8b0000",
+            "chr1:1-250 chr1:251-1000 calls.vcf --color #8b0000",
+        ] {
+            let error = drawn(line).unwrap_err();
+            assert!(
+                matches!(error, BuildError::TooFewShapes { .. }),
+                "{line}: {error:?}"
+            );
+            assert_eq!(
+                error.to_string(),
+                "--variants calls.vcf --color '#8b0000' tells consequences apart by shape \
+                 alone, and there are 4 shapes for the 5 consequences in view, stop_gained, \
+                 frameshift_variant, missense_variant, synonymous_variant and \
+                 upstream_gene_variant: drop --color for a colour each, draw the calls as \
+                 ticks with --style tick, which key none, or draw a place with 4 \
+                 consequences or fewer",
+                "{line}"
+            );
+        }
+        for line in [
+            "chr1:1-500 calls.vcf --color #8b0000",
+            "chr1:1-1000 calls.vcf --color #8b0000 --style tick",
+            "chr1:1-1000 calls.vcf",
+        ] {
+            assert!(drawn(line).is_ok(), "{line}");
+        }
+    }
+
     /// Each line of the key is the colour its ring paints what it names: a
     /// gene on each strand, and a call of each consequence, the first named
     /// again after the second. The key's colours and the ring's are worked
@@ -17745,11 +18418,11 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         assert_eq!(said, ["above 0", "below 0"]);
     }
 
-    /// Calls are coloured by consequence in the order the file first names
-    /// them, as a band of calls deals them, a call no annotator named by its
-    /// shape, as the reader names it.
+    /// Calls are coloured by consequence from the most damaging down, as a
+    /// band of calls deals them, a call no annotator named by its shape, as
+    /// the reader names it, after every consequence.
     #[test]
-    fn calls_on_a_ring_are_coloured_by_consequence_in_the_order_first_named() {
+    fn calls_on_a_ring_are_coloured_by_consequence_from_the_most_damaging_down() {
         let theme = Theme::light();
         let keyed = |line: &str, more: &[(&str, &str)]| -> Vec<(String, String)> {
             let mut held = Held::new();
@@ -17790,8 +18463,8 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
                 &[("mixed.vcf", mixed)]
             ),
             [
-                ("substitution".to_string(), theme.color(0).to_string()),
-                ("stop_gained".to_string(), theme.color(1).to_string()),
+                ("stop_gained".to_string(), theme.color(0).to_string()),
+                ("substitution".to_string(), theme.color(1).to_string()),
             ]
         );
     }

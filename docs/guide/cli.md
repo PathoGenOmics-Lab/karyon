@@ -32,18 +32,23 @@ Four rules cover every command:
     coverage file names no row on is a gap in its track, not a depth of nought,
     and files that name one sequence draw it as though it were the place
     written. Anything else needs a place, and one beside them is refused by
-    name: a FASTA, an annotation, calls. So does a scan read with `--ld` or
-    `--with-recombination`, or a signal with `--format values`, and the option
-    is what is named. A BAM or a CRAM, whose depth across a genome is every
-    read it holds, is refused with the `mosdepth --by` that counts it in
-    windows instead.
+    name: a FASTA, an annotation, calls, a `--heatmap` table of windows. So
+    does a scan read with `--ld` or `--with-recombination`, or a signal with
+    `--format values`, and the option is what is named. A BAM or a CRAM, whose
+    depth across a genome is every read it holds, is refused with the
+    `mosdepth --by` that counts it in windows instead. A sequence drawn to the
+    end of a file's rows, because no file says how long it is, is said to stop
+    there, unless the rows are windows whose last is cut short of the others,
+    which a table of windows does only at a sequence's end.
 
     Several places draw one panel each, one under the other, with the same
     tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3
-    calls.vcf.gz`. A gene is titled with its name and a locus says itself at
-    the top right, the key is drawn once under them all, `--title` goes over
-    the whole figure, and a track with nothing in one place says so there, as
-    `no variants here`, where a figure of that place alone is refused.
+    calls.vcf.gz`; `--panel-columns 2` lays them two to a row instead, in the
+    order they are written. A gene is titled with its name and a locus says
+    itself at the top right, the key is drawn once after them all, `--title`
+    goes over the whole figure, and a track with nothing in one place says so
+    there, as `no variants here`, where a figure of that place alone is
+    refused.
 2. **Each file, or each track flag and its file, starts a track.** A file
    named on its own is the kind of track its name says, as the table below
    has it; a flag in front chooses the kind, as `--pileup reads.bam`. Tracks
@@ -189,7 +194,7 @@ file, or `-` for [standard input](#standard-input), except `--axis` and
 | `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
 | `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) or [2bit](formats.md#2bit) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
 | `--features <FILE>` | genes and other intervals, a gene drawn once with its exons | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3), or [bigBed](formats.md#bigbed) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
-| `--variants <FILE>` | point calls | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
+| `--variants <FILE>` | point calls, coloured by the consequence in `ANN` or `BCSQ`, or by the shape of the call | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
 | `--genotypes <FILE>` | the call of each sample at each site, a row per sample | [VCF with samples](formats.md#vcf-genotypes) | [GenotypeTrack](../tracks/variation.md#genotypetrack) |
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) or [bigWig](formats.md#bigwig) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
@@ -279,7 +284,7 @@ takes.
 
 | Option | Takes | Applies to | When left out |
 |:--|:--|:--|:--|
-| `--label <TEXT>` | any text | every track, `--axis` and `--codons` included | no name in the gutter; the gene's name for `--codons` |
+| `--label <TEXT>` | any text; a scan of p-values is titled `-log10 p` under it already, and a name the same as that title is written once | every track, `--axis` and `--codons` included | no name in the gutter; the gene's name for `--codons` |
 | `--against <FILE>` | a Newick file, or `-` | `--tanglegram` | required |
 | `--with-sequence <FILE>` | a FASTA or 2bit file, or `-` for a FASTA | `--dynseq`, `--pileup` | required by `--dynseq`; a pileup reads against the figure's `--sequence`, and with neither draws every read agreeing |
 | `--with-tree <FILE>` | a Newick file, or `-` | `--clades`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--domains` | required by `--clades`; for the others the rows stay in the order of their file, and with it they take the order of its tips and the tree is drawn beside them |
@@ -325,8 +330,8 @@ takes.
 | `--aggregate <HOW>` | `max`, `mean` or `min`, which for a bigWig also picks the summary its zoom level is drawn from | `--coverage` | `max` |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage and a `.hic` always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
-| `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
-| `--color <HEX>` | a colour, as in `'#d55e00'`, for the whole track; the values of a `--traits` column take theirs from the figure option `--colors` | `--coverage`, `--features`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination`, `--codons` | the theme's colours |
+| `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it. A profile of `--coverage` or `--recombination` that runs past it is struck along the top where it was cut, and its top label reads `30+`, the pin itself where it is not a round tick; a cell of `--matrix` or `--heatmap` past it carries a dot, and the key reads `150+`. `--windows`, `--manhattan` and `--pairs` draw what runs past it at it, and do not mark it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
+| `--color <HEX>` | a colour, as in `'#d55e00'`, for the whole track; after `--variants`, every call in it in place of a colour each consequence, each consequence keeping its shape on the marks and in the key, of which there are four, so five or more consequences in view are refused but for ticks; the values of a `--traits` column take theirs from the figure option `--colors` | `--coverage`, `--features`, `--variants`, `--junctions`, `--phylodynamics`, `--squiggle`, `--pairs`, `--recombination`, `--codons` | the theme's colours, a colour each consequence for calls |
 | `--genetic-code <N>` | an NCBI translation table, 1 to 6, 9 to 16 or 21 to 33, as `2` for vertebrate mitochondria | `--codons` | the table the CDS names with `transl_table=`, or 1, whose residues 11 shares; given, it wins, with a note where the CDS names another |
 | `--format <NAME>` | `bedgraph`, `depth` or `values` for coverage; `bed` or `gff3` for features and loci | `--coverage`, `--features`, `--loci` | told from the file |
 
@@ -638,6 +643,7 @@ samtools depth -a -r NC_000962.3:761000-763000 sample1.bam sample2.bam \
 | `--no-region-label` | leaves out the locus printed at the top right | printed |
 | `--no-legend` | leaves out the key to the colours of a tree's branches, of `--traits` strips, and of bases drawn as blocks too narrow for their letters | drawn under the figure |
 | `--same-scale` | draws the tracks that measure the same thing on one scale, in every panel: the depths of several samples read off one ceiling, so the same height is the same depth. A track given `--max` keeps its own | each track to its own values |
+| `--panel-columns <N>` | lays the panels of several places `N` to a row, in the order the places are written, as `karyon NOVA1 KAPPA3 signal.bw genes.gtf.gz --panel-columns 2` for two genes side by side; each panel keeps `--width`, and a line of one place or of none is refused | one column, each panel under the one before |
 | `--shade <PLACE[=NAME]>` | shades a stretch across every track laid on the coordinates, behind them, named at its head: a locus, one base, a gene, or a span on the figure's own axis; the flag again for another. See [Shading a stretch](#shading-a-stretch) | nothing shaded |
 | `--circular` | draws the place, one whole sequence, as a circle: each track a ring, the first outermost, inside the ruler, and a key under it naming each ring. `--width` is the side of the square. See [A whole sequence as a circle](#a-whole-sequence-as-a-circle) | along the sequence |
 | `--rename <FROM=TO>` | reads a sequence a file calls `FROM` as the figure's `TO`, as `--rename 1=NC_000962.3` for a PLINK table beside a FASTA; several joined by commas, or the flag again | each file's own names |
@@ -731,7 +737,7 @@ karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz \
 | `--features` | an arc a feature, the forward strand on the outer half and the reverse on the inner, as a band of features paints them; named where the ring holds at most 20 named features, and `--no-names` leaves them off |
 | `--coverage` | the depth cut into 1,000 arcs, each the `--aggregate` of its bases (`max` unless written), read either side of its median: a stretch lost dips inside the line, one carried twice stands outside it |
 | `--windows` | the windows cut into the same arcs, each the mean of the windows under it, read either side of 0 as the band is |
-| `--variants` | a tick a call, coloured by consequence in the order the file first names them |
+| `--variants` | a tick a call, coloured by consequence from the most damaging down, as a band of calls deals them |
 | `--structural` | the footprint of each deletion, duplication, inversion and insertion, coloured by class, and a chord across the middle for each breakend join on the sequence |
 | `--sequence` | the FASTA's GC skew, in windows of a thousandth of the sequence |
 | `--axis` | the ruler, where it is written; `--no-axis` leaves it out |
@@ -816,13 +822,30 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.pdf
 
 The page is the figure's size at three quarters of a point to the pixel, the
 size Inkscape and `rsvg-convert` give the SVG, so a figure 900 pixels wide is
-675 points, about 9.4 inches. Its text is set in Helvetica, Courier and Symbol,
-which every PDF reader has, rather than in the Inter and JetBrains Mono the SVG
-asks for, and no font is embedded; the hover titles of the SVG are not carried,
-since a page has nowhere to hover. A character none of those fonts has, such as
-a sample name in Cyrillic, is drawn as a question mark, and the command says
-which on standard error; the figure is still written. [How the PDF is
-made](../how-it-works/pdf.md) has the rest.
+675 points, about 9.4 inches. The hover titles of the SVG are not carried,
+since a page has nowhere to hover.
+
+The text is set in the standard faces every PDF reader carries, Helvetica and
+Helvetica-Bold for words and Courier for coordinates and sequence, with Symbol
+for ω and ≤, rather than in the Inter and JetBrains Mono the SVG asks for, and
+none of them is embedded. The file names each face, and the reader draws it
+with a copy of its own made to the same widths, Arial in one and Nimbus Sans
+in another, so the letters differ a little from reader to reader and the
+layout does not. A character none of those fonts has, such as a sample name in
+Cyrillic, is drawn as a question mark, and the command says which on standard
+error; the figure is still written.
+
+For a paper, that is what a preflight check meets: `pdffonts rpoB.pdf` lists
+every font with `no` under `emb`, and a journal's upload check that wants each
+font embedded, as the PDF/X and PDF/A standards of printers and archives do,
+flags the file or turns it away. Ghostscript writes a copy with the faces
+embedded, drawn to the same widths, which `pdffonts` then lists as embedded:
+
+```bash
+gs -o embedded.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress rpoB.pdf
+```
+
+[How the PDF is made](../how-it-works/pdf.md) has the rest.
 
 A name that promises any other format, such as `fig.png` or `fig.eps`, is
 refused rather than written as SVG under it, and the message names a tool that
@@ -830,13 +853,6 @@ writes that format. For a PNG, write `fig.pdf` and convert it with
 `pdftoppm -png -singlefile -r 300 fig.pdf fig`, or `fig.svg` and convert it
 with `rsvg-convert`, Inkscape or a browser; an EPS comes from `pdftops -eps`,
 an EMF from Inkscape, and a `.svgz` from `gzip -c fig.svg > fig.svgz`.
-
-A journal whose upload checks want every font embedded gets them from
-Ghostscript, which embeds faces drawn to the same widths:
-
-```bash
-gs -o embedded.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress rpoB.pdf
-```
 
 The whole figure is built before any of it is written. A command that fails
 writes nothing, so a figure left from an earlier run under the same name is not
@@ -1087,9 +1103,14 @@ zoomed out by hictk to eleven resolutions in a `.hic` of 49 MB, that window of
 and 7 MB; the whole chromosome, `karyon chr1 contacts.hic`, is drawn at 1 Mb
 in 0.04 s and 12 MB, and the window at 5 kb in 0.04 s and 9 MB. The counts are
 the raw ones, as hictk prints them with no `--balance`, and the normalisations
-a file may carry are not read. Version 9 is read, the version hictk writes; an
-older file is refused by its version, with the two `hictk convert` commands,
-through a `.mcool`, that write it as version 9.
+a file may carry are not read. A `.hic` keeps only the cells that hold a
+count, and a cell it does not list is left as the page rather than drawn in
+the pale end of the key, which is a cell listed at nought; the triangle is as
+deep as the farthest cell listed in the window, so a map of contacts no more
+than 200 kb apart ends 200 kb from the diagonal in a jagged edge. `--axis`
+written before the file lays the ruler along the diagonal. Version 9 is read,
+the version hictk writes; an older file is refused by its version, with the
+two `hictk convert` commands, through a `.mcool`, that write it as version 9.
 
 The `.cool` and `.mcool` that cooler writes are HDF5 and are not read, for the
 reasons [File formats](formats.md#pairs-of-positions) gives; each comes in as
@@ -1214,6 +1235,9 @@ karyon: --aggregate means nothing to a features track
 
 $ karyon NC_000962.3:761,000-763,000 depth.bedgraph genes.gff3 --aggregate min
 karyon: --aggregate means nothing to a features track; it is an option of depth.bedgraph, so write it right after depth.bedgraph
+
+$ karyon NC_000962.3:761,000-763,000 genes.gff3 --genotypes cohort.vcf.gz --color '#8b0000'
+karyon: --color means nothing to a genotypes track
 
 $ karyon chr8:1-1000 --copy-number segments.cns
 karyon: --copy-number needs --ploidy, since where balanced sits is not in the file

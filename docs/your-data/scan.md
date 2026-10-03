@@ -63,7 +63,7 @@ karyon 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
 ```
 
 <figure class="k-start" markdown>
-![The markers of the peak coloured from grey to blue by their r-squared with the strongest, which is a diamond labelled with its name, and behind them a recombination rate with two hotspots, read off a scale on the right](../assets/start/locus.svg){ .k-light width="720" height="214" }
+![The markers of the peak coloured from grey to blue by their r-squared with the strongest, which is a diamond labelled with its name, three at the far end that the linkage file has no r-squared for drawn as open rings, and behind them a recombination rate with two hotspots, read off a scale on the right](../assets/start/locus.svg){ .k-light width="720" height="214" }
 ![The same figure on the dark page](../assets/start/locus-dark.svg){ .k-dark width="720" height="214" }
 </figure>
 
@@ -72,7 +72,11 @@ karyon 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
 --ld-window-r2 0` writes it, and the lead is called by the name the scan gives
 it. `genetic_map.txt` is a genetic map as HapMap writes one, laid over the
 scan by `--with-recombination` and read off the scale on the right; named on
-its own, it is drawn as a track of its own under the scan instead.
+its own, it is drawn as a track of its own under the scan instead. A window
+that lies inside one interval of the map is drawn at that interval's one rate,
+flat from edge to edge, and karyon says so on standard error, since a flat
+line reads as a rate measured flat; a map of another sequence read under a
+`--rename` draws one too.
 
 The example files: [gwas.assoc](../data/gwas.assoc),
 [trait.assoc](../data/trait.assoc), [lead.ld](../data/lead.ld) and

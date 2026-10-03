@@ -55,6 +55,11 @@ pub enum Marker {
     Symbol(Symbol),
     /// A short stroke, for anything drawn as a line.
     Line,
+    /// A stroke half as thick as [`Marker::Line`]'s, for a line drawn
+    /// thinner than another of the same colour, as a copy number's minor
+    /// allele under its total: two strokes of one width and one colour are a
+    /// key that cannot say which line is which.
+    ThinLine,
     /// An empty square with an edge, for anything marked by being outlined
     /// rather than by being filled.
     Outline,
@@ -62,6 +67,9 @@ pub enum Marker {
     /// draws a large filled shape. A solid swatch beside a washed arrow is a
     /// key that does not look like the thing it explains.
     Area,
+    /// An open circle edged in the colour, for a point drawn open rather
+    /// than filled because it lacks what the filled ones are coloured by.
+    Ring,
 }
 
 /// One thing a legend explains.
@@ -349,6 +357,12 @@ impl Legend {
             let top = y + row as f64 * row_height;
             let middle = top + row_height / 2.0;
             let baseline = middle + font * 0.35;
+            // A key drawn in a band keeps the shaded stretches' edges off
+            // its words, from its first item to the end of its last.
+            if let Some(&(offset, index)) = entries.last() {
+                let reach = offset + self.item_width(&self.items[index], font);
+                svg.keep_clear(x, top, reach, row_height);
+            }
             for (offset, index) in entries {
                 let at = x + offset;
                 // A key is one datum drawn as one mark, so it gets a tooltip,
@@ -393,6 +407,14 @@ impl Legend {
                                 color,
                                 (self.swatch / 4.0).max(1.5),
                             ),
+                            Marker::ThinLine => svg.line(
+                                at,
+                                middle,
+                                at + self.swatch,
+                                middle,
+                                color,
+                                (self.swatch / 8.0).max(0.75),
+                            ),
                             Marker::Area => {
                                 svg.rect_rounded(
                                     at,
@@ -419,6 +441,17 @@ impl Legend {
                                 color,
                                 theme.tokens.strong_stroke,
                             ),
+                            Marker::Ring => {
+                                let edge = theme.tokens.stroke;
+                                svg.circle_ringed(
+                                    at + self.swatch / 2.0,
+                                    middle,
+                                    self.swatch / 2.5 - edge,
+                                    theme.surface(),
+                                    color,
+                                    edge,
+                                )
+                            }
                         }
                         svg.text(
                             at + self.swatch + 5.0,
@@ -645,6 +678,49 @@ mod tests {
             middle.contains("fill=\"#eeeeee\""),
             "through the centre colour"
         );
+    }
+
+    /// A ring is keyed as a ring: an edge in the colour round a disc of the
+    /// page, so the key looks like the open point it explains.
+    #[test]
+    fn a_ring_is_keyed_as_an_edge_round_the_page() {
+        let theme = Theme::light();
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(Legend::new().marked(
+                "no r²",
+                "#5b5480",
+                Marker::Ring,
+            )))
+            .to_svg();
+        let edge = svg.find("fill=\"#5b5480\"").expect("the edge");
+        let disc = svg[edge..]
+            .find(&format!("fill=\"{}\"", theme.surface()))
+            .expect("and the disc over it");
+        assert!(
+            svg[edge..edge + disc].matches("<circle").count() == 1,
+            "{svg}"
+        );
+    }
+
+    /// A thin line is keyed half as thick as a line, so a key holding both
+    /// in one colour says which is which.
+    #[test]
+    fn a_thin_line_is_keyed_thinner_than_a_line() {
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(
+                Legend::new()
+                    .line("total", "#777777")
+                    .marked("minor", "#777777", Marker::ThinLine),
+            ))
+            .to_svg();
+        let widths: Vec<&str> = svg
+            .split("stroke=\"#777777\" stroke-width=\"")
+            .skip(1)
+            .map(|rest| &rest[..rest.find('"').unwrap()])
+            .collect();
+        assert_eq!(widths, ["2.5", "1.25"], "{svg}");
     }
 
     #[test]

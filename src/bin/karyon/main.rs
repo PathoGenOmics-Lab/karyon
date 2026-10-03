@@ -46,12 +46,12 @@ USAGE
     karyon tree.nwk --traits samples.tsv --columns lineage -o tree.svg
 
 The place comes first: a region as chr1:10,000-20,000, a gene the annotation
-names, or a sequence drawn whole; several places draw a panel each. Trees need
-none, and a scan, bedGraph or segment table alone spans the genome. Each file
-is a track of the kind its name says, BAM, VCF, GFF3, GTF, BED, bedGraph,
-FASTA, Newick, PAF or PLINK, .gz or not, with its options after it. A BAM is
-its depth, and a track flag chooses another kind, as --pileup reads.bam. The
-figure is SVG, on standard output unless -o names one, and PDF for -o x.pdf.
+names, or a whole sequence; several places draw a panel each. Trees need none,
+and --windows, --copy-number, --manhattan and a bedGraph or bigWig of --coverage
+alone span the genome. Each file is the track its name says, BAM, VCF, GFF3,
+GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, .gz or not, its options after
+it. A BAM is its depth over a place; a track flag chooses another, as --pileup
+reads.bam. SVG goes to standard output unless -o names a file; PDF to x.pdf.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -242,6 +242,11 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          its tips, with the tree beside them
 "
         }
+        (Kind::Manhattan, "--label") => {
+            "    --label <TEXT>       the name in the left gutter. A column of p-values is
+                         titled -log10 p under it already
+"
+        }
         (Kind::CopyNumber, "--sample") => {
             "    --sample <NAME>      which sample of a segment table holding several
 "
@@ -302,9 +307,16 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
                          known about them
 "
         }
-        (Kind::Coverage | Kind::Recombination | Kind::Manhattan, "--max") => {
+        (Kind::Coverage | Kind::Recombination, "--max") => {
             "    --max <V>            the top of the scale, pinned, as 100 for a depth, so
-                         figures drawn apart are read off one ceiling
+                         figures drawn apart are read off one ceiling; where
+                         the profile runs past it, it is struck along the top
+                         and the top label reads 100+
+"
+        }
+        (Kind::Manhattan, "--max") => {
+            "    --max <V>            the top of the scale, pinned, so figures drawn apart
+                         are read off one ceiling
 "
         }
         (Kind::Windows, "--max") => {
@@ -316,7 +328,15 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
         (Kind::Matrix | Kind::Heatmap, "--max") => {
             "    --max <V>            the value drawn at full colour, as 150 for a depth;
                          read either side of a centre, the full gain, above
-                         the centre, and the loss keeps its own end
+                         the centre, and the loss keeps its own end. A cell
+                         past it carries a dot, and the key reads 150+
+"
+        }
+        (Kind::Variants, "--color") => {
+            "    --color <HEX>        every call in this colour, as in '#8b0000', in place
+                         of a colour each consequence; each keeps its shape,
+                         on the marks and in the key, and with four shapes,
+                         five or more consequences in view are refused
 "
         }
         (Kind::Pairs, "--max") => {
@@ -393,15 +413,47 @@ fn help_on(topic: &str) -> Result<String, String> {
         }
     }
     // `--circular` only where the track has a ring: a tree's help naming it
-    // would offer a flag the tree is refused with.
-    out.push_str(if kind.ring() {
-        "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --colors,\n\
-         --no-axis, --no-region-label, --no-legend, --same-scale, --shade, --circular,\n\
-         --rename, -o.\n"
-    } else {
-        "\nFIGURE OPTIONS, anywhere: --title, --width, --theme, --background, --colors,\n\
-         --no-axis, --no-region-label, --no-legend, --same-scale, --shade, --rename, -o.\n"
-    });
+    // would offer a flag the tree is refused with. `--panel-columns` only
+    // where the track is drawn over a place, the panels it lays out being
+    // places; a tree's help kept under sixty lines without it.
+    let mut options = vec![
+        "--title",
+        "--width",
+        "--theme",
+        "--background",
+        "--colors",
+        "--no-axis",
+        "--no-region-label",
+        "--no-legend",
+        "--same-scale",
+    ];
+    if kind.needs_region() {
+        options.push("--panel-columns");
+    }
+    options.push("--shade");
+    if kind.ring() {
+        options.push("--circular");
+    }
+    options.extend(["--rename", "-o."]);
+    let mut line = String::from("FIGURE OPTIONS, anywhere:");
+    out.push('\n');
+    for (at, option) in options.iter().enumerate() {
+        let word = if at + 1 < options.len() {
+            format!("{option},")
+        } else {
+            (*option).to_string()
+        };
+        if line.len() + 1 + word.len() > 80 {
+            out.push_str(&line);
+            out.push('\n');
+            line = word;
+        } else {
+            line.push(' ');
+            line.push_str(&word);
+        }
+    }
+    out.push_str(&line);
+    out.push('\n');
     out.push_str(&format!(
         "\nMore, with examples: {GUIDE}{}\n",
         guide_page(kind)
@@ -440,10 +492,10 @@ long as the furthest any file reaches on it, or as long as a bigWig says, and
 named underneath. A sequence a file names no row on is a gap in its track, not
 a depth of nought, and a BAM, whose depth there is every read it holds, needs
 a place. Several places, as karyon rpoB katG inhA reads.bam genes.gff3, draw
-one panel each, one under the other, the same tracks over each and the key
-once under them; a track with nothing in one of them says so there rather than
-refusing the figure. Any track file may be - for standard input, and one track
-may take it.
+one panel each, one under the other or side by side with --panel-columns, the
+same tracks over each and the key once after them; a track with nothing in one
+of them says so there rather than refusing the figure. Any track file may be -
+for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, bigWig, samtools depth,
@@ -459,7 +511,9 @@ TRACKS
                          a gene is drawn once, with the exons its transcripts
                          use over a line through its introns, and the ends
                          that do not code at half height
-    --variants <FILE>    point calls, VCF or BCF
+    --variants <FILE>    point calls, VCF or BCF, coloured by the consequence
+                         an annotator wrote in ANN or BCSQ, or else by the
+                         shape of the call: substitution, insertion, deletion
     --genotypes <FILE>   the call of each sample at each site of a VCF or BCF,
                          a row per sample: reference, heterozygous, alternate
                          or not called, at its position
@@ -479,7 +533,8 @@ TRACKS
                          depth, a copy number or a methylation level, as
                          bedtools unionbedg writes it, a sequence, a start and
                          an end, then a column per sample under a header that
-                         names them
+                         names them. Drawn over a place, as chr1 for the whole
+                         of a sequence, and not across a genome with none
     --pileup <FILE>      aligned reads, a BAM or SAM text; takes
                          --with-sequence, and colours what disagrees with it
     --synteny <FILE>     alignment ribbons between two sequences, PAF from
@@ -573,7 +628,8 @@ TRACK OPTIONS, each describing the track before it, once
     --resolution <BASES> the size of bin a .hic is drawn at, one of those it
                          holds, as 10000; by default the finest that cuts the
                          window into 250 bins or fewer. Its raw counts are
-                         drawn, with no normalisation
+                         drawn, with no normalisation, and a cell it does not
+                         list, a count of nought, is left blank
     --ploidy <COPIES>    where balanced sits on a copy number ladder, as in 2;
                          required, since it is not in the file
     --sample <NAME[,N]>  which sample of a segment table holding several; after
@@ -705,7 +761,8 @@ TRACK OPTIONS, each describing the track before it, once
                          windows, with the bottom as far below the line; and
                          the value a matrix, a heatmap or pairs draw at full
                          colour, as 1 for an r²
-    --color <HEX>        as in '#d55e00'
+    --color <HEX>        as in '#d55e00'; after calls, every call in it, each
+                         consequence keeping its shape, of which there are four
     --genetic-code <N>   the NCBI translation table a codon ruler reads, as 2
                          for vertebrate mitochondria; by default the one the
                          annotation's CDS names, or 1, whose residues 11 shares
@@ -729,6 +786,9 @@ FIGURE OPTIONS
                          scale, as the depths of several samples, in every
                          panel, so the same height is the same value; a track
                          given --max keeps its own
+    --panel-columns <N>  lay the panels of several places N to a row, in the
+                         order the places are written, as 2 for two genes side
+                         by side; one under the other by default
     --circular           the place, one whole sequence, drawn as a circle: each
                          track a ring, the first outermost, inside the ruler,
                          a breakend join a chord across the middle, and a key
@@ -756,7 +816,12 @@ FIGURE OPTIONS
     -o, --output <FILE>  standard output by default. A name ending in .pdf is
                          written as PDF and any other as SVG; one ending in
                          .png, .eps or another format is refused, and the
-                         message names a tool that makes it from one of them
+                         message names a tool that makes it from one of them.
+                         A PDF's text is in the standard Helvetica and
+                         Courier, named and not embedded, which a journal's
+                         check for embedded fonts flags; gs -o out.pdf
+                         -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress fig.pdf
+                         writes a copy with them embedded
     -h, --help
     -V, --version
 
@@ -1131,6 +1196,9 @@ mod tests {
         let scan = help_on("manhattan").unwrap();
         assert!(!scan.contains("phylogeny"), "{scan}");
         assert!(scan.contains("p = 5e-8"), "{scan}");
+        // A --label of -log10 p printed the title twice, and the help did not
+        // say the axis has one.
+        assert!(scan.contains("titled -log10 p under it already"), "{scan}");
         // `--max` is a top on one track, both ends on another and a colour on
         // a third, and each is told only its own.
         let windows = help_on("windows").unwrap();
@@ -1138,11 +1206,27 @@ mod tests {
         assert!(!windows.contains("full colour"), "{windows}");
         let pairs = help_on("pairs").unwrap();
         assert!(pairs.contains("an r² is read against 1"), "{pairs}");
+        // A `.hic` lists no cell of nought, and the blank where one would be
+        // read as a cell left undrawn.
+        let flat = pairs.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("a cell it does not list, a count of nought, is left blank"),
+            "{pairs}"
+        );
         let heatmap = help_on("heatmap").unwrap();
         assert!(heatmap.contains("the loss keeps its own end"), "{heatmap}");
         let coverage = help_on("coverage").unwrap();
         assert!(coverage.contains("--max <V>"), "{coverage}");
         assert!(!coverage.contains("full colour"), "{coverage}");
+        assert!(coverage.contains("the top label reads 100+"), "{coverage}");
+        assert!(!scan.contains("100+"), "{scan}");
+        assert!(heatmap.contains("the key reads 150+"), "{heatmap}");
+        // Calls given a colour lose the consequences' colours, and say so.
+        let variants = help_on("variants").unwrap();
+        assert!(variants.contains("in place\n"), "{variants}");
+        assert!(variants.contains("each keeps its shape"), "{variants}");
+        // And says where the shapes run out, which is refused.
+        assert!(variants.contains("five or more consequences in view are refused"));
     }
 
     /// A CRAM named on its own is taken for a depth and refused with the
@@ -1163,11 +1247,147 @@ mod tests {
         // --same-scale among them, which the line had left out.
         let coverage = help_on("coverage").unwrap();
         assert!(coverage.contains("--same-scale,"), "{coverage}");
+        assert!(coverage.contains("--panel-columns,"), "{coverage}");
+        assert!(!help_on("tree").unwrap().contains("--panel-columns"));
         assert!(coverage.contains("--shade,"), "{coverage}");
         // And `--circular` where the track has a ring, and not where it is
         // refused.
         assert!(coverage.contains("--circular,"), "{coverage}");
         assert!(!help_on("tree").unwrap().contains("--circular"));
+    }
+
+    /// The short help names the tracks drawn across a genome with no place
+    /// by their flags, the ones the parser spreads: a windows table read as
+    /// a heatmap is a table too, and `a scan, bedGraph or segment table` was
+    /// read as saying it would span the genome. And it says a BAM needs a
+    /// place: `--coverage` files alone were said to span the genome, and a
+    /// BAM, which is one, is refused without a place.
+    #[test]
+    fn the_short_help_names_the_tracks_that_need_no_place() {
+        let flat = SHORT.split_whitespace().collect::<Vec<_>>().join(" ");
+        let said = flat
+            .split_once("Trees need")
+            .expect("the sentence on what needs no place")
+            .1
+            .split_once("span the genome")
+            .expect("its end")
+            .0;
+        let said: Vec<&str> = said
+            .split(|c: char| c.is_whitespace() || c == ',')
+            .filter(|word| word.starts_with("--"))
+            .collect();
+        let spread: Vec<&str> = args::Kind::ALL
+            .iter()
+            .filter(|kind| kind.genome_wide())
+            .map(|kind| kind.dashed())
+            .collect();
+        let mut sorted = said.clone();
+        sorted.sort_unstable();
+        let mut expected = spread.clone();
+        expected.sort_unstable();
+        assert_eq!(sorted, expected, "{said:?}");
+        // What it says alone spans the genome does, and a BAM does not.
+        let parsed = |line: &str| {
+            let words: Vec<String> = line.split_whitespace().map(String::from).collect();
+            args::parse(&words)
+        };
+        assert!(
+            flat.contains("a bedGraph or bigWig of --coverage alone"),
+            "{flat}"
+        );
+        for line in ["depth.bedgraph", "depth.bw", "--coverage depth.bw"] {
+            match parsed(line) {
+                Ok(args::Request::Draw(invocation)) => {
+                    assert!(invocation.genome_wide(), "{line}")
+                }
+                other => panic!("{line}: {other:?}"),
+            }
+        }
+        assert!(flat.contains("A BAM is its depth over a place"), "{flat}");
+        for line in ["reads.bam", "--coverage reads.bam"] {
+            assert!(parsed(line).is_err(), "{line}");
+        }
+        // And a heatmap, whose table has a bedGraph's first three columns,
+        // says in its own help that it is not one of them.
+        assert!(!spread.contains(&"--heatmap"));
+        let heatmap = help_on("heatmap").unwrap();
+        assert!(heatmap.contains("Drawn over a place"), "{heatmap}");
+    }
+
+    /// A PDF names Helvetica and Courier and embeds neither, which a
+    /// journal's font check flags, and `-o` said only that a name ending in
+    /// .pdf is written as PDF: a figure made for a paper met it at upload.
+    #[test]
+    fn the_help_on_a_pdf_says_its_faces_are_not_embedded() {
+        let (_, output) = entries(section("FIGURE OPTIONS"))
+            .into_iter()
+            .find(|(flag, _)| *flag == "-o")
+            .expect("an entry for -o");
+        let said = output.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            said.contains("Helvetica and Courier, named and not embedded"),
+            "{said}"
+        );
+        assert!(said.contains("embedded fonts flags"), "{said}");
+        assert!(
+            said.contains("-sDEVICE=pdfwrite -dPDFSETTINGS=/prepress"),
+            "{said}"
+        );
+        for line in output.lines() {
+            assert!(line.chars().count() <= 80, "wider than a terminal: {line}");
+        }
+    }
+
+    /// Calls are coloured by the consequence an annotator wrote, and `karyon
+    /// help variants` said only `point calls, VCF or BCF`, so a reader after
+    /// calls of one colour had nothing to say what colours them now.
+    #[test]
+    fn the_help_on_calls_says_what_colours_them() {
+        let variants = help_on("variants").unwrap();
+        assert!(
+            variants.contains("coloured by the consequence"),
+            "{variants}"
+        );
+        for field in ["ANN", "BCSQ"] {
+            assert!(names(&variants, field), "{field}: {variants}");
+        }
+        assert!(variants.contains("--color <HEX>"), "{variants}");
+    }
+
+    /// What two readers looked for on the page they started from and found on
+    /// another or nowhere. `--shade` was offered on the whole-genome page
+    /// alone; the codons row did not say its CDS comes from the annotation on
+    /// the line, so `genes.gff3` was kept there by guesswork; and a page
+    /// titled `Many samples in windows` was opened for sample sheets and was a
+    /// heatmap with no word of where they are.
+    #[test]
+    fn the_pages_readers_start_on_offer_what_they_looked_for() {
+        const READS: &str = include_str!("../../../docs/your-data/reads.md");
+        const SAMPLES: &str = include_str!("../../../docs/your-data/samples.md");
+        const NAV: &str = include_str!("../../../mkdocs.yml");
+        let table = READS
+            .split_once("## Change it")
+            .expect("the reads page has a table of changes")
+            .1;
+        let rows: Vec<&str> = table.lines().filter(|line| line.starts_with('|')).collect();
+        assert!(
+            rows.iter().any(|row| names(row, "--shade")),
+            "the reads page offers no --shade"
+        );
+        let codons = rows
+            .iter()
+            .find(|row| names(row, "--codons"))
+            .expect("a row numbers the codons");
+        assert!(codons.contains("is read from `genes.gff3`"), "{codons}");
+        assert!(
+            READS.contains("`ANN` or `BCSQ`"),
+            "the calls' colour unexplained"
+        );
+
+        assert!(SAMPLES.contains("title: A heatmap of many samples"));
+        assert!(SAMPLES.contains("# A heatmap of many samples"));
+        assert!(SAMPLES.contains("(../guide/formats.md#the-sample-sheet)"));
+        assert!(NAV.contains("- A heatmap of many samples: your-data/samples.md"));
     }
 
     #[test]

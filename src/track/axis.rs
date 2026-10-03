@@ -192,8 +192,11 @@ impl Track for AxisTrack {
         // pulled inside the figure, and a label pulled in can land on its
         // neighbour; that neighbour is left unlabelled rather than printed
         // through it.
-        let mut last_right = f64::NEG_INFINITY;
-        for pos in ticks.positions {
+        //
+        // The last label is placed first and the others give way to it, so
+        // the ruler says where it ends: given way to, it was the one left
+        // out, and a 101 bp window ended on a bare tick at 1,100,350.
+        let place = |pos: u64| -> (f64, String, Anchor, f64, f64) {
             // Ticks are computed in 1-based space so their labels are round
             // numbers; the scale works in 0-based space.
             let x = if self.center_on_bases {
@@ -201,15 +204,6 @@ impl Track for AxisTrack {
             } else {
                 ctx.scale.x(pos - 1)
             };
-            ctx.svg.line(
-                x,
-                rule_y,
-                x,
-                rule_y + tick_length,
-                &tick_ink,
-                ctx.theme.tokens.stroke,
-            );
-
             let text = unit.format(pos);
             // Keep the first and last labels from hanging off the figure.
             let half = mono_width(&text, font) / 2.0;
@@ -220,10 +214,30 @@ impl Track for AxisTrack {
             } else {
                 (Anchor::Middle, x, x - half)
             };
-            if left < last_right + font * 0.5 {
+            (x, text, anchor, tx, left)
+        };
+        let end_left = match ticks.positions[..] {
+            [_, .., last] => place(last).4,
+            _ => f64::INFINITY,
+        };
+        let count = ticks.positions.len();
+        let mut last_right = f64::NEG_INFINITY;
+        for (index, pos) in ticks.positions.into_iter().enumerate() {
+            let (x, text, anchor, tx, left) = place(pos);
+            ctx.svg.line(
+                x,
+                rule_y,
+                x,
+                rule_y + tick_length,
+                &tick_ink,
+                ctx.theme.tokens.stroke,
+            );
+            let width = mono_width(&text, font);
+            let last = index + 1 == count;
+            if left < last_right + font * 0.5 || (!last && left + width + font * 0.5 > end_left) {
                 continue;
             }
-            last_right = left + half * 2.0;
+            last_right = left + width;
             ctx.svg
                 .text_styled(tx, label_y, &text, &ctx.theme.muted, font, anchor, style);
         }
@@ -428,8 +442,10 @@ impl TickUnit {
 /// position 5000, and step alone would print `1500 kb` where `1.5 Mb` belongs.
 fn tick_unit(max_pos: u64, step: u64) -> TickUnit {
     // Three decimals of a megabase is kilobase resolution, still readable.
-    // Three decimals of a kilobase is just a base with a decimal point in it,
-    // so kilobases are held to two.
+    // Two decimals of a kilobase is already a base with a decimal point in
+    // it: a 101 bp window was ruled `1100.25 kb` to `1100.34 kb`, a number
+    // nobody types into a browser. Kilobases are held to one, and a step
+    // finer than a hundred bases is written in bases, `1,100,250`.
     if max_pos >= 1_000_000 {
         if let Some(decimals) = decimals_for(step, 1_000_000, 3) {
             return TickUnit {
@@ -440,7 +456,7 @@ fn tick_unit(max_pos: u64, step: u64) -> TickUnit {
         }
     }
     if max_pos >= 10_000 {
-        if let Some(decimals) = decimals_for(step, 1_000, 2) {
+        if let Some(decimals) = decimals_for(step, 1_000, 1) {
             return TickUnit {
                 divisor: 1_000,
                 suffix: " kb",
@@ -606,6 +622,39 @@ mod tests {
         let unit = tick_unit(5_000_020, 5);
         assert_eq!(unit.divisor, 1);
         assert_eq!(unit.format(5_000_010), "5,000,010");
+    }
+
+    /// A step under a hundred bases is written in bases: two decimals of a
+    /// kilobase is a base count with a point in it, and a 101 bp window was
+    /// ruled `1100.25 kb` to `1100.34 kb`. One decimal is kept.
+    #[test]
+    fn a_step_under_a_hundred_bases_is_written_in_bases() {
+        let unit = tick_unit(1_100_350, 10);
+        assert_eq!(unit.divisor, 1);
+        assert_eq!(unit.format(1_100_250), "1,100,250");
+        assert_eq!(tick_unit(20_000, 50).format(19_950), "19,950");
+        assert_eq!(tick_unit(20_000, 100).format(19_900), "19.9 kb");
+    }
+
+    /// The last label stands and an interior one gives way to it, so the
+    /// ruler says where it ends: a 101 bp window ended on a bare tick.
+    #[test]
+    fn the_last_label_stands_and_an_interior_one_gives_way() {
+        use crate::figure::Figure;
+        use crate::region::Region;
+
+        let svg = Figure::new(Region::parse("chr17:1,100,250-1,100,350").unwrap())
+            .show_region_label(false)
+            .push(AxisTrack::new())
+            .to_svg();
+        let labels: Vec<&str> = svg
+            .split("</text>")
+            .filter_map(|text| text.rsplit('>').next())
+            .filter(|text| text.starts_with("1,100,"))
+            .collect();
+        assert_eq!(labels.first(), Some(&"1,100,250"), "{labels:?}");
+        assert_eq!(labels.last(), Some(&"1,100,350"), "{labels:?}");
+        assert!(labels.len() >= 6, "{labels:?}");
     }
 
     #[test]

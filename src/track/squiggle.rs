@@ -32,6 +32,7 @@ use crate::scale::Scale;
 use crate::style::{legible_ticks, QuantitativeAxis};
 use crate::svg::Anchor;
 use crate::theme::Theme;
+use crate::track::axis::group_thousands;
 use crate::track::{unbroken, DrawContext, Track};
 
 /// Where a called base starts in the signal.
@@ -276,9 +277,52 @@ impl SquiggleTrack {
     }
 }
 
+/// How wide a base has to be for its letter, in ems of the letters' size.
+const LETTER_EMS: f64 = 1.2;
+
 impl Track for SquiggleTrack {
     fn noun(&self) -> &str {
         "raw nanopore signal"
+    }
+
+    /// How many bases in view are dots rather than letters, and the window
+    /// that letters every base of the read: as many samples as the plot
+    /// gives the shortest base room for, starting at the first base left
+    /// unlettered.
+    fn notes(&self, region: &Region, px_per_bp: f64, theme: &Theme) -> Vec<String> {
+        if !self.show_bases || px_per_bp <= 0.0 {
+            return Vec::new();
+        }
+        let need = (theme.font_size - 1.0) * LETTER_EMS;
+        let every = self.bases();
+        let bases: Vec<&(usize, usize)> = every
+            .iter()
+            .filter(|(from, to)| (*to as u64) > region.start() && (*from as u64) < region.end())
+            .collect();
+        let narrow: Vec<&&(usize, usize)> = bases
+            .iter()
+            .filter(|(from, to)| (to - from) as f64 * px_per_bp < need)
+            .collect();
+        let Some(&&&(first, _)) = narrow.first() else {
+            return Vec::new();
+        };
+        let shortest = every.iter().map(|(from, to)| to - from).min().unwrap_or(1);
+        let plot = region.len() as f64 * px_per_bp;
+        let samples = ((plot * shortest as f64 / need).floor() as usize).max(1);
+        let end = (first + samples).min(self.start + self.signal.len());
+        let who = self
+            .label
+            .as_deref()
+            .map_or(String::new(), |label| format!("{label}: "));
+        vec![format!(
+            "{who}{} of {} bases are too narrow for their letters at this width, each a \
+             dot where its letter would be; {}:{}-{} letters every base",
+            group_thousands(narrow.len() as u64),
+            group_thousands(bases.len() as u64),
+            region.seq(),
+            group_thousands(first as u64 + 1),
+            group_thousands(end as u64)
+        )]
     }
 
     fn height(&self, _scale: &Scale) -> f64 {
@@ -441,12 +485,23 @@ impl SquiggleTrack {
         }
     }
 
-    /// The called base over each of its samples, where there is room.
+    /// The called base over each of its samples, where there is room, and a
+    /// dot where there is not.
+    ///
+    /// A row of letters with one left out reads as a sequence one base short:
+    /// over the first 400 samples of a read whose basecall starts
+    /// GGATCACAGTCTACACT, a C dwelling five samples was too narrow for its
+    /// letter and the row read GGATCACAGTTACACT. The dot holds its place.
+    /// A row with no letter at all reads as no sequence and gets no dots,
+    /// which across a whole read would be a line of thousands.
     fn draw_base_letters(&self, ctx: &mut DrawContext<'_>) {
         let band = ctx.band;
         let size = ctx.theme.font_size - 1.0;
-        for (x0, x1, base) in self.base_spans(ctx) {
-            if x1 - x0 >= size * 1.2 {
+        let spans = self.base_spans(ctx);
+        let fits = |x0: f64, x1: f64| x1 - x0 >= size * LETTER_EMS;
+        let any = spans.iter().any(|&(x0, x1, _)| fits(x0, x1));
+        for (x0, x1, base) in spans {
+            if fits(x0, x1) {
                 ctx.svg.text(
                     (x0 + x1) / 2.0,
                     band.y + size,
@@ -455,8 +510,33 @@ impl SquiggleTrack {
                     size,
                     Anchor::Middle,
                 );
+            } else if any {
+                // A dot rather than a tick, which beside letters reads as an
+                // I.
+                ctx.svg.circle(
+                    (x0 + x1) / 2.0,
+                    band.y + size * 0.65,
+                    ctx.px(1.25),
+                    &ctx.theme.muted,
+                );
             }
         }
+    }
+
+    /// Where each called base begins and ends, in samples.
+    fn bases(&self) -> Vec<(usize, usize)> {
+        let end = self.start + self.signal.len();
+        self.moves
+            .iter()
+            .enumerate()
+            .filter_map(|(index, step)| {
+                let next = self
+                    .moves
+                    .get(index + 1)
+                    .map_or(end, |following| following.sample);
+                (next > step.sample).then_some((step.sample, next))
+            })
+            .collect()
     }
 
     /// Where each called base begins and ends on the page.
@@ -690,6 +770,52 @@ mod tests {
         assert!(svg.contains(">C</text>"));
         // Every other one, so the boundaries read as boundaries.
         assert_eq!(svg.matches(">A</text>").count(), 3);
+    }
+
+    #[test]
+    fn a_base_too_narrow_for_its_letter_holds_its_place_with_a_dot() {
+        // Twenty-sample bases with a two-sample C between the fourth and the
+        // fifth: lettered, the row read one base short with no sign of it.
+        let mut moves: Vec<Move> = (0..4).map(|i| Move::new(i * 20, b'A')).collect();
+        moves.push(Move::new(80, b'C'));
+        moves.extend((0..4).map(|i| Move::new(82 + i * 20, b'G')));
+        let track = SquiggleTrack::new(0, vec![80.0; 162]).moves(moves);
+        let figure = Figure::new(region(162))
+            .show_region_label(false)
+            .push(track.clone());
+        let svg = figure.to_svg();
+        assert_eq!(svg.matches(">A</text>").count(), 4, "{svg}");
+        assert_eq!(svg.matches(">G</text>").count(), 4, "{svg}");
+        assert!(!svg.contains(">C</text>"), "{svg}");
+        assert_eq!(svg.matches("<circle").count(), 1, "{svg}");
+
+        // The note counts it and names a window that letters it, and that
+        // window draws every letter and notes nothing.
+        let notes = figure.notes();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("1 of 9 bases are too narrow"),
+            "{notes:?}"
+        );
+        let window = notes[0].rsplit("; ").next().unwrap();
+        let window = window.strip_suffix(" letters every base").unwrap();
+        let zoom = Region::parse(window).unwrap();
+        assert_eq!(zoom.start(), 80, "{window}");
+        let zoomed = Figure::new(zoom)
+            .show_region_label(false)
+            .push(track.clone());
+        assert!(zoomed.to_svg().contains(">C</text>"));
+        assert!(zoomed.notes().is_empty(), "{:?}", zoomed.notes());
+
+        // A row with no letter at all gets no dots, but is still noted.
+        let far = Figure::new(region(400))
+            .width(200.0)
+            .show_region_label(false)
+            .push(track);
+        let svg = far.to_svg();
+        assert!(!svg.contains(">A</text>"), "{svg}");
+        assert_eq!(svg.matches("<circle").count(), 0, "{svg}");
+        assert_eq!(far.notes().len(), 1);
     }
 
     #[test]

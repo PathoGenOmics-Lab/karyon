@@ -92,6 +92,7 @@ may paint in, and clips it there.
 | `label()` | the name in the left gutter, which the figure draws | `None` |
 | `y_axis_width(&Theme)` | how much room this track wants for a [value axis](#asking-for-a-value-axis) | `0.0` |
 | `on_coordinates()` | whether the track is laid on the shared coordinate axis | `true` |
+| `notes(&Region, px_per_bp, &Theme)` | what the track leaves off the page at this zoom, a sentence each, which `Figure::notes()` gathers and the command line prints | none |
 | `draw(&mut DrawContext)` | the marks | required |
 
 Return `false` from `on_coordinates` only when the track's x is not the

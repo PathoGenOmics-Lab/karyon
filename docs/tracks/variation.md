@@ -21,7 +21,7 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 | | |
 |:--|:--|
 | Rust | `.add_variants(variants)` on `plot()`; `VariantTrack::new(variants)` |
-| Command line | `--variants FILE`, with `--style`, `--height` |
+| Command line | `--variants FILE`, with `--style`, `--height`, and `--color`, which paints every call one colour, each consequence keeping its shape, of which there are four: five or more consequences in view are refused, but for ticks |
 | Reads | VCF: `AF` as the value, and the `ANN` or `BCSQ` consequence, or the shape of the call, as the category (`read::point::variants`); bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window (`read::tabix`); a BCF, its sites over the window through the `.csi` beside it, as the VCF `bcftools view -G` prints (`read::bcf::window`) |
 
 === "Rust"
@@ -60,10 +60,12 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 | `.show_scale(false)` | Shows or hides the value axis | shown |
 | `.axis_title("AF")` | What the stems measure, under the track's name while the axis is drawn (set by the command line) | none |
 | `.color("#555555")` | Colour of variants without a category | theme accent |
+| `.uniform_color("#8b0000")` | Paints every variant this colour, whatever its category; each category keeps its shape, on the marks and in the key, and ticks, which have no shape, have no key (`--color`). There are four shapes, and a fifth category takes the first one's again, which the command line refuses | a colour each category |
+| `.category_order(["stop_gained", "missense_variant"])` | Gives each category named the palette slot of its place in the list, drawn or not; the rest follow by first appearance (the command line passes the consequences in view, most damaging first, and in a figure of several places those of every panel, ranked together) | first appearance |
 
 #### Notes
 
-Categories take palette colours in order of first appearance, not by hash, so the same list always gives the same figure. That determinism is the refusal: a figure that recolours itself when a sample is added is not one you can put in a paper. Sorting the same variants differently hands out different colours, so two figures that must agree on what red means need their variants in one order.
+Categories take palette colours in order of first appearance, not by hash, so the same list always gives the same figure. That determinism is the refusal: a figure that recolours itself when a sample is added is not one you can put in a paper. Sorting the same variants differently hands out different colours, so two figures that must agree on what red means need their variants in one order, or one `category_order`, which fixes a category's slot whatever the window holds. The command line ranks the consequences in view from the most damaging down, in Ensembl's order of the Sequence Ontology terms, with snpEff's own terms ranked as the consequence each is a kind of, then the shapes of calls nothing annotated, then any other word alphabetically. By first appearance, missense was the second colour across a gene whose first call was synonymous and the first in a zoom holding only missense calls; ranked, a colour moves only when a zoom leaves a more damaging consequence out. The panels of a figure of several places rank the consequences of every panel together, so one consequence is one colour across the figure.
 
 A variant with no value gets a full-height stem, which is right when there is no quantity to show. Ticks ignore values altogether, and the value axis is drawn only when the stems are measuring something. Pin `max` whenever two panels carry the same quantity.
 
@@ -76,7 +78,7 @@ From VCF, `POS` becomes `POS - 1`, a row with several alternates gives one call 
 The call of each sample at each site of a cohort's VCF: one row per sample and one cell per record, each at its own position on the shared axis, so a column of calls stands under the lollipop a [VariantTrack](#varianttrack) draws for the same record and under the gene it falls in. Put a phylogeny beside it and the alleles a clade shares line up into a block.
 
 <figure class="k-start" markdown>
-![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, blue cells where it carries the other allele, the blue cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }
+![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, dark cells where it carries the other allele, the dark cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }
 ![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" loading="lazy" }
 </figure>
 
@@ -142,9 +144,9 @@ A cell is the share of the call's copies that are not the reference, which is th
 
 Four marks, because four things can be true of a sample at a site: a reference call is a short quiet bar, as an agreement is in a [SnpTrack](#snptrack); a heterozygous call and an alternate call are full cells at two strengths of the hue; and a sample with no call is a pale full cell. A stretch with no record in it is the page. A call with any copy unknown, `./1` say, is no call: counted over its known copies it would be all alternate, and a heterozygote would be drawn as a homozygote. The quiet marks are mixed from the theme's muted ink and not from its rule, since a bar mixed from the rule is 1.06 to one against the light page and close to not there; mixed from the ink it is 2.07 to one, the pale cell of no call 1.31, and the two are 1.58 apart as well as different shapes.
 
-A cell is drawn at a floor width, centred on its base, which at the zoom a cohort is read at is wider than the gap between sites. So the track works out which cells would overlap before drawing any. A site whose cell touches no other is a cell, with a tooltip of its own when it carries an alternate allele. Sites whose cells overlap are a cluster, and a cluster is painted a pixel at a time: each pixel takes the share of alternate copies among the calls under it, in eight steps, and any alternate copy is at least the first step, so one heterozygote among forty references is not drawn as a reference. The cluster runs from the left edge of its first cell to the right edge of its last, and runs of one shade are one rectangle. Twenty thousand sites of two hundred samples over a megabase, drawn a cell at a time as a [MatrixTrack](#matrixtrack) draws them, were 258 MB and four million rectangles; drawn here they are 0.94 MB.
+A cell is drawn at a floor width, centred on its base, which at the zoom a cohort is read at is wider than the gap between sites. So the track works out which cells would overlap before drawing any. A site whose cell touches no other is a cell, with a tooltip of its own when it carries an alternate allele. Sites whose cells overlap are a cluster, and a cluster is painted a pixel at a time: each pixel takes the share of alternate copies among the calls under it, in eight steps, and any alternate copy is at least the first step, so one heterozygote among forty references is not drawn as a reference. The cluster runs from the left edge of its first cell to the right edge of its last, and runs of one shade are one rectangle. A run of at most eight sites that carries an alternate copy names each of them and the sample's call there, as `S03, 2 sites too close to draw apart, 1 carrying an alternate allele: 763,290 G>C alternate; 763,295 G>T reference`, so a shade between the reference and the hue reads as the sites it pools; a run of more is left to its row's tooltip, which keeps a megabase of a cohort the size it was. Twenty thousand sites of two hundred samples over a megabase, drawn a cell at a time as a [MatrixTrack](#matrixtrack) draws them, were 258 MB and four million rectangles; drawn here they are 0.94 MB.
 
-The key names the four states while every cell is one call, and only the ones the figure holds: a haploid cohort has no heterozygous call to key. Once a pixel is an average of several calls, or a call is a share a diploid cannot make, it keys the steps as a ramp instead, with the reference and no call beside it. Each row's tooltip counts what the window holds of that sample: how many sites it was called at and how many it carries an alternate allele at.
+The key names the four states while every cell is one call, and only the ones the figure holds: a haploid cohort has no heterozygous call to key. Once a pixel is an average of several calls, or a call is a share a diploid cannot make, it keys the steps as a ramp instead, with the reference and no call beside it, titled `alternate copies among a pixel's calls` where a pixel pools sites. Each row's tooltip counts what the window holds of that sample: how many sites it was called at and how many it carries an alternate allele at.
 
 The rows stop at forty and the figure counts the rest, as `+N more`. `tree` sorts them by descent and draws the tree beside them; a sample the tree does not name keeps its row at the bottom, and a tip with no row is counted under the rows. On the command line, `--sample S3,S1` chooses the rows and their order, and with `--with-tree` as well the tree orders the rows chosen.
 
@@ -224,7 +226,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | | |
 |:--|:--|
 | Rust | `.add_copy_number(segments, ploidy)` on `plot()`; `CopyNumberTrack::at_ploidy(segments, ploidy)`, `CopyNumberTrack::diploid(segments)`, `CopyNumberTrack::haploid(segments)` |
-| Command line | `--copy-number FILE --ploidy COPIES`, or a `.cns` or `.seg` named on its own, with `--sample`, `--height`; with no place, across the whole genome |
+| Command line | `--copy-number FILE --ploidy COPIES`, or a `.cns` or `.seg` named on its own, with `--sample`, `--height`; with no place, across the whole genome. Named on its own, `tumour.cns` is labelled `tumour copy number`, apart from a depth `tumour.bedgraph` beside it, and a key under the figure names what it draws |
 | Reads | a segment table with a header: CNVkit `.cns`, ASCAT, or `.seg` (`read::segments::copy_numbers`, and `read::segments::genome_copy_numbers` for every sequence) |
 
 === "Rust"
@@ -268,6 +270,8 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 #### Notes
 
 Where balanced sits has no default, in `at_ploidy` or on the command line, where `--ploidy` is required. The crate does not know what it is drawing, and a rule in the wrong place does not merely mis-scale the ladder: it swaps every gain for a loss. `diploid` and `haploid` say it for you.
+
+The key is the marks drawn: `legend` gives the whole track's, and the `key` a figure gathers gives the ones the segments in view use, so a zoom into a gain is not keyed with a loss it left out. The thick bar of a balanced total is keyed `total copies` as a line, the thin bar of the minor allele `minor allele` as a line half as thick (`Marker::ThinLine`), and the lane's states only while the lane is shown. A tooltip says `1 copy` and `2 copies`.
 
 A level is a bar drawn at the level, not a fill from a line to it. A window track fills from its baseline, so a segment called exactly at the ploidy draws nothing, and a balanced segment is most of a genome: its quiet arms would look the same as arms nobody called. That is why this is not a [WindowTrack](signal-sequence.md#windowtrack).
 
@@ -409,7 +413,7 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | `.tree_shape(TreeShape::Cladogram)` | Phylogram or cladogram for that tree | `Phylogram` |
 | `.traits(traits)` | Metadata columns between the names and the cells (`--traits`, `--columns`) | none |
 | `.unit("×")` | Written after the two numbers at the ends of the key | none |
-| `.max(150.0)` | The value drawn at full colour, so matrices drawn apart read off one ramp: the top of a sequential ramp, winning over `Sequential { max }` in either order, or the end of the gain above a diverging one's centre, whose loss keeps its own reach (`--max`) | the largest value in the matrix |
+| `.max(150.0)` | The value drawn at full colour, so matrices drawn apart read off one ramp: the top of a sequential ramp, winning over `Sequential { max }` in either order, or the end of the gain above a diverging one's centre, whose loss keeps its own reach (`--max`). A cell in view past an end is drawn at it with a dot, and the key's end reads `150+` (`≤-3` below a diverging one) | the largest value in the matrix |
 
 #### Notes
 
@@ -478,7 +482,7 @@ Association statistics: one point per test, height by significance, a line where
 | `.axis(QuantitativeAxis::new())` | Replaces the value axis | automatic |
 | `.color("#9ca3af")` | Colour of points below the line | theme muted grey |
 | `.significant_color("#d55e00")` | Colour of points at or above it | a palette colour |
-| `.axis_title("-log10 p")` | What the axis measures, under the track's name (set by the command line for a file of p-values) | none |
+| `.axis_title("-log10 p")` | What the axis measures, under the track's name (set by the command line for a file of p-values); left out where the name says the same | none |
 | `.unit("x")` | Suffix after the top number, for a unit written as a symbol | none |
 | `.show_scale(false)` | Shows or hides the value axis | shown |
 | `.linkage(lead, r2)` | Colours each point by its r² with the lead variant at `lead`, 0-based, and draws the lead as a diamond with its position over it (`--ld`) | one colour |
@@ -493,7 +497,7 @@ There is no default threshold, on purpose, and `significant()` returns nothing u
 
 Points are small on purpose, since the plot is read as a texture with towers in it, and a hit gets a ring rather than a bigger disc.
 
-`linkage` draws a peak the way LocusZoom does: every point coloured from grey to the accent by its r² with the lead, and the lead a diamond with its name or its position over it, both keyed under the figure. `recombination` lays the rate under the points, as LocusZoom does too, on a scale of its own on the right with its unit after the highest number: a peak ends where the haplotypes it rides on break up, at a hotspot, so the two are read against each other. The figure makes room for that scale on the right of every track, so the bands still end together. A tower beside the peak whose points stay grey is another signal rather than the same one. A point whose linkage is not known is a paler grey than an r² of nought. On the command line `--ld` names PLINK's table of the lead against its neighbours; the lead is the variant in every row, or, in a table of every pair, the strongest variant of the scan that the table names.
+`linkage` draws a peak the way LocusZoom does: every point coloured from grey to the accent by its r² with the lead, and the lead a diamond with its name or its position over it, both keyed under the figure. `recombination` lays the rate under the points, as LocusZoom does too, on a scale of its own on the right with its unit after the highest number: a peak ends where the haplotypes it rides on break up, at a hotspot, so the two are read against each other. The figure makes room for that scale on the right of every track, so the bands still end together. A tower beside the peak whose points stay grey is another signal rather than the same one. A point whose linkage is not known is an open ring in the muted ink, keyed `no r² (5)` with the count in view, and `Figure::notes()`, which the command line prints, says how many of the points in view it is. On the command line `--ld` names PLINK's table of the lead against its neighbours; the lead is the variant in every row, or, in a table of every pair, the strongest variant of the scan that the table names.
 
 The x axis is genomic, so this draws one sequence or one region of one. For a scan across a whole genome, build the figure over a `Genome`, pass `Genome::boundaries` to `bands` so the shading changes where each sequence starts, and put a [GenomeTrack](whole-genome.md#genometrack) under it.
 
@@ -553,7 +557,7 @@ Pairs of places and a value between them: linkage between variants, contacts bet
 
 A pair is two stretches, `Pair::spans` for two bins or two anchors, or two single bases, `Pair::new` for two variants. In a triangle each pair is a cell under the point half way between its places, as deep as they are far apart, so a block of variants inherited together is a dark triangle under the stretch it covers. A single base owns the stretch from half way to the place before it to half way to the one after, so the cells tile the triangle whatever the spacing, and each still sits under its own place. The triangle is squeezed to its band where the widest pair is deeper than it, and never stretched.
 
-`PairStyle::for_pairs` chooses a triangle where at least half the places are measured against the next place along, as linkage within a window and contact maps are, and arcs where fewer are, as a handful of epistatic sites or loops. The command line draws linkage as a triangle whatever its window left out. A pair with no value, or under the threshold, is not drawn; every drawn pair carries its places, counted from 1, and its value in a tooltip, up to 2,500 cells.
+`PairStyle::for_pairs` chooses a triangle where at least half the places are measured against the next place along, as linkage within a window and contact maps are, and arcs where fewer are, as a handful of epistatic sites or loops. The command line draws linkage as a triangle whatever its window left out. A pair with no value, or under the threshold, is not drawn; every drawn pair carries its places, counted from 1, and its value in a tooltip, up to 2,500 cells. A pair not given is not a cell either: the triangle leaves it as the page, and the pale end of the key is the colour of a pair given at nought. A triangle is as deep as its farthest pair in view, so a contact map listed out to a distance from its diagonal, as a `.hic` keeps only the cells that hold a count, ends at that distance in a jagged edge.
 
 ## SelectionTrack { #selectiontrack }
 
@@ -621,9 +625,9 @@ Site-wise molecular selection in two aligned tiers, so evidence and effect never
 
 #### Notes
 
-A site that crosses the threshold is drawn as a larger diamond instead of a small circle. Colour follows the direction of ω and not the evidence, so a significant purifying site keeps the purifying colour.
+A site that crosses the threshold is drawn as a larger diamond instead of a small circle, and while thirty or fewer cross it in view each is named over its mark, from 1 as the ruler counts; sites whose names would touch share one, as `58, 59, 63-65`. Colour follows the direction of ω and not the evidence, so a significant purifying site keeps the purifying colour.
 
-Missing evidence or rates are left out rather than drawn at nought, the exact values you supplied stay in the tooltips, and an infinite ω from `dS = 0` is capped only in the drawn geometry.
+Missing evidence or rates are left out rather than drawn at nought, the exact values you supplied stay in the tooltips, and an infinite ω from `dS = 0` is capped only in the drawn geometry. A ratio past either end of the effect tier is held at that end and drawn open, and the end is then written as a bound, `ω ≥ 8` or `≤ 1/8`, so a held mark does not read as exactly the end.
 
 `SelectionSite::episodic_rates(beta_minus, beta_plus, weight)` keeps the two nonsynonymous rate classes of an episodic model and the weight of the positive one; the evidence mark gets a small two-part capsule and the tooltip keeps all three numbers. A class with no ω to draw is counted by `undrawable_rate_class_count()` rather than painted from an assumed denominator.
 

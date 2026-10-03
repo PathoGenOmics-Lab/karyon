@@ -30,7 +30,10 @@ together are the dark triangles.
   is: `karyon chr1:20,000,001-22,000,000 contacts.hic`. It is read at the
   finest of its resolutions that cuts the window into 250 bins or fewer, which
   a note names, and `--resolution 10000` picks another it holds. Its raw counts
-  are drawn, with none of its normalisations applied.
+  are drawn, with none of its normalisations applied. A `.hic` lists only the
+  cells that hold a count, and a cell it does not list is left as the page,
+  not drawn in the pale end of the key; the triangle reaches as far from the
+  diagonal as the farthest cell it lists in the window.
 - **Loops, or a cooler file**: BEDPE, as loop callers write their loops and
   `cooler dump --join` writes a contact map. A `.cool` is drawn with
   `--pairs <(cooler dump --join -r REGION map.cool)`, and a `.mcool` named on
@@ -47,6 +50,7 @@ together are the dark triangles.
 | Weak linkage read on a scale of its own, rather than against an r² of 1 | `--max 0.5` |
 | Contacts, which fall by orders of magnitude | `--log` |
 | A contact map at bins of 10 kb, where the file holds them | `--resolution 10000` |
+| The ruler along the diagonal, over the triangle | `--axis` before the file |
 | Scores between the calls, over the calls | `rpoB genes.gff3 calls.vcf.gz --pairs epistasis.tsv` |
 
 The example files: [linkage.ld](../data/linkage.ld) and

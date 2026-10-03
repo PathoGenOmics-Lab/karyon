@@ -43,7 +43,21 @@
 //! it. Appending leaves the marks already drawn alone; sorting the same
 //! variants by position or by frequency hands out different colours. Two
 //! figures that have to agree on what red means must be given their variants in
-//! one order.
+//! one order, or one order of categories through
+//! [`VariantTrack::category_order`], which fixes each category's slot whatever
+//! the window holds. The command line hands it the categories in view ranked
+//! from the most damaging consequence to the least, so a category's colour
+//! does not hang on which call happens to come first in the window, and in a
+//! figure of several places the categories of every panel, ranked together,
+//! so a category is one colour across the figure.
+//!
+//! [`VariantTrack::uniform_color`] paints every call one colour instead, as a
+//! figure whose calls are to match a colour already used elsewhere asks. The
+//! categories keep their shapes, on the marks and in the key, so a missense
+//! call and a synonymous one can still be told apart in one colour. There are
+//! four shapes, and a fifth category takes the first one's again, so in one
+//! colour no more than four can be told apart; the command line refuses
+//! more.
 
 use std::collections::BTreeSet;
 
@@ -132,8 +146,10 @@ pub struct VariantTrack {
     show_legend: bool,
     show_scale: bool,
     color: Option<String>,
+    uniform: Option<String>,
     axis: QuantitativeAxis,
     title: Option<String>,
+    order: Vec<String>,
 }
 
 impl VariantTrack {
@@ -149,9 +165,31 @@ impl VariantTrack {
             show_legend: true,
             show_scale: true,
             color: None,
+            uniform: None,
             axis: QuantitativeAxis::new(),
             title: None,
+            order: Vec::new(),
         }
+    }
+
+    /// Deals the palette's slots to the categories `order` names, each the
+    /// slot of its place in it, whether or not a variant of the track carries
+    /// it. Categories it leaves out take the slots after it, in order of
+    /// first appearance.
+    ///
+    /// Two tracks cut from one list at different windows then paint a
+    /// category alike, which first appearance alone cannot promise: the
+    /// window decides which category comes first. Name every category the
+    /// whole list holds, and the zoom no longer moves a colour.
+    pub fn category_order<S: Into<String>>(mut self, order: impl IntoIterator<Item = S>) -> Self {
+        self.order.clear();
+        for category in order {
+            let category = category.into();
+            if !self.order.contains(&category) {
+                self.order.push(category);
+            }
+        }
+        self
     }
 
     /// Sets the text shown in the left gutter.
@@ -233,6 +271,23 @@ impl VariantTrack {
         self
     }
 
+    /// Paints every variant `color`, whatever its category, in place of a
+    /// colour each category.
+    ///
+    /// Each category keeps the shape its place in the queue gives it, on the
+    /// marks and in the key, which is then drawn in the one colour, so a
+    /// missense call is still told from a synonymous one in a figure whose
+    /// calls all had to be dark red. There are four shapes, and the fifth
+    /// place in the queue takes the first one's again, so a track of more
+    /// than four categories in one colour draws two of them alike. A tick
+    /// has no shape, so ticks in one colour carry no category a reader could
+    /// see, and are drawn with no key: one of shapes would name marks the
+    /// band does not draw.
+    pub fn uniform_color(mut self, color: impl Into<String>) -> Self {
+        self.uniform = Some(color.into());
+        self
+    }
+
     /// The variants in the track.
     pub fn variants(&self) -> &[Variant] {
         &self.variants
@@ -277,13 +332,45 @@ impl VariantTrack {
             })
     }
 
-    fn legend(&self, theme: &Theme) -> Legend {
-        self.categories()
-            .iter()
-            .enumerate()
-            .fold(Legend::new(), |legend, (index, category)| {
-                legend.symbol(*category, theme.color(index), theme.symbol(index))
+    /// The categories the track holds, each with its palette slot, in the
+    /// order of their slots: the place [`VariantTrack::category_order`]
+    /// gave it, else after every place it gave, by first appearance.
+    fn slots(&self) -> Vec<(&str, usize)> {
+        let mut unlisted = self.order.len();
+        let mut slots: Vec<(&str, usize)> = self
+            .categories()
+            .into_iter()
+            .map(|category| {
+                let slot = self.order.iter().position(|known| known == category);
+                let slot = slot.unwrap_or_else(|| {
+                    unlisted += 1;
+                    unlisted - 1
+                });
+                (category, slot)
             })
+            .collect();
+        slots.sort_by_key(|&(_, slot)| slot);
+        slots
+    }
+
+    fn legend(&self, theme: &Theme) -> Legend {
+        self.slots()
+            .into_iter()
+            .fold(Legend::new(), |legend, (category, slot)| {
+                legend.symbol(category, self.ink(theme, slot), theme.symbol(slot))
+            })
+    }
+
+    /// Whether the key is drawn: where it is asked for, and not over ticks in
+    /// one colour, which nothing tells apart.
+    fn keyed(&self) -> bool {
+        self.show_legend && !(self.uniform.is_some() && self.style == VariantStyle::Tick)
+    }
+
+    /// The colour of the category in palette slot `slot`: its own, or the
+    /// one every call is painted where [`VariantTrack::uniform_color`] says.
+    fn ink<'a>(&'a self, theme: &'a Theme, slot: usize) -> &'a str {
+        self.uniform.as_deref().unwrap_or_else(|| theme.color(slot))
     }
 }
 
@@ -293,7 +380,7 @@ impl Track for VariantTrack {
     }
 
     fn height(&self, scale: &Scale) -> f64 {
-        if self.show_legend {
+        if self.keyed() {
             let theme = Theme::default();
             self.height
                 .max(self.legend(&theme).height(scale.width(), &theme) + self.radius + 2.0)
@@ -330,10 +417,11 @@ impl Track for VariantTrack {
             ctx.theme.tokens.hairline,
         );
 
-        let categories = self.categories();
+        let slots = self.slots();
         let default_color = self
-            .color
+            .uniform
             .clone()
+            .or_else(|| self.color.clone())
             .unwrap_or_else(|| ctx.theme.accent.clone());
         // A colour and a symbol are a property of the category, not of the
         // variant, and both were being worked out inside the loop: a linear
@@ -341,20 +429,24 @@ impl Track for VariantTrack {
         // panel of two hundred thousand calls with a handful of consequences
         // that is two hundred thousand scans and two hundred thousand
         // allocations for a handful of distinct answers.
-        let palette: Vec<(String, Symbol)> = categories
+        let palette: Vec<(String, Symbol)> = slots
             .iter()
-            .enumerate()
-            .map(|(index, _)| (ctx.theme.color(index).to_string(), ctx.theme.symbol(index)))
+            .map(|&(_, slot)| {
+                (
+                    self.ink(ctx.theme, slot).to_string(),
+                    ctx.theme.symbol(slot),
+                )
+            })
             .collect();
         let slot_of = |category: Option<&str>| -> Option<usize> {
-            category.and_then(|name| categories.iter().position(|c| *c == name))
+            category.and_then(|name| slots.iter().position(|&(c, _)| c == name))
         };
         let (floor, ceiling) = self.value_range();
 
         let legend = self.legend(ctx.theme);
 
         // Leave room for the legend so a tall stem does not run through it.
-        let legend_room = if self.show_legend && !categories.is_empty() {
+        let legend_room = if self.keyed() && !slots.is_empty() {
             legend.height(band.w, ctx.theme)
         } else {
             0.0
@@ -520,7 +612,7 @@ impl Track for VariantTrack {
             }
         }
 
-        if self.show_legend && !categories.is_empty() {
+        if self.keyed() && !slots.is_empty() {
             legend.draw(ctx.svg, band.x, band.y, band.w, ctx.theme);
         }
     }
@@ -671,6 +763,49 @@ mod tests {
         );
     }
 
+    /// One colour for every call takes the palette off the marks and the key,
+    /// and leaves each category its shape in both.
+    #[test]
+    fn a_uniform_colour_paints_every_call_and_keeps_each_category_s_shape() {
+        let theme = Theme::default();
+        let calls = vec![
+            Variant::new(10).value(0.5).category("missense_variant"),
+            Variant::new(40).value(0.9).category("synonymous_variant"),
+            Variant::new(70).value(0.3),
+        ];
+        let svg = |track: VariantTrack| {
+            Figure::new(Region::new("chr1", 0, 100).unwrap())
+                .push(track)
+                .to_svg()
+        };
+        let painted = svg(VariantTrack::new(calls.clone()).uniform_color("#8b0000"));
+        for slot in 0..2 {
+            assert!(
+                !painted.contains(theme.color(slot)),
+                "slot {slot} is still painted: {painted}"
+            );
+        }
+        assert!(!painted.contains(&theme.accent), "{painted}");
+        // Three stems, three heads and two keys, all of them the one colour.
+        assert!(painted.matches("#8b0000").count() >= 8, "{painted}");
+        assert!(painted.contains(">missense_variant</text>"), "{painted}");
+        assert!(painted.contains(">synonymous_variant</text>"), "{painted}");
+        // The shapes are the ones the categories take in colour: the second
+        // category is a square in both figures.
+        let coloured = svg(VariantTrack::new(calls));
+        let squares = |svg: &str| svg.matches("<rect").count();
+        assert_eq!(squares(&painted), squares(&coloured), "{painted}");
+        assert!(coloured.contains(theme.color(1)), "{coloured}");
+        // Ticks in one colour have no shape to key, and no key.
+        let ticks = svg(VariantTrack::new(vec![
+            Variant::new(10).category("missense_variant"),
+            Variant::new(40).category("synonymous_variant"),
+        ])
+        .style(VariantStyle::Tick)
+        .uniform_color("#8b0000"));
+        assert!(!ticks.contains("missense_variant"), "{ticks}");
+    }
+
     #[test]
     fn categories_keep_their_first_appearance_order() {
         let track = VariantTrack::new(vec![
@@ -680,6 +815,41 @@ mod tests {
             Variant::new(4),
         ]);
         assert_eq!(track.categories(), vec!["indel", "snp"]);
+    }
+
+    #[test]
+    fn a_category_order_keeps_a_slot_whatever_the_window_holds() {
+        let theme = Theme::default();
+        // The window of a zoom: only the second category of the file is in
+        // it, and it keeps the second colour; first appearance gave it the
+        // first.
+        let zoom = VariantTrack::new(vec![Variant::new(5).category("missense")]);
+        let ordered = zoom.clone().category_order(["synonymous", "missense"]);
+        let svg = |track: VariantTrack| {
+            Figure::new(Region::new("chr1", 0, 10).unwrap())
+                .push(track)
+                .to_svg()
+        };
+        assert!(svg(zoom).contains(&format!("missense, colour {}", theme.color(0))));
+        let drawn = svg(ordered);
+        assert!(
+            drawn.contains(&format!("missense, colour {}", theme.color(1))),
+            "{drawn}"
+        );
+        assert!(
+            !drawn.contains("synonymous"),
+            "only what is drawn is keyed: {drawn}"
+        );
+
+        // A category the order leaves out comes after it, and the key runs
+        // in slot order.
+        let track = VariantTrack::new(vec![
+            Variant::new(1).category("odd"),
+            Variant::new(2).category("b"),
+        ])
+        .category_order(["a", "b"]);
+        let slots = track.slots();
+        assert_eq!(slots, [("b", 1), ("odd", 2)]);
     }
 
     #[test]

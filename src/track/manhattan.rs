@@ -227,6 +227,19 @@ impl ManhattanTrack {
             .unwrap_or_else(|| crate::track::axis::group_thousands(lead.saturating_add(1)))
     }
 
+    /// How many tests drawn over `region` the linkage gives no r² with the
+    /// lead for, the lead aside.
+    fn without_linkage(&self, region: &crate::region::Region) -> usize {
+        let Some(lead) = self.lead else {
+            return 0;
+        };
+        self.points
+            .iter()
+            .filter(|point| region.contains(point.pos) && point.value.is_finite())
+            .filter(|point| point.pos != lead && !self.linkage.contains_key(&point.pos))
+            .count()
+    }
+
     /// The colour of an r² on the linkage ramp: grey where it is weak, the
     /// accent where it is strong.
     fn linkage_color(r2: f64, theme: &Theme) -> String {
@@ -458,6 +471,34 @@ impl Track for ManhattanTrack {
             .flatten()
     }
 
+    /// How many variants in view the linkage gives no r² for, where the
+    /// points are coloured by it: a linkage file cut to a window narrower
+    /// than the scan's leaves the rest of the scan open rings.
+    fn notes(
+        &self,
+        region: &crate::region::Region,
+        _px_per_bp: f64,
+        _theme: &Theme,
+    ) -> Vec<String> {
+        let unknown = self.without_linkage(region);
+        let Some(lead) = self.lead.filter(|_| unknown > 0) else {
+            return Vec::new();
+        };
+        let drawn = self
+            .points
+            .iter()
+            .filter(|point| region.contains(point.pos) && point.value.is_finite())
+            .filter(|point| point.pos != lead)
+            .count();
+        let group = crate::track::axis::group_thousands;
+        vec![format!(
+            "{} of {} variants in view have no r² with {}, and are drawn as open rings",
+            group(unknown as u64),
+            group(drawn as u64),
+            self.lead_text(lead)
+        )]
+    }
+
     /// The ramp of linkage with the lead, and the lead itself, where the
     /// points are coloured by it.
     fn key(
@@ -491,6 +532,19 @@ impl Track for ManhattanTrack {
                 .any(|point| point.pos == lead && point.value.is_finite());
         let key = if drawn {
             key.symbol("lead variant", theme.color(1), Symbol::Diamond)
+        } else {
+            key
+        };
+        let unknown = self.without_linkage(region);
+        let key = if unknown > 0 {
+            key.marked(
+                format!(
+                    "no r² ({})",
+                    crate::track::axis::group_thousands(unknown as u64)
+                ),
+                theme.muted.clone(),
+                crate::track::legend::Marker::Ring,
+            )
         } else {
             key
         };
@@ -705,7 +759,6 @@ impl Track for ManhattanTrack {
 
         let shaded = mix(&plain, ctx.theme.surface(), 0.42);
         let radius = self.radius * ctx.visual_scale;
-        let unknown = mix(&plain, ctx.theme.surface(), 0.62);
         // Weakest drawn first, so a point in strong linkage is never under one
         // in weak linkage on the same spot: sorted strongest first here, as
         // the loop below walks the list from its end.
@@ -720,17 +773,30 @@ impl Track for ManhattanTrack {
         let mut hits: Vec<(f64, f64, Symbol)> = Vec::new();
         for &(x, y, above, symbol, lighter, r2) in kept.iter().rev() {
             if let Some(r2) = r2 {
-                let color = if r2 < 0.0 {
-                    unknown.clone()
-                } else {
-                    Self::linkage_color(r2, ctx.theme)
-                };
                 // A locus is a few dozen points rather than a genome's
                 // texture, and each is read for its colour, so each is bigger.
+                let size = radius * 1.35 + ctx.theme.tokens.hairline * 0.5;
+                // A variant the linkage file gives no r² for is an open ring,
+                // keyed apart. Filled a shade lighter than the weakest
+                // linkage, five of them read as r² of nought: #c1becf against
+                // #b5b2c6, and nothing in the key said otherwise.
+                if r2 < 0.0 {
+                    let edge = ctx.theme.tokens.stroke;
+                    ctx.svg.circle_ringed(
+                        x,
+                        y,
+                        size - edge,
+                        ctx.theme.surface(),
+                        &ctx.theme.muted,
+                        edge,
+                    );
+                    continue;
+                }
+                let color = Self::linkage_color(r2, ctx.theme);
                 ctx.svg.symbol_ringed(
                     x,
                     y,
-                    radius * 1.35 + ctx.theme.tokens.hairline * 0.5,
+                    size,
                     symbol,
                     &color,
                     ctx.theme.surface(),
@@ -1007,6 +1073,73 @@ mod tests {
             .push(crate::track::CoverageTrack::new(0, vec![1.0; 10_000]))
             .to_svg();
         assert!(stacked.contains(">40 cM/Mb</text>"));
+    }
+
+    /// A variant the linkage gives no r² for is an open ring, keyed and
+    /// counted apart. Filled a shade off the weakest linkage, five of them
+    /// read as r² of nought, and nothing said they had none.
+    #[test]
+    fn a_variant_with_no_r2_is_an_open_ring_keyed_and_counted() {
+        let theme = Theme::light();
+        let points = vec![
+            Association::new(1_000, 2.0),
+            Association::new(3_000, 3.0),
+            Association::new(4_999, 9.0),
+            Association::new(7_000, 4.0),
+        ];
+        let track = ManhattanTrack::new(points)
+            .linkage(4_999, vec![(1_000, 0.0), (3_000, 0.6)])
+            .lead_name("snp1");
+        let figure = Figure::new(region())
+            .show_region_label(false)
+            .push(track.clone());
+        let svg = figure.to_svg();
+        // The ring: an edge in the muted ink round a disc of the page.
+        let ring = format!("fill=\"{}\"/><circle", theme.muted);
+        assert_eq!(svg.matches(&ring).count(), 1, "{svg}");
+        let key = track.key(&region(), 1.0, &theme).unwrap();
+        assert!(
+            key.items().iter().any(|item| matches!(item,
+                crate::track::legend::LegendItem::Key { label, marker, .. }
+                    if label == "no r² (1)" && *marker == crate::track::legend::Marker::Ring)),
+            "{:?}",
+            key.items()
+        );
+        assert_eq!(
+            figure.notes(),
+            ["1 of 3 variants in view have no r² with snp1, and are drawn as open rings"]
+        );
+        // Every variant given an r², nothing is keyed or said.
+        let whole = ManhattanTrack::new(vec![
+            Association::new(1_000, 2.0),
+            Association::new(4_999, 9.0),
+        ])
+        .linkage(4_999, vec![(1_000, 0.2)]);
+        let key = whole.key(&region(), 1.0, &theme).unwrap();
+        assert!(
+            !key.items().iter().any(|item| matches!(item,
+                crate::track::legend::LegendItem::Key { label, .. } if label.starts_with("no r²"))),
+            "{:?}",
+            key.items()
+        );
+        assert!(Figure::new(region()).push(whole).notes().is_empty());
+    }
+
+    /// A name the same as the axis's title is said once: `--label '-log10
+    /// p'` on a scan of p-values printed `-log10 p` twice, one line over the
+    /// other. A name of its own keeps the title under it.
+    #[test]
+    fn a_name_that_is_the_axis_title_is_written_once() {
+        let drawn = |label: &str| {
+            let track = ManhattanTrack::new(vec![Association::new(1_000, 4.0)])
+                .axis_title("-log10 p")
+                .label(label);
+            Figure::new(region()).push(track).to_svg()
+        };
+        assert_eq!(drawn("-log10 p").matches(">-log10 p</text>").count(), 1);
+        let named = drawn("GWAS");
+        assert!(named.contains(">GWAS</text>"), "{named}");
+        assert_eq!(named.matches(">-log10 p</text>").count(), 1, "{named}");
     }
 
     /// A lead with a name is called by it, over its diamond, in its tooltip
