@@ -54,7 +54,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 | `.aggregate(Aggregate::Min)` | How a pixel column covering many bases is reduced: `Max`, `Mean` or `Min` (`--aggregate`) | `Max` |
 | `.style(CoverageStyle::Line)` | `Area`, `Line` or `Bars` (`--style area`, `line` or `bars`) | `Area` |
 | `.axis_title("cM/Mb")` | What the value axis measures, under the track's name | none; `cM/Mb` from `--recombination` |
-| `.max(120.0)` | Pins the top of the axis, taken literally (`--max`) | the largest value on screen, plus six per cent |
+| `.max(120.0)` | Pins the top of the axis, taken literally (`--max`); where the profile in view runs past it, the top label reads `120+` and the columns cut short are struck along the top in the alert colour | the largest value on screen, plus six per cent |
 | `.log_scale(true)` | Plots `log10(1 + value)`, still labelled in the original units (`--log`) | off |
 | `.color("#0072b2")` | Colour of the profile (`--color`) | theme accent |
 | `.fill_opacity(0.4)` | Fill opacity, from 0 to 1 | `0.18` for an area, solid for bars |

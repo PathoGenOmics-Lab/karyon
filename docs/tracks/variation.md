@@ -410,7 +410,7 @@ One row per sample, one column per site, and a cell saying what that sample had 
 | `.tree_shape(TreeShape::Cladogram)` | Phylogram or cladogram for that tree | `Phylogram` |
 | `.traits(traits)` | Metadata columns between the names and the cells (`--traits`, `--columns`) | none |
 | `.unit("×")` | Written after the two numbers at the ends of the key | none |
-| `.max(150.0)` | The value drawn at full colour, so matrices drawn apart read off one ramp: the top of a sequential ramp, winning over `Sequential { max }` in either order, or the end of the gain above a diverging one's centre, whose loss keeps its own reach (`--max`) | the largest value in the matrix |
+| `.max(150.0)` | The value drawn at full colour, so matrices drawn apart read off one ramp: the top of a sequential ramp, winning over `Sequential { max }` in either order, or the end of the gain above a diverging one's centre, whose loss keeps its own reach (`--max`). A cell in view past an end is drawn at it with a dot, and the key's end reads `150+` (`≤-3` below a diverging one) | the largest value in the matrix |
 
 #### Notes
 

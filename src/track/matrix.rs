@@ -32,7 +32,7 @@
 use crate::region::Region;
 use crate::scale::Scale;
 use crate::svg::{text_rounded, text_width, Anchor};
-use crate::theme::{mix, Theme};
+use crate::theme::{contrast_ink, mix, Theme};
 use crate::track::axis::group_thousands;
 use crate::track::traits::Traits;
 use crate::track::tree::{draw_tree, leaf_order, tree_beside_rows, TreeShape, TreeStyle};
@@ -474,6 +474,39 @@ impl MatrixTrack {
         }
     }
 
+    /// Whether `value` lies past an end of the scale and is painted as that
+    /// end: above a pinned top, or either side of a pinned reach.
+    fn past(&self, value: f64, extent: Extent) -> bool {
+        match &self.scale {
+            CellScale::Categorical => false,
+            CellScale::Sequential { .. } => value > extent.above,
+            CellScale::Diverging { center, .. } => {
+                value > center + extent.above || value < center - extent.below
+            }
+        }
+    }
+
+    /// Whether a cell drawn over `region` lies past an end of the scale,
+    /// below it when `low`, and above it when not.
+    fn runs_past(&self, region: &Region, low: bool) -> bool {
+        let extent = self.extent();
+        let center = match &self.scale {
+            CellScale::Diverging { center, .. } => *center,
+            _ => 0.0,
+        };
+        let shown: Vec<usize> = (0..self.sites.len())
+            .filter(|column| self.shown(*column, region))
+            .collect();
+        self.rows.iter().any(|row| {
+            shown
+                .iter()
+                .filter_map(|column| row.value(*column))
+                .any(|value| {
+                    value.is_finite() && self.past(value, extent) && (value < center) == low
+                })
+        })
+    }
+
     /// Colour of one cell.
     fn cell_color(&self, value: f64, extent: Extent, theme: &Theme) -> String {
         let ceiling = extent.above;
@@ -530,21 +563,33 @@ impl Track for MatrixTrack {
     /// nowhere a ramp could, and has none.
     fn key(
         &self,
-        _region: &Region,
+        region: &Region,
         _px_per_bp: f64,
         theme: &Theme,
     ) -> Option<crate::track::legend::Legend> {
         if let CellScale::Diverging { center, spread } = &self.scale {
             let (below, above) = self.reach(*center, *spread);
             let written = |value: f64| format!("{}{}", text_rounded(value, 2), self.unit);
+            // An end the data runs past says so, as `≤-3` below and `3+`
+            // above.
+            let low = if self.runs_past(region, true) {
+                "≤"
+            } else {
+                ""
+            };
+            let high = if self.runs_past(region, false) {
+                "+"
+            } else {
+                ""
+            };
             return Some(crate::track::legend::Legend::new().diverging(
                 self.label.clone().unwrap_or_else(|| "value".to_string()),
                 theme.color(0),
                 Self::centre_color(theme),
                 theme.color(1),
-                written(center - below),
+                format!("{low}{}", written(center - below)),
                 written(*center),
-                written(center + above),
+                format!("{}{high}", written(center + above)),
             ));
         }
         let CellScale::Sequential { max, hue } = &self.scale else {
@@ -555,12 +600,19 @@ impl Track for MatrixTrack {
             .or(*max)
             .or_else(|| self.value_ceiling())?;
         let hue = hue.clone().unwrap_or_else(|| theme.accent.clone());
+        // A pin the data runs past is written `150+`: the cells past it are
+        // its colour, with a dot.
+        let past = if self.runs_past(region, false) {
+            "+"
+        } else {
+            ""
+        };
         Some(crate::track::legend::Legend::new().ramp(
             self.label.clone().unwrap_or_else(|| "value".to_string()),
             mix(theme.surface(), &hue, ZERO_TINT),
             hue,
             format!("0{}", self.unit),
-            format!("{}{}", text_rounded(ceiling, 2), self.unit),
+            format!("{}{}{past}", text_rounded(ceiling, 2), self.unit),
         ))
     }
 
@@ -670,6 +722,22 @@ impl Track for MatrixTrack {
                     None => missing.clone(),
                 };
                 ctx.svg.rect(x, top, width, cell_height, &color);
+                // A value past a pinned end is painted as the end, which a
+                // reader takes for the end: a depth of 174.8 under a pin of
+                // 150 was the colour of 150 and nothing said otherwise. A dot
+                // in the ink that reads on the cell says it went past, where
+                // the cell has room for one.
+                let past = row
+                    .value(column)
+                    .is_some_and(|value| self.past(value, extent));
+                if past && width >= 5.0 && cell_height >= 5.0 {
+                    ctx.svg.circle(
+                        x + width / 2.0,
+                        top + cell_height / 2.0,
+                        (width.min(cell_height) * 0.15).clamp(1.2, 2.5),
+                        contrast_ink(&color),
+                    );
+                }
             }
 
             if self.show_row_names && ctx.axis.w > strip {
@@ -967,6 +1035,49 @@ mod tests {
         for nothing in [0.0, -3.0, f64::NAN, f64::INFINITY] {
             assert_eq!(matrix().max(nothing).extent(), matrix().extent());
         }
+    }
+
+    /// A value past a pinned top is painted as the top, which read as the
+    /// top: a depth of 174.8 under a pin of 150 was the colour of 150. The
+    /// key's end is `150+` and the cell carries a dot, where a value past
+    /// it is in view, and only there.
+    #[test]
+    fn a_value_past_a_pinned_top_is_dotted_and_the_key_says_plus() {
+        let depths = || {
+            MatrixTrack::windows(
+                vec![(0, 1_000), (1_000, 2_000), (2_000, 3_000)],
+                vec![
+                    MatrixRow::new("S1", vec![120.0, 174.8, 90.0]),
+                    MatrixRow::new("S2", vec![100.0, 140.0, 150.0]),
+                ],
+            )
+        };
+        let pinned = depths().max(150.0);
+        assert_eq!(key_ends(&pinned), ("0".to_string(), "150+".to_string()));
+        let svg = Figure::new(Region::new("chr1", 0, 3_000).unwrap())
+            .push(pinned.clone())
+            .to_svg();
+        assert_eq!(svg.matches("<circle").count(), 1, "{svg}");
+        // A cell at the pin is at it, not past it.
+        assert_eq!(key_ends(&depths().max(174.8)).1, "174.8");
+        // Over a window where nothing passes it, nothing says it did.
+        let short = pinned
+            .key(
+                &Region::new("chr1", 2_000, 3_000).unwrap(),
+                1.0,
+                &Theme::light(),
+            )
+            .unwrap();
+        let [crate::track::legend::LegendItem::Ramp { high, .. }] = short.items() else {
+            panic!("one ramp: {:?}", short.items());
+        };
+        assert_eq!(high, "150");
+        let svg = Figure::new(Region::new("chr1", 2_000, 3_000).unwrap())
+            .push(pinned)
+            .to_svg();
+        assert_eq!(svg.matches("<circle").count(), 0, "{svg}");
+        // Unpinned, the top is the data's and nothing is past it.
+        assert_eq!(key_ends(&depths()).1, "174.8");
     }
 
     /// Pinned either side of a centre, the gain ends at the pin and the loss

@@ -680,6 +680,8 @@ impl Track for CoverageTrack {
 
         let (columns, step) = column_grid(band.w);
         let mut points: Vec<Option<(f64, f64)>> = Vec::with_capacity(columns);
+        // The columns a pinned ceiling cut short, as runs of x.
+        let mut cut: Vec<(f64, f64)> = Vec::new();
         for column in 0..columns {
             let x = band.x + column as f64 * step;
             let lo = ctx.scale.pos_at_x(x);
@@ -688,6 +690,12 @@ impl Track for CoverageTrack {
                 points.push(None);
                 continue;
             };
+            if value > visual_ceiling {
+                match cut.last_mut() {
+                    Some((_, to)) if (*to - x).abs() < 1e-9 => *to = x + step,
+                    _ => cut.push((x, x + step)),
+                }
+            }
             let y = y_of(value);
             match self.style {
                 CoverageStyle::Bars => {
@@ -755,8 +763,26 @@ impl Track for CoverageTrack {
             }
         }
 
+        // A pinned ceiling below the data draws the data flat at it, which
+        // reads as a plateau that was measured: peaks of 45 under a pin of 30
+        // were a flat top, and the outline just stopped. A stroke in the
+        // alert colour along the top of every column cut short says the
+        // profile went on, and the top label says by how much it may have.
+        let clipped = !cut.is_empty();
+        let rule = ctx.theme.tokens.stroke * 1.25;
+        for (from, to) in cut {
+            ctx.svg.line(
+                from,
+                band.y + rule / 2.0,
+                to,
+                band.y + rule / 2.0,
+                ctx.theme.color(1),
+                rule,
+            );
+        }
+
         if self.show_max {
-            self.draw_axis(ctx, floor, ceiling, visual_ceiling);
+            self.draw_axis(ctx, floor, ceiling, visual_ceiling, clipped);
         }
     }
 }
@@ -780,7 +806,7 @@ impl CoverageTrack {
                 let (floor, ceiling, _) = self.ends(ceiling);
                 self.tick_values(floor, ceiling)
                     .iter()
-                    .zip(self.tick_labels(floor, ceiling))
+                    .zip(self.tick_labels(floor, ceiling, self.runs_past_pin()))
                     .map(|(_, label)| text_width(&label, size))
                     .fold(0.0f64, f64::max)
             }
@@ -828,15 +854,36 @@ impl CoverageTrack {
         values
     }
 
-    fn tick_labels(&self, floor: f64, ceiling: f64) -> Vec<String> {
+    /// The labels of [`CoverageTrack::tick_values`], the one at a pinned
+    /// ceiling the data runs past written `30+` when `clipped`: the profile
+    /// is drawn at it there and is not as high as it reached.
+    fn tick_labels(&self, floor: f64, ceiling: f64, clipped: bool) -> Vec<String> {
         let values = self.tick_values(floor, ceiling);
         let mut labels = self.axis.labels(&values);
+        if clipped && values.last() == Some(&ceiling) {
+            if let Some(last) = labels.last_mut() {
+                last.push('+');
+            }
+        }
         if self.log_scale {
             if let Some(last) = labels.last_mut() {
                 last.push_str(" log");
             }
         }
         labels
+    }
+
+    /// Whether the data runs past a pinned ceiling anywhere, which is what
+    /// the axis strip has to have room for the `+` of.
+    fn runs_past_pin(&self) -> bool {
+        let Some(pin) = self.axis.max.or(self.max) else {
+            return false;
+        };
+        self.runs
+            .iter()
+            .map(|run| run.value)
+            .chain(self.reach)
+            .any(|value| value.is_finite() && value > pin)
     }
 
     /// Draws the value axis in the strip the figure reserved for it.
@@ -846,7 +893,14 @@ impl CoverageTrack {
     /// track is read for its shape and its order of magnitude, so a short band
     /// is left with its two ends rather than a ladder of gridlines that would
     /// be more ink than the profile it is measuring.
-    fn draw_axis(&self, ctx: &mut DrawContext<'_>, floor: f64, ceiling: f64, visual_ceiling: f64) {
+    fn draw_axis(
+        &self,
+        ctx: &mut DrawContext<'_>,
+        floor: f64,
+        ceiling: f64,
+        visual_ceiling: f64,
+        clipped: bool,
+    ) {
         let band = ctx.band;
         let size = ctx.theme.font_size - 1.0;
         let baseline = band.bottom();
@@ -855,7 +909,7 @@ impl CoverageTrack {
         let y_of =
             |value: f64| baseline - ((self.transform(value) - transformed_floor) / span) * band.h;
         let all = self.tick_values(floor, ceiling);
-        let labels = self.tick_labels(floor, ceiling);
+        let labels = self.tick_labels(floor, ceiling, clipped);
         let shown = legible_ticks(&all, y_of, size);
         for &value in &shown {
             if value <= floor {
@@ -1151,6 +1205,74 @@ mod tests {
         assert!(!svg.contains(">10.0x</text>"), "not repeated on every tick");
         assert!(svg.contains(">target</text>"));
         assert!(svg.contains("stroke-dasharray"));
+    }
+
+    /// A pin below the data draws the peaks flat at it, which reads as a
+    /// plateau that was measured: peaks of 45 under a pin of 30 were a flat
+    /// top with nothing to say so. The columns it cut short are struck along
+    /// the top in the alert colour and the top label is `30+`; a pin above
+    /// the data, or a window short of the peak, says neither.
+    #[test]
+    fn a_pin_below_the_data_marks_where_it_cut_and_says_so_at_the_top() {
+        use crate::figure::Figure;
+        let theme = Theme::light();
+        let mut depth = vec![5.0; 500];
+        for value in &mut depth[200..260] {
+            *value = 45.0;
+        }
+        let drawn = |pin: f64, region: &str| {
+            Figure::new(Region::parse(region).unwrap())
+                .show_region_label(false)
+                .push(CoverageTrack::new(0, depth.clone()).max(pin).label("d"))
+                .to_svg()
+        };
+        let struck = |svg: &str| -> Vec<(f64, f64)> {
+            svg.split("<line ")
+                .filter(|line| line.contains(&format!("stroke=\"{}\"", theme.color(1))))
+                .map(|line| {
+                    let at = |key: &str| -> f64 {
+                        line.split(&format!("{key}=\""))
+                            .nth(1)
+                            .unwrap()
+                            .split('"')
+                            .next()
+                            .unwrap()
+                            .parse()
+                            .unwrap()
+                    };
+                    (at("x1"), at("x2"))
+                })
+                .collect()
+        };
+        let cut = drawn(30.0, "chr1:1-500");
+        assert!(cut.contains(">30+</text>"), "{cut}");
+        let lines = struck(&cut);
+        assert_eq!(lines.len(), 1, "{cut}");
+        // Over the 60 bases past the pin, a little under an eighth of the
+        // band, and nowhere else.
+        let (from, to) = lines[0];
+        let clip = cut.split("<clipPath").nth(1).unwrap();
+        let width: f64 = clip
+            .split("width=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(
+            ((to - from) / width - 60.0 / 500.0).abs() < 0.01,
+            "{from} to {to} of {width}"
+        );
+
+        for (svg, why) in [
+            (drawn(50.0, "chr1:1-500"), "a pin above the data"),
+            (drawn(30.0, "chr1:1-150"), "a window short of the peak"),
+        ] {
+            assert!(!svg.contains("+</text>"), "{why}: {svg}");
+            assert!(struck(&svg).is_empty(), "{why}: {svg}");
+        }
     }
 
     #[test]

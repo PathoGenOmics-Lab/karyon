@@ -1518,6 +1518,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A pinned `--max` below the data says so. A `CoverageTrack` strikes the
+  columns it cut short along the top of the band in the alert colour and
+  writes its top label `30+`, and a `MatrixTrack` puts a dot in each cell past
+  an end of its scale and writes the key's end `150+`, or `≤-3` below a
+  diverging one. Peaks of about 45 under `--max 30` were a flat top with
+  nothing to say the profile went on, and a depth of 174.8 under `--max 150`
+  was the colour of 150 beside a key that read `0 ... 150`. Only data in view
+  counts, so a zoom short of the peak says nothing; the axis strip keeps room
+  for the `+` wherever the data runs past the pin.
 - `GenotypeTrack` names a mark of sites too close to draw apart, when it
   carries an alternate copy and holds at most eight sites, with each site
   and the sample's call there, and its key titles the ramp `alternate copies
