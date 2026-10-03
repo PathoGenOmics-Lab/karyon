@@ -1518,6 +1518,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `GenotypeTrack` names a mark of sites too close to draw apart, when it
+  carries an alternate copy and holds at most eight sites, with each site
+  and the sample's call there, and its key titles the ramp `alternate copies
+  among a pixel's calls` where a pixel pools sites. A pooled mark had no
+  tooltip of its own, so 85 of the 256 alternate calls of a cohort of forty
+  across rpoB could not be pointed at, and a pixel holding one alternate site
+  and one reference site was a grey that a cohort of one copy a sample reads
+  as a mixed call. A mark of more sites is left to its row's tooltip, so
+  20,000 sites of 200 samples over a megabase stay 1.08 MB.
 - `SquiggleTrack` holds the place of a base too narrow for its letter with a
   dot in the row of letters, where some bases beside it are lettered, and
   its `notes` say how many and the window that letters every base, which the
