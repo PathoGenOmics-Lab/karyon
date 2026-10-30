@@ -1257,7 +1257,7 @@ $ karyon chr1:1-1000 --features broken.bed
 karyon: --features broken.bed: line 2: end is not a number: "three-hundred-and-fifty"
 
 $ karyon 1:1-5,000 --variants calls.vcf
-karyon: --variants calls.vcf: no variants in 1:1-5000, though the file holds 12 on chr1
+karyon: --variants calls.vcf: no variants in 1:1-5000, though the file holds 12 on chr1, from 1,204 to 4,861; if chr1 is 1, add --rename chr1=1
 
 $ karyon aln:1-9 --msa aln.fa
 karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns
@@ -1277,7 +1277,13 @@ karyon: --clades gubbins.gff: no clade blocks in NC_011900.1:5000-9000, though t
 ```
 
 Check the sequence name first. It has to match the region's exactly: `chr1`,
-`1` and `NC_000001.11` are three different sequences to every reader.
+`1` and `NC_000001.11` are three different sequences to every reader. Where
+the file names one sequence, most tracks say where on it its rows lie, as the
+file writes their positions, and the `--rename` that would draw it is offered
+where one plainly fits: the region's name with a `chr` more or less, or the
+file's one sequence where neither name is a chromosome's number. `1` is never
+offered as `NC_000001.11`, or the other way about, since a number says nothing
+of whose chromosome it is.
 
 A codon ruler is refused where the annotation does not give it one unbroken
 coding sequence to count, saying why, and what to write instead where

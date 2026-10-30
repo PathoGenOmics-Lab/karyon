@@ -1126,8 +1126,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `NC_000962.3`, on their length. A file is read by the figure's name first
   and by a renamed one only where that finds nothing. A figure on a name a file
   does not use says which `--rename` would draw it, where one plainly would:
-  the one sequence the file names, or the figure's own with a `chr` more or
-  less. One name renamed two ways is refused. All three simulated users had to
+  the figure's own with a `chr` more or less, or the one sequence the file
+  names where neither name is a chromosome's number. One name renamed two
+  ways is refused. All three simulated users had to
   find out by reading the file that PLINK named the chromosome `1`.
 - A sequence drawn whole to where its rows reach, because no file gives its
   length, says so on standard error: all three simulated users saw that the
@@ -1648,8 +1649,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its one rate is drawn flat across it, and over which interval: following
   the `--rename 1=NC_000962.3` a refusal offers, a chromosome 1 map laid over
   a window of another genome drew a flat 0.41 cM/Mb line and said nothing.
-  The rename is still offered, as the one sequence a file names is the
-  documented case of a PLINK table beside a FASTA. No committed figure moves.
+  The refusal no longer offers that rename, as the next entry says. No
+  committed figure moves.
+- A window a file holds nothing in is refused offering the one sequence the
+  file names as a `--rename` only where neither name is a chromosome's
+  number, and saying where on that sequence the rows lie, as the file writes
+  their positions. `NC_000962.3:759,900-763,100 genetic_map.txt` offered
+  `if 1 is NC_000962.3, add --rename 1=NC_000962.3`, and followed, it drew
+  another genome's chromosome 1 flat across the window and exited 0; it
+  reads `though the file holds 60 on 1, from 604,401 to 899,401`. A number,
+  `1`, `12`, `chr1` or `X`, says nothing of whose chromosome it is, so it is
+  offered for its own spelling with a `chr` more or less and never for an
+  accession, a word or another number, nor any of those for it: a VCF's
+  `chr1` is no longer offered for a window on `chr2`. A word is still offered
+  for an accession, as `Chromosome` for `NC_000962.3`, and one accession for
+  another. No committed figure moves.
 - A figure placed on a gene's name whose annotation draws the gene once for
   several transcripts says so on standard error, once, naming the flag:
   `NOVA1: 3 transcripts drawn as one model; --isoforms after genes.gtf.gz

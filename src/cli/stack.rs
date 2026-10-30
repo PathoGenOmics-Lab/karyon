@@ -112,6 +112,11 @@ pub enum BuildError {
         region: String,
         /// The `--rename` that would draw it, where one plainly would.
         rename: Option<Box<(String, String)>>,
+        /// The first and the last position its rows give, as the file
+        /// writes them, where it names one sequence and was read as text:
+        /// what tells a reader whether the rows could be the window's at
+        /// all, where no `--rename` is offered.
+        span: Option<(u64, u64)>,
     },
     /// A reference whose bases stop before the region starts, or start after
     /// it ends.
@@ -686,11 +691,25 @@ impl fmt::Display for BuildError {
                 named,
                 region,
                 rename,
+                span,
             } => {
+                use crate::track::axis::group_thousands;
                 write!(f, "--{track} {path}: no {wanted} in {region}")?;
                 write!(f, ", though the file holds {held}")?;
                 if !named.is_empty() {
                     write!(f, " on {named}")?;
+                }
+                match span {
+                    Some((first, last)) if first == last => {
+                        write!(f, ", at {}", group_thousands(*first))?
+                    }
+                    Some((first, last)) => write!(
+                        f,
+                        ", from {} to {}",
+                        group_thousands(*first),
+                        group_thousands(*last)
+                    )?,
+                    None => {}
                 }
                 if let Some(pair) = rename {
                     let (from, to) = pair.as_ref();
@@ -1911,6 +1930,7 @@ fn ring_of(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
             // The colour a band of calls gives each class. A call that covers
@@ -7359,7 +7379,10 @@ fn explained(
             // drew has no need to know. A file with an index is not read
             // again at all where the index counts its rows, which is the
             // usual way this fails, a file that says 1 where the figure says
-            // chr1, answered without inflating a whole genome's calls.
+            // chr1, answered without inflating a whole genome's calls. Read
+            // as text, a file naming one sequence says where on it its rows
+            // lie too, as only the text can.
+            let mut span = None;
             let held = match (region, spec.source.as_ref()) {
                 (Some(_), Some(source @ Source::Path(_))) => bcf_rows(files, source)
                     .or_else(|| {
@@ -7371,7 +7394,13 @@ fn explained(
                     .unwrap_or_else(|| {
                         files
                             .text(source)
-                            .map(|text| rows_on(spec.kind, &text))
+                            .map(|text| {
+                                let held = rows_on(spec.kind, &text);
+                                if let [(one, _)] = held.as_slice() {
+                                    span = rows_span(spec.kind, &text, one);
+                                }
+                                held
+                            })
                             .unwrap_or_default()
                     }),
                 _ => Vec::new(),
@@ -7385,6 +7414,7 @@ fn explained(
                     named: listed(&held),
                     region: region.to_string(),
                     rename: rename_for(&held, region.seq(), true).map(Box::new),
+                    span,
                 },
                 _ => BuildError::Empty {
                     track,
@@ -7453,6 +7483,31 @@ fn rows_on(kind: Kind, text: &str) -> Vec<(String, usize)> {
     sequence_column(kind).map_or_else(Vec::new, |column| sequences_named(text, column))
 }
 
+/// The first and the last position a track's file gives on `sequence`, as
+/// the file writes them; None where its format keeps no position karyon
+/// finds without reading it as a track.
+fn rows_span(kind: Kind, text: &str, sequence: &str) -> Option<(u64, u64)> {
+    if kind == Kind::Manhattan {
+        return read::point::association_span(text, sequence);
+    }
+    let column = sequence_column(kind)?;
+    let mut span: Option<(u64, u64)> = None;
+    for (_, line) in read::lines(text) {
+        let cols = read::columns(line);
+        if cols.len() < column.width || cols[column.name].trim() != sequence {
+            continue;
+        }
+        let at = column
+            .position
+            .iter()
+            .find_map(|at| cols.get(*at)?.trim().parse::<u64>().ok());
+        if let Some(at) = at {
+            span = Some(span.map_or((at, at), |(first, last)| (first.min(at), last.max(at))));
+        }
+    }
+    span
+}
+
 /// The sequences a file's rows are on, each once with how many rows it has,
 /// in the order the file first names them.
 fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
@@ -7483,7 +7538,15 @@ const READS_WINDOW: u64 = 1_000;
 /// The `--rename` that would draw a file's rows under the figure's name
 /// `figure`, where one plainly would: the name among `held` that is the
 /// figure's own with a `chr` more or less, or, where `alone` allows, the one
-/// sequence the file names. None where the file already names the figure's.
+/// sequence the file names, where neither name is a chromosome's number.
+/// None where the file already names the figure's.
+///
+/// A chromosome's number says which of a genome's chromosomes the rows are
+/// on and nothing of which genome, so it is offered for its own spelling
+/// alone. Offered for the one sequence of another genome, `1` beside
+/// `NC_000962.3`, the rename was followed, and the rates of a chromosome 1
+/// measured on another genome were drawn flat over the window as if they
+/// were its own.
 fn rename_for(held: &[(String, usize)], figure: &str, alone: bool) -> Option<(String, String)> {
     if held.iter().any(|(name, _)| name == figure) {
         return None;
@@ -7499,10 +7562,30 @@ fn rename_for(held: &[(String, usize)], figure: &str, alone: bool) -> Option<(St
         .collect();
     let from = match (spelled.as_slice(), held) {
         ([one], _) => (*one).clone(),
-        ([], [(one, _)]) if alone => one.clone(),
+        ([], [(one, _)]) if alone && !numbered(one) && !numbered(figure) => one.clone(),
         _ => return None,
     };
     Some((from, figure.to_string()))
+}
+
+/// Whether a sequence's name is a chromosome's number or letter, with a
+/// `chr` in front or without one: `1`, `12`, `2L`, `X`, `MT`, `IV`, `chr1`,
+/// `chrX`. A word, as `Chromosome` or `contig_3`, and an accession, as
+/// `NC_000962.3`, is not one.
+fn numbered(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let rest = match lower.strip_prefix("chr") {
+        Some(rest) if !rest.is_empty() => rest,
+        _ => &lower,
+    };
+    // A number, with an arm or a copy's letter after it.
+    let letters = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    let counted = letters.len() < rest.len()
+        && letters.len() <= 1
+        && letters.chars().all(|c| c.is_ascii_alphabetic());
+    // A roman number, as some genomes count their chromosomes.
+    let roman = (1..=5).contains(&rest.len()) && rest.chars().all(|c| matches!(c, 'i' | 'v' | 'x'));
+    counted || roman || matches!(rest, "y" | "w" | "z" | "m" | "mt")
 }
 
 /// Names for a sentence: `chr1`, `chr1 and chr2`, `1, 2 and 3`, and past
@@ -7689,6 +7772,7 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
 
@@ -7735,6 +7819,7 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
 
@@ -8327,6 +8412,7 @@ fn built(
                     named: code.clone(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
 
@@ -8367,6 +8453,7 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
             let mut track = StructuralTrack::new(found.variants);
@@ -8394,6 +8481,7 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
             let mut track = SplitReadTrack::new(found.reads);
@@ -8431,6 +8519,7 @@ fn built(
                     named: context.clone(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
 
@@ -8477,6 +8566,7 @@ fn built(
                     named: analysis.clone(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
             if found.rows.iter().all(|row| row.features.is_empty()) {
@@ -8536,6 +8626,7 @@ fn built(
                     named: found.sequences.join(", "),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
 
@@ -8601,6 +8692,7 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
 
@@ -8803,6 +8895,7 @@ fn built(
                     named: found.samples.join(", "),
                     region: region.to_string(),
                     rename: None,
+                    span: None,
                 });
             }
 
@@ -11195,7 +11288,8 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         .unwrap_err()
         .to_string();
         assert!(
-            error.ends_with("though the file holds 1 on 1; if 1 is chr1, add --rename 1=chr1"),
+            error
+                .ends_with("though the file holds 1 on 1, at 0; if 1 is chr1, add --rename 1=chr1"),
             "{error}"
         );
         // Read from a pipe, there is nothing to read twice.
@@ -12519,19 +12613,46 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         // calls it otherwise would draw it too.
         let (_, notes) = drawn_noting("1 gwas.assoc", &held);
         assert!(notes[0].ends_with("add --rename 1=THAT_NAME"), "{notes:?}");
-        // Without --rename each refusal says which one to write.
+        // Without --rename a refusal says what the table names and where
+        // its rows lie, and offers no rename: a chromosome's number says
+        // nothing of whose chromosome it is, and a 1 renamed to the one
+        // sequence of another genome drew one genome's scan on the other's.
         let error = drawn_from("NC_1 gwas.assoc", &held)
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("If 1 is NC_1, add --rename 1=NC_1."),
+            error.contains("gwas.assoc names the sequence 1."),
             "{error}"
         );
+        assert!(!error.contains("--rename"), "{error}");
+        let error = drawn_from("NC_1:1-5000 gwas.assoc", &held)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "--manhattan gwas.assoc: no association statistics in NC_1:1-5000, though the file \
+             holds 2 on 1, from 150 to 4,800"
+        );
+        // Named with a word, or as the figure's own with a chr more or less,
+        // the table's one sequence is offered.
+        let worded = scan.replace("\n1 ", "\nChromosome ");
+        let held = [("gwas.assoc", worded.as_str())];
         let error = drawn_from("NC_1:1-5000 gwas.assoc", &held)
             .unwrap_err()
             .to_string();
         assert!(
-            error.ends_with("; if 1 is NC_1, add --rename 1=NC_1"),
+            error.ends_with(
+                "holds 2 on Chromosome, from 150 to 4,800; if Chromosome is NC_1, add \
+                 --rename Chromosome=NC_1"
+            ),
+            "{error}"
+        );
+        let held = [("gwas.assoc", scan)];
+        let error = drawn_from("chr1:1-5000 gwas.assoc", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.ends_with("; if 1 is chr1, add --rename 1=chr1"),
             "{error}"
         );
     }
@@ -12567,11 +12688,41 @@ chr2\t300\t.\tA\tG\t.\t.\t.
             rename_for(&[("7".into(), 3), ("8".into(), 2)], "NC_1", true),
             None
         );
-        assert_eq!(
-            rename_for(&[("1".into(), 3)], "NC_1", true),
-            Some(("1".to_string(), "NC_1".to_string()))
-        );
         assert_eq!(rename_for(&[("1".into(), 3)], "NC_1", false), None);
+        // The one sequence a file names is offered where neither name is a
+        // chromosome's number: a word or another accession may be the
+        // window's sequence under another name, and another genome's
+        // chromosome 1 is not.
+        let one = |held: &str, figure: &str| rename_for(&[(held.into(), 3)], figure, true);
+        let offered = |held: &str, figure: &str| Some((held.to_string(), figure.to_string()));
+        for (held, figure) in [
+            ("Chromosome", "NC_000962.3"),
+            ("NC_000962.3", "Chromosome"),
+            ("AL123456.3", "NC_000962.3"),
+            ("contig_3", "CP012345.1"),
+            ("1", "chr1"),
+            ("chrX", "X"),
+        ] {
+            assert_eq!(
+                one(held, figure),
+                offered(held, figure),
+                "{held} as {figure}"
+            );
+        }
+        for (held, figure) in [
+            ("1", "NC_000962.3"),
+            ("12", "CP012345.1"),
+            ("chr1", "NC_1"),
+            ("X", "NC_000962.3"),
+            ("NC_000962.3", "1"),
+            ("NC_000962.3", "chrX"),
+            ("chr2", "chr1"),
+            ("2L", "Chromosome"),
+            ("IV", "contig_3"),
+            ("MT", "NC_012920.1"),
+        ] {
+            assert_eq!(one(held, figure), None, "{held} as {figure}");
+        }
         assert_eq!(rename_for(&[("NC_1".into(), 3)], "NC_1", true), None);
         // A gene named nearly right is a typo, and no rename is offered for it.
         let error = drawn_from("rpoC genes.gff3", &[("genes.gff3", GENES)]).unwrap_err();
@@ -13408,6 +13559,16 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             svg.unwrap();
             assert!(notes.is_empty(), "{line}: {notes:?}");
         }
+        // Over a window of another genome's sequence the map is refused
+        // where its rows lie, with no --rename to lay a chromosome 1 there.
+        let error = drawn_from("NC_000962.3:2,001-4,000 --recombination map.txt", &held)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "--recombination map.txt: no rates in NC_000962.3:2001-4000, though the file holds \
+             3 on 1, from 1,001 to 9,001"
+        );
     }
 
     /// A gene the figure is placed on, drawn as one model of several
@@ -14093,9 +14254,8 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         let error = drawn_from("NC_1 gwas.assoc", &[("gwas.assoc", scan)]).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "no gene and no sequence is called NC_1. gwas.assoc names the sequence 1. If 1 is \
-             NC_1, add --rename 1=NC_1. To find a gene by name, add the annotation that names \
-             it, as --features genes.gff3."
+            "no gene and no sequence is called NC_1. gwas.assoc names the sequence 1. To find a \
+             gene by name, add the annotation that names it, as --features genes.gff3."
         );
         // Files that name the same sequences are named together.
         let vcf = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
@@ -15487,13 +15647,11 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         for (line, said) in [
             (
                 "chr2:1-500 sparse.bw",
-                "--coverage sparse.bw: the bigWig has no sequence called chr2; it has chr1; if \
-                 chr1 is chr2, add --rename chr1=chr2",
+                "--coverage sparse.bw: the bigWig has no sequence called chr2; it has chr1",
             ),
             (
                 "chr2:1-500 sparse.bb",
-                "--features sparse.bb: the bigBed has no sequence called chr2; it has chr1; if \
-                 chr1 is chr2, add --rename chr1=chr2",
+                "--features sparse.bb: the bigBed has no sequence called chr2; it has chr1",
             ),
         ] {
             let error = held_figure(&mut held, line).unwrap_err();
@@ -15847,7 +16005,8 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
     }
 
     /// Rows on another sequence are rows elsewhere, and the refusal says
-    /// where, with the --rename that would draw them.
+    /// where they lie. Another chromosome's number is no other name for the
+    /// window's, so no --rename is offered for it.
     #[test]
     fn genotypes_on_another_sequence_say_where_the_rows_are() {
         let error = drawn_from(
@@ -15866,9 +16025,10 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
             ),
             "{error:?}"
         );
-        assert!(
-            error.to_string().contains("add --rename chr1=chr2"),
-            "{error}"
+        assert_eq!(
+            error.to_string(),
+            "--genotypes cohort.vcf: no genotypes in chr2:1-1000, though the file holds 3 on \
+             chr1, from 100 to 700"
         );
     }
 

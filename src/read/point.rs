@@ -896,25 +896,8 @@ fn hashed_header(text: &str) -> Option<(usize, Wide)> {
 /// The column is the one the header names, which for BOLT-LMM is the second,
 /// behind the variant's own name, and the first in a table of three.
 pub fn association_sequences(text: &str) -> Vec<(String, usize)> {
-    let (column, header) = match hashed_header(text) {
-        Some((line, wide)) => match wide.sequence {
-            Some(at) => (at, Some(line)),
-            None => return Vec::new(),
-        },
-        None => {
-            let Some((line, head)) = lines(text).next() else {
-                return Vec::new();
-            };
-            let names = columns(head);
-            match names.len() {
-                3 => (0, names[1].trim().parse::<u64>().is_err().then_some(line)),
-                wide if wide > 3 => match Wide::of(&names).and_then(|wide| wide.sequence) {
-                    Some(at) => (at, Some(line)),
-                    None => return Vec::new(),
-                },
-                _ => return Vec::new(),
-            }
-        }
+    let Some((column, _, header)) = association_columns(text) else {
+        return Vec::new();
     };
     let mut held: Vec<(String, usize)> = Vec::new();
     for (line, row) in lines(text) {
@@ -931,6 +914,52 @@ pub fn association_sequences(text: &str) -> Vec<(String, usize)> {
         }
     }
     held
+}
+
+/// The first and the last position an association table gives on
+/// `sequence`, as it writes them; nothing for a table that names no
+/// sequence or no row on that one.
+pub(crate) fn association_span(text: &str, sequence: &str) -> Option<(u64, u64)> {
+    let (column, position, header) = association_columns(text)?;
+    let mut span: Option<(u64, u64)> = None;
+    for (line, row) in lines(text) {
+        let fields = columns(row);
+        if Some(line) == header || fields.get(column).map(|name| name.trim()) != Some(sequence) {
+            continue;
+        }
+        if let Some(at) = fields
+            .get(position)
+            .and_then(|at| at.trim().parse::<u64>().ok())
+        {
+            span = Some(span.map_or((at, at), |(first, last)| (first.min(at), last.max(at))));
+        }
+    }
+    span
+}
+
+/// The columns an association table keeps its sequence and its position in,
+/// and the line of its header where it has one; nothing for a table that
+/// names no sequence.
+fn association_columns(text: &str) -> Option<(usize, usize, Option<usize>)> {
+    match hashed_header(text) {
+        Some((line, wide)) => wide.sequence.map(|at| (at, wide.position, Some(line))),
+        None => {
+            let (line, head) = lines(text).next()?;
+            let names = columns(head);
+            match names.len() {
+                3 => Some((
+                    0,
+                    1,
+                    names[1].trim().parse::<u64>().is_err().then_some(line),
+                )),
+                wide if wide > 3 => {
+                    let wide = Wide::of(&names)?;
+                    wide.sequence.map(|at| (at, wide.position, Some(line)))
+                }
+                _ => None,
+            }
+        }
+    }
 }
 
 /// Where a wide association table keeps what a scan draws, by the names its
