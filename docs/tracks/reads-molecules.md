@@ -329,4 +329,4 @@ Raw current is comparable within a read and not between reads, since the open-po
 
 The move table is the only thing in the plot connecting time to sequence. With it, `dwells()` reports how many samples each called base held the pore, which is the measurement a homopolymer breaks: ten adenines in a row look like one long adenine.
 
-A base is lettered once its stretch of samples is 1.2 ems wide. One too narrow beside others that are lettered is a dot where its letter would be, since a row of letters with one left out reads as a sequence a base short. `Figure::notes()` says how many bases are dots and names a window that letters every base, `sample:221-524`, which the command line prints.
+A base is lettered once its stretch of samples is 1.2 ems wide. One too narrow beside others that are lettered is a dot where its letter would be, since a row of letters with one left out reads as a sequence a base short. `Figure::notes()` says how many bases are dots and names a window that letters every base in it, `sample:221-524`, with how many of the read's bases it holds, which the command line prints, adding how wide a figure of the whole read letters every one of them.

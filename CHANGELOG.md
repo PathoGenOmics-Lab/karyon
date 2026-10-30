@@ -1547,6 +1547,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A squiggle's note on bases too narrow for their letters says how many of
+  the read's bases the window it names holds, and the command line adds how
+  wide a figure of the whole read letters every one: `sample:1-304 letters
+  the 14 of the read's 114 bases in it`, then `read_1: --width 6200 letters
+  every one of its 114 bases`. `sample:1-304 letters every base` was read as
+  lettering the whole read, and no line said how to. The width is named only
+  where the read is drawn whole and the figure would be no wider than
+  `--width` takes, and drawn at it, every base is lettered and nothing is
+  said. No committed figure moves.
 - `karyon help` given a format's name, as `hic`, `.bcf` or `bigwig`, or a
   file's, as `genes.gtf.gz`, prints the help on the track a file of that
   format is named on its own, after a line on standard error naming that
@@ -1784,10 +1793,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `genotypes.svg` names its pooled marks.
 - `SquiggleTrack` holds the place of a base too narrow for its letter with a
   dot in the row of letters, where some bases beside it are lettered, and
-  its `notes` say how many and the window that letters every base, which the
-  command line prints as `read_1: 1 of 18 bases are too narrow for their
+  its `notes` say how many and a window that letters every base in it, which
+  the command line prints as `read_1: 1 of 18 bases are too narrow for their
   letters at this width, each a dot where its letter would be;
-  sample:221-524 letters every base`. The letter was left out with no mark,
+  sample:221-524 letters the 13 of the read's 114 bases in it`. The letter was left out with no mark,
   so over the first 400 samples of a read whose basecall starts
   GGATCACAGTCTACACT a C of five samples went missing and the row read one
   base short.

@@ -2150,6 +2150,7 @@ fn build_one(
     }
 
     colored_as_asked(invocation, files)?;
+    let lettering = RefCell::new(Vec::new());
     for spec in &invocation.tracks {
         // The ruler is the one track that reads nothing, and the one the plot
         // has to be told about so it does not append a second.
@@ -2198,6 +2199,7 @@ fn build_one(
             width: invocation.width.unwrap_or(900.0),
             gene: gene.map(String::as_str),
             consequences,
+            lettering: &lettering,
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
@@ -2219,6 +2221,7 @@ fn build_one(
                         width: invocation.width.unwrap_or(900.0),
                         gene: gene.map(String::as_str),
                         consequences,
+                        lettering: &lettering,
                     };
                     if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
                         again = Some(built);
@@ -2304,6 +2307,26 @@ fn build_one(
     // into the figure, which goes into the paper as it is.
     for note in figure.notes() {
         files.note(&note);
+    }
+    // And where a read is drawn whole with bases too narrow for their
+    // letters, how wide a figure letters every one, which the window the
+    // note names cannot: it letters the bases inside it.
+    let px = figure.px_per_bp();
+    for read in lettering.borrow().iter() {
+        let whole = region.start() == 0 && region.end() >= read.samples as u64;
+        if !whole || read.px <= px {
+            continue;
+        }
+        let now = figure.dimensions().0;
+        let wanted = ((now + (read.px - px) * region.len() as f64) / 100.0).ceil() * 100.0;
+        if wanted <= 100_000.0 {
+            files.note(&format!(
+                "{}: --width {} letters every one of its {} bases",
+                read.read,
+                wanted as u64,
+                crate::track::axis::group_thousands(read.bases as u64)
+            ));
+        }
     }
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
@@ -4649,6 +4672,22 @@ struct Context<'a> {
     /// in, which every panel shares; `None` for a figure of one place, whose
     /// calls deal their own.
     consequences: Option<&'a RefCell<Consequences>>,
+    /// What each read drawn as a squiggle needs for every one of its bases
+    /// to be lettered, which the figure's width settles once it is laid out.
+    lettering: &'a RefCell<Vec<Lettering>>,
+}
+
+/// What a squiggle needs for every base of its read to be lettered, for a
+/// figure drawn over the whole read to say how wide that is.
+struct Lettering {
+    /// The read's name, as its track is labelled.
+    read: String,
+    /// The pixels a sample takes for the shortest base to be lettered.
+    px: f64,
+    /// How many bases the read has.
+    bases: usize,
+    /// How many samples it has.
+    samples: usize,
 }
 
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
@@ -9213,6 +9252,14 @@ fn built(
             if let Some(height) = height {
                 track = track.height(height);
             }
+            if let Some((px, bases)) = track.lettered(theme) {
+                context.lettering.borrow_mut().push(Lettering {
+                    read: label.clone().unwrap_or_default(),
+                    px,
+                    bases,
+                    samples: track.len(),
+                });
+            }
             Box::new(named(track, label, SquiggleTrack::label))
         }
         Kind::Axis => unreachable!("the ruler is added by build"),
@@ -12226,22 +12273,52 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(svg.unwrap().contains("<circle"));
         let said: Vec<&String> = notes
             .iter()
-            .filter(|note| note.contains("letters"))
+            .filter(|note| note.contains("too narrow"))
             .collect();
         assert_eq!(said.len(), 1, "{notes:?}");
         assert!(
             said[0].starts_with("r1: 1 of 21 bases are too narrow for their letters"),
             "{said:?}"
         );
+        // The window letters the bases in it, and says how many of the
+        // read's those are; drawn whole, the read is lettered at a width the
+        // note names.
         let window = said[0].rsplit("; ").next().unwrap();
-        let window = window.strip_suffix(" letters every base").unwrap();
-        let (svg, notes) = drawn_noting(
-            &format!("{window} reads.slow5 --with-moves calls.sam"),
-            &held,
-        );
-        assert!(!svg.unwrap().contains("<circle"));
+        let (window, within) = window.split_once(" letters ").unwrap();
         assert!(
-            notes.iter().all(|note| !note.contains("letters")),
+            within.starts_with("the ") && within.ends_with(" of the read's 21 bases in it"),
+            "{within}"
+        );
+        let width = notes
+            .iter()
+            .find_map(|note| note.strip_prefix("r1: --width "))
+            .and_then(|rest| rest.strip_suffix(" letters every one of its 21 bases"))
+            .unwrap_or_else(|| panic!("{notes:?}"));
+        for line in [
+            format!("{window} reads.slow5 --with-moves calls.sam"),
+            format!("reads.slow5 --with-moves calls.sam --width {width}"),
+        ] {
+            let (svg, notes) = drawn_noting(&line, &held);
+            assert!(!svg.unwrap().contains("<circle"), "{line}");
+            assert!(
+                notes.iter().all(|note| !note.contains("letters")),
+                "{line}: {notes:?}"
+            );
+        }
+        // A width is named only for the whole read: a window of it with a
+        // base too narrow is lettered by the narrower window the note names.
+        let (_, notes) = drawn_noting("sample:1-400 reads.slow5 --with-moves calls.sam", &held);
+        assert!(
+            notes.iter().any(|note| note.contains("--width")),
+            "{notes:?}"
+        );
+        let (_, notes) = drawn_noting("sample:2-400 reads.slow5 --with-moves calls.sam", &held);
+        assert!(
+            notes.iter().any(|note| note.contains("too narrow")),
+            "{notes:?}"
+        );
+        assert!(
+            notes.iter().all(|note| !note.contains("--width")),
             "{notes:?}"
         );
     }

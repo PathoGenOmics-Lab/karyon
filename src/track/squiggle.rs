@@ -280,15 +280,33 @@ impl SquiggleTrack {
 /// How wide a base has to be for its letter, in ems of the letters' size.
 const LETTER_EMS: f64 = 1.2;
 
+impl SquiggleTrack {
+    /// The pixels a sample takes for every base of the read to be lettered,
+    /// its shortest base given the room its letter needs, and how many bases
+    /// the read has; `None` where it draws no letters. Asked by the command
+    /// line, which can say how wide a figure of the whole read that is.
+    pub(crate) fn lettered(&self, theme: &Theme) -> Option<(f64, usize)> {
+        if !self.show_bases {
+            return None;
+        }
+        let every = self.bases();
+        let shortest = every.iter().map(|(from, to)| to - from).min()?.max(1);
+        let need = (theme.font_size - 1.0) * LETTER_EMS;
+        Some((need / shortest as f64, every.len()))
+    }
+}
+
 impl Track for SquiggleTrack {
     fn noun(&self) -> &str {
         "raw nanopore signal"
     }
 
-    /// How many bases in view are dots rather than letters, and the window
-    /// that letters every base of the read: as many samples as the plot
-    /// gives the shortest base room for, starting at the first base left
-    /// unlettered.
+    /// How many bases in view are dots rather than letters, and a window
+    /// that letters every base in it: as many samples as the plot gives the
+    /// shortest base room for, starting at the first base left unlettered,
+    /// with how many of the read's bases it holds. `sample:1-304 letters
+    /// every base` was read as lettering the whole read, where those samples
+    /// held 14 of its 114 bases.
     fn notes(&self, region: &Region, px_per_bp: f64, theme: &Theme) -> Vec<String> {
         if !self.show_bases || px_per_bp <= 0.0 {
             return Vec::new();
@@ -310,13 +328,29 @@ impl Track for SquiggleTrack {
         let plot = region.len() as f64 * px_per_bp;
         let samples = ((plot * shortest as f64 / need).floor() as usize).max(1);
         let end = (first + samples).min(self.start + self.signal.len());
+        let within = every
+            .iter()
+            .filter(|(from, to)| *to > first && *from < end)
+            .count();
+        let held = if within == every.len() {
+            format!(
+                "every one of the read's {} bases",
+                group_thousands(within as u64)
+            )
+        } else {
+            format!(
+                "the {} of the read's {} bases in it",
+                group_thousands(within as u64),
+                group_thousands(every.len() as u64)
+            )
+        };
         let who = self
             .label
             .as_deref()
             .map_or(String::new(), |label| format!("{label}: "));
         vec![format!(
             "{who}{} of {} bases are too narrow for their letters at this width, each a \
-             dot where its letter would be; {}:{}-{} letters every base",
+             dot where its letter would be; {}:{}-{} letters {held}",
             group_thousands(narrow.len() as u64),
             group_thousands(bases.len() as u64),
             region.seq(),
@@ -789,18 +823,27 @@ mod tests {
         assert!(!svg.contains(">C</text>"), "{svg}");
         assert_eq!(svg.matches("<circle").count(), 1, "{svg}");
 
-        // The note counts it and names a window that letters it, and that
-        // window draws every letter and notes nothing.
+        // The note counts it and names a window that letters it, with how
+        // many of the read's bases are in that window, since it letters
+        // those and no others; and that window draws every letter and notes
+        // nothing.
         let notes = figure.notes();
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
             notes[0].starts_with("1 of 9 bases are too narrow"),
             "{notes:?}"
         );
-        let window = notes[0].rsplit("; ").next().unwrap();
-        let window = window.strip_suffix(" letters every base").unwrap();
+        let said = notes[0].rsplit("; ").next().unwrap();
+        let (window, held) = said.split_once(" letters ").unwrap();
         let zoom = Region::parse(window).unwrap();
         assert_eq!(zoom.start(), 80, "{window}");
+        let starts = [0, 20, 40, 60, 80, 82, 102, 122, 142, 162];
+        let within = starts
+            .windows(2)
+            .filter(|base| base[1] > zoom.start() && base[0] < zoom.end())
+            .count();
+        assert!(within < 9, "{said}");
+        assert_eq!(held, format!("the {within} of the read's 9 bases in it"));
         let zoomed = Figure::new(zoom)
             .show_region_label(false)
             .push(track.clone());
