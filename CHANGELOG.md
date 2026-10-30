@@ -1546,6 +1546,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A selection track's row of p-values is titled `-log10 p` under the
+  track's name, as a scan is, by `Track::axis_title`, and its top tick is the
+  number alone. `--selection fel.csv` wrote `-log10 p 2.4` at the top of the
+  row, one string in which a name with a space in it ran into its number. A
+  row of posteriors keeps `PP 1`, one word and a number, as `p 0.05` and
+  `ω 8` are. The key says in words after its three dots, where the band has
+  room, that a deeper mark is further from 1: `deeper = further from 1`. The
+  300 sites of that scan were drawn in 150 shades of blue and pink, and the
+  key showed one of each. `example-selection-atlas.svg` and
+  `example-evolutionary-surveillance.svg`, and their copies on the site, move,
+  each panel of p-values titled and its key longer by the words, and so do
+  `selection.svg` and `selection-dark.svg` on the site, whose label gutter
+  widens to the title.
 - A stretch with no copies at all is painted along the foot of a copy-number
   track, and keyed `no copies`, in the ink of the text, dark on a light page
   and light on a dark one. It was painted in the ink of a loss, and

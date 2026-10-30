@@ -350,6 +350,16 @@ impl Track for SelectionTrack {
         48.0
     }
 
+    // The evidence row's top tick was written `-log10 p 2.4`, and a name with
+    // a space in it run into its number is one string nobody can split. The
+    // name goes under the track's, as a scan's does, and the tick is the
+    // number. The other ticks of the band say what they are in one word,
+    // `p 0.05`, `PP 1` and `ω 8`, which no reader takes for part of the
+    // number, so a row of posteriors needs no title.
+    fn axis_title(&self) -> Option<&str> {
+        (self.show_evidence && self.evidence == SelectionEvidence::PValue).then_some("-log10 p")
+    }
+
     fn draw(&self, ctx: &mut DrawContext<'_>) {
         if !self.show_evidence && !self.show_effect {
             return;
@@ -419,6 +429,21 @@ impl SelectionTrack {
                 format!("PP ≥ {}", text_exact(self.posterior_threshold))
             }
         };
+
+        // A mark is drawn in a strength of its hue that deepens the further
+        // ω is from 1, and a dot a class keys one strength of each: a scan of
+        // 300 sites was drawn in 150 shades of blue and pink under one dot of
+        // each. Said in words after the classes, since a row of dots of each
+        // strength would read as more classes. Left out where the band has no
+        // room, before the threshold, which says which sites the track picked
+        // out.
+        let note = "deeper = further from 1";
+        let noted = text_width(note, size) + ctx.px(12.0);
+        if x + noted + ctx.px(6.0) + text_width(&evidence, size) <= ctx.band.right() {
+            ctx.svg
+                .text(x, y, note, &ctx.theme.muted, size, Anchor::Start);
+            x += noted;
+        }
         ctx.svg.symbol(
             x,
             y - ctx.px(3.0),
@@ -974,7 +999,8 @@ fn site_title(site: &SelectionSite) -> String {
 
 fn evidence_axis_top(evidence: SelectionEvidence, max: f64) -> String {
     match evidence {
-        SelectionEvidence::PValue => format!("-log10 p {}", text_rounded(max, 1)),
+        // Titled `-log10 p` under the track's name: `Track::axis_title`.
+        SelectionEvidence::PValue => text_rounded(max, 1),
         SelectionEvidence::Posterior => "PP 1".into(),
     }
 }
@@ -1291,6 +1317,54 @@ mod tests {
         assert!(svg.contains("p ≤ 5e-8"));
         assert!(svg.contains("p 5e-8"), "the axis labels the rule's height");
         assert!(!svg.contains("p ≤ 0<") && !svg.contains("p ≤ 0.0<"));
+    }
+
+    /// What the evidence row measures is the track's axis title, written
+    /// under its name, and the top tick is a number: the tick read
+    /// `-log10 p 2.4`, one string in which the name and the number ran
+    /// together.
+    #[test]
+    fn the_evidence_axis_is_titled_under_the_name_and_its_top_tick_is_a_number() {
+        let track = SelectionTrack::new(vec![SelectionSite::new(4).rates(0.2, 1.4).p_value(0.004)])
+            .label("fel");
+        assert_eq!(Track::axis_title(&track), Some("-log10 p"));
+        let svg = Figure::new(Region::new("gene", 0, 30).unwrap())
+            .push(track.clone())
+            .to_svg();
+        assert!(svg.contains(">-log10 p</text>"), "{svg}");
+        assert!(!svg.contains(">-log10 p "), "{svg}");
+        // -log10 0.004 is 2.4, the tallest mark.
+        assert!(svg.contains(">2.4</text>"), "{svg}");
+        // A row of posteriors says `PP` on its ticks, and a track drawing no
+        // evidence has no axis to title.
+        let posterior = track.clone().evidence(SelectionEvidence::Posterior);
+        assert_eq!(Track::axis_title(&posterior), None);
+        assert_eq!(Track::axis_title(&track.show_evidence(false)), None);
+    }
+
+    /// The marks come in several strengths of each hue, deeper the further ω
+    /// is from 1, and the key, one dot a class, says so in words where there
+    /// is room for them; where there is not, the threshold keeps its place.
+    #[test]
+    fn the_key_says_a_deeper_mark_is_further_from_one() {
+        let sites = vec![
+            SelectionSite::new(4).rates(1.0, 1.5).p_value(0.5),
+            SelectionSite::new(8).rates(1.0, 8.0).p_value(0.01),
+        ];
+        let drawn = |width: f64| {
+            Figure::new(Region::new("gene", 0, 30).unwrap())
+                .width(width)
+                .push(SelectionTrack::new(sites.clone()))
+                .to_svg()
+        };
+        let wide = drawn(900.0);
+        assert!(wide.contains(">deeper = further from 1</text>"), "{wide}");
+        let narrow = drawn(300.0);
+        assert!(
+            !narrow.contains(">deeper = further from 1</text>"),
+            "{narrow}"
+        );
+        assert!(narrow.contains(">p ≤ 0.05</text>"), "{narrow}");
     }
 
     #[test]

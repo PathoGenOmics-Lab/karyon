@@ -625,7 +625,7 @@ Site-wise molecular selection in two aligned tiers, so evidence and effect never
 
 #### Notes
 
-A site that crosses the threshold is drawn as a larger diamond instead of a small circle, and while thirty or fewer cross it in view each is named over its mark, from 1 as the ruler counts; sites whose names would touch share one, as `58, 59, 63-65`. Colour follows the direction of ω and not the evidence, so a significant purifying site keeps the purifying colour.
+A site that crosses the threshold is drawn as a larger diamond instead of a small circle, and while thirty or fewer cross it in view each is named over its mark, from 1 as the ruler counts; sites whose names would touch share one, as `58, 59, 63-65`. Colour follows the direction of ω and not the evidence, so a significant purifying site keeps the purifying colour, and its strength follows how far ω is from 1, which the key says in words, `deeper = further from 1`, after a dot of each direction, where the band has room. A row of p-values is titled `-log10 p` under the track's name, as a scan is (`Track::axis_title`), and its top tick is the number alone.
 
 Missing evidence or rates are left out rather than drawn at nought, the exact values you supplied stay in the tooltips, and an infinite ω from `dS = 0` is capped only in the drawn geometry. A ratio past either end of the effect tier is held at that end and drawn open, and the end is then written as a bound, `ω ≥ 8` or `≤ 1/8`, so a held mark does not read as exactly the end.
 

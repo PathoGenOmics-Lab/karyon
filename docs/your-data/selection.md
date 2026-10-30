@@ -17,13 +17,14 @@ karyon --selection fel.csv -o selection.svg
 ![The same figure on the dark page](../assets/start/selection-dark.svg){ .k-dark width="720" height="216" }
 </figure>
 
-Above, the evidence at each site, as `-log10` of its p-value, and the sites at
-p ≤ 0.05 as diamonds, numbered over them while thirty or fewer are in view,
-neighbours sharing one label, as `58, 59, 63-65`. Below, its direction: ω,
-which is dN/dS, above 1 upwards and below 1 downwards. A ratio past 8 or under
-an eighth is held at that end of the strip and drawn open, and the end reads
-`ω ≥ 8` or `≤ 1/8` while a site is held there. The ruler counts sites from 1,
-as HyPhy does.
+Above, the evidence at each site, as `-log10` of its p-value, which is named
+under the track's name, and the sites at p ≤ 0.05 as diamonds, numbered over
+them while thirty or fewer are in view, neighbours sharing one label, as
+`58, 59, 63-65`. Below, its direction: ω, which is dN/dS, above 1 upwards and
+below 1 downwards. Each direction has a colour of its own, deeper the further
+ω is from 1, as the key says. A ratio past 8 or under an eighth is held at
+that end of the strip and drawn open, and the end reads `ω ≥ 8` or `≤ 1/8`
+while a site is held there. The ruler counts sites from 1, as HyPhy does.
 
 ## Your table
 
