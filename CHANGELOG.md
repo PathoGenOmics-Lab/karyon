@@ -1546,6 +1546,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The reference's letters grow with the room each base has: the widest
+  letter in view, measured bold, takes 85% of its base, up to the figure's
+  own text and to 80% of the band, so every letter stays inside its base.
+  They were seven tenths of a base, and `chr17:1,100,250-1,100,350
+  chr17.2bit` over 900 pixels set them at 5.8 pixels, half the figure's
+  11.5; they are 8.8. `example-zoom.svg` and its copy on the site move, its
+  sixty letters from 9.3 pixels to the figure's 11.5.
 - The key of pairs drawn with `--log` says what the scale is,
   `contacts, log(1 + x)`, and writes the value half way along its ramp,
   between two halves of the strip, as `Legend::diverging` writes a centre,
