@@ -248,44 +248,38 @@ impl Track for AxisTrack {
 
 /// Which of the labels spanning `spans`, left to right, are written, so that
 /// no two come closer than `gap`: every one, or failing that every other one,
-/// every third and so on from the first, and always the last.
+/// every third and so on from the first, the shortest stride at which those
+/// do not meet. The last is written as well where it is off the stride and
+/// has room beside the last one on it.
 ///
 /// Labels are dropped evenly or not at all. Dropped one at a time wherever
 /// two met, a 101 bp window was labelled 250, a bare tick at 260, 270 to 330,
 /// a bare tick at 340 and 350, and the two bare ticks read as marking
-/// something. The last is always kept, so the ruler says where it ends: a
-/// stride that would leave it crowded is passed over for a longer one, and a
-/// 101 bp window once ended on a bare tick at 1,100,350. Where not even the
-/// two ends fit, the last stands alone.
+/// something; every other tick from 250 lands on 350, and all are written.
 ///
-/// A stride that lands on the last tick is taken over a shorter one that
-/// does not, up to twice as long. Every other tick of ten ended on two
-/// numbers a tick apart, 762.6 kb and 762.8 kb after steps of 0.4 kb, and
-/// every third reads 761.0, 761.6, 762.2 and 762.8 kb, evenly to the end.
+/// The stride is never lengthened to reach the last tick. Taken up to twice
+/// as long where it landed there, it numbered the 2 kb of the README's figure
+/// every third tick, at 761.0, 761.6, 762.2 and 762.8 kb, which are not round;
+/// every other tick is 761.0 to 762.6 kb by 0.4, and 762.8 beside them, which
+/// has room.
 fn labelled(spans: &[(f64, f64)], gap: f64) -> Vec<usize> {
     let count = spans.len();
-    if count < 2 {
-        return (0..count).collect();
+    if count == 0 {
+        return Vec::new();
     }
-    let every = |stride: usize| -> Vec<usize> {
-        let mut chosen: Vec<usize> = (0..count).step_by(stride).collect();
-        if chosen.last() != Some(&(count - 1)) {
-            chosen.push(count - 1);
+    let apart = |left: usize, right: usize| spans[right].0 >= spans[left].1 + gap;
+    let on = |stride: usize| (0..count).step_by(stride).collect::<Vec<usize>>();
+    let stride = (1..count)
+        .find(|&stride| on(stride).windows(2).all(|pair| apart(pair[0], pair[1])))
+        .unwrap_or(count);
+    let mut chosen = on(stride);
+    let last = count - 1;
+    if let Some(&end) = chosen.last() {
+        if end != last && apart(end, last) {
+            chosen.push(last);
         }
-        chosen
-    };
-    let apart = |stride: &usize| {
-        every(*stride)
-            .windows(2)
-            .all(|pair| spans[pair[1]].0 >= spans[pair[0]].1 + gap)
-    };
-    let Some(shortest) = (1..count).find(apart) else {
-        return vec![count - 1];
-    };
-    let even = (shortest..=(2 * shortest).min(count - 1))
-        .filter(|stride| (count - 1) % stride == 0)
-        .find(apart);
-    every(even.unwrap_or(shortest))
+    }
+    chosen
 }
 
 struct Ticks {
@@ -680,8 +674,8 @@ mod tests {
         assert_eq!(tick_unit(20_000, 100).format(19_900), "19.9 kb");
     }
 
-    /// The last label stands and interior ones give way to it, so the ruler
-    /// says where it ends: a 101 bp window ended on a bare tick.
+    /// A 101 bp window ends on its last number, which lands on the stride:
+    /// it once ended on a bare tick at 1,100,350.
     #[test]
     fn the_last_label_stands_and_an_interior_one_gives_way() {
         use crate::figure::Figure;
@@ -702,16 +696,19 @@ mod tests {
     }
 
     /// The numbers a ruler is crowded out of are dropped evenly, every other
-    /// tick or every third, and never one here and one there: a 101 bp window
-    /// read 250, then a bare tick at 260, then 270 to 330, then a bare tick at
-    /// 340, then 350, as if those two ticks were something else.
+    /// tick or every third from the first, and never one here and one there:
+    /// a 101 bp window read 250, then a bare tick at 260, then 270 to 330,
+    /// then a bare tick at 340, then 350, as if those two ticks were
+    /// something else. The stride is the shortest that fits and is never
+    /// lengthened to reach the last tick, which is numbered only where it is
+    /// on the stride or has room beside the last number that is.
     #[test]
     fn a_crowded_ruler_labels_every_other_tick_and_both_ends() {
         use crate::figure::Figure;
         use crate::region::Region;
 
-        // The positions of the ticks and of the numbers, as written.
-        let read = |place: &str, width: f64| -> (usize, Vec<u64>) {
+        // How many ticks the ruler has, and its numbers as written.
+        let read = |place: &str, width: f64| -> (usize, Vec<String>) {
             let svg = Figure::new(Region::parse(place).unwrap())
                 .width(width)
                 .show_region_label(false)
@@ -720,29 +717,49 @@ mod tests {
             let ticks = svg.matches("<line").count() - 1;
             let numbers = svg
                 .split("</text>")
-                .filter_map(|text| text.rsplit('>').next())
-                .filter(|text| text.starts_with("1,100,"))
-                .map(|text| text.replace(',', "").parse().unwrap())
+                .filter_map(|text| text.rsplit_once('>').map(|(_, said)| said.to_string()))
+                .filter(|said| !said.is_empty())
                 .collect();
             (ticks, numbers)
         };
+        // Eleven ticks crowded at both ends: every other one lands on 350.
         let (ticks, numbers) = read("chr17:1,100,250-1,100,350", 900.0);
         assert_eq!(ticks, 11);
         assert_eq!(
             numbers,
-            [1_100_250, 1_100_270, 1_100_290, 1_100_310, 1_100_330, 1_100_350]
+            [
+                "1,100,250",
+                "1,100,270",
+                "1,100,290",
+                "1,100,310",
+                "1,100,330",
+                "1,100,350"
+            ]
         );
-        // Ten ticks have no every other tick that ends on the last, and every
-        // third does: 260 to 350 at a width that crowds its two ends.
+        // The README's figure: nine steps of 0.2 kb with its ruler 766.92
+        // pixels wide, the first number crowding the second. Every other
+        // tick, and the last beside them, where it has room; every third, at
+        // 0.6 kb, read worse than one bare tick had.
+        let (ticks, numbers) = read("NC_000962.3:761,000-762,999", 800.92);
+        assert_eq!(ticks, 10);
+        assert_eq!(
+            numbers,
+            ["761.0 kb", "761.4 kb", "761.8 kb", "762.2 kb", "762.6 kb", "762.8 kb"]
+        );
+        // Ten ticks crowded at both ends: every other one, and the last left
+        // bare, since it meets 340, rather than every third to reach it.
         let (ticks, numbers) = read("chr17:1,100,258-1,100,350", 830.0);
         assert_eq!(ticks, 10);
-        assert_eq!(numbers, [1_100_260, 1_100_290, 1_100_320, 1_100_350]);
-        // Every other tick of the same ten fits where only the first number
-        // is crowded, and ends on two numbers a tick apart, 330 and 340; every
-        // third lands on the last.
-        let (ticks, numbers) = read("chr17:1,100,250-1,100,345", 900.0);
-        assert_eq!(ticks, 10);
-        assert_eq!(numbers, [1_100_250, 1_100_280, 1_100_310, 1_100_340]);
+        assert_eq!(
+            numbers,
+            [
+                "1,100,260",
+                "1,100,280",
+                "1,100,300",
+                "1,100,320",
+                "1,100,340"
+            ]
+        );
     }
 
     #[test]

@@ -1585,16 +1585,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of no copies along the foot, and so do `genome-copies.svg` and
   `genome-copies-dark.svg` on the site, their block on 12 and their key.
 - A ruler crowded out of some of its numbers leaves them out evenly, every
-  other tick or every third counting from the first, and still writes the
-  last. It left out one wherever two met, and a 101 bp window read
+  other tick or every third counting from the first, the shortest stride at
+  which none meet. It left out one wherever two met, and a 101 bp window read
   `1,100,250`, a bare tick at 260, 270 to 330, a bare tick at 340 and
   `1,100,350`, the two bare ticks reading as marking something; it reads 250,
-  270, 290, 310, 330 and 350. A stride that lands on the last tick is taken
-  over a shorter one that does not, up to twice as long, so ten ticks crowded
-  at the first are numbered every third rather than every other with the last
-  two a tick apart. `example.svg` and `example-dark.svg`, and their copies on
-  the site, move: their ruler read `761.0 kb`, a bare tick, then every tick to
-  `762.8 kb`, and reads `761.0`, `761.6`, `762.2` and `762.8 kb`.
+  270, 290, 310, 330 and 350. The last tick is numbered where the stride
+  lands on it or where its number has room beside the last one on the
+  stride, and the stride is never lengthened to reach it: every third tick
+  of 0.2 kb is 761.0, 761.6 and 762.2 kb, which read worse than one bare
+  tick. `example.svg` and `example-dark.svg`, and their copies on the site,
+  move: their ruler read `761.0 kb`, a bare tick, then every tick to
+  `762.8 kb`, and reads `761.0`, `761.4`, `761.8`, `762.2`, `762.6` and
+  `762.8 kb`, the last beside the stride, where it has room.
 - The dashed edges of a `--shade` come down to a ruler's ticks and stop
   there, short of its numbers, which `AxisTrack` now asks
   `SvgWriter::keep_clear` to keep clear across its width. They ran on to the
