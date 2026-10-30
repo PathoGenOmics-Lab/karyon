@@ -61,8 +61,8 @@ allele was lost: on 8 and 9 with the copy it took, and on 7 with the other
 allele doubled in its place, which the depth cannot show, since the copies
 there still add up to two. The key under the chromosomes names what the
 copies are drawn with: the thick grey bar of the total, the thinner one of the
-minor allele, and the colours of a gain, a loss and a lost allele, each only
-where a segment has one. Named on its own, the segment table is called
+minor allele, and the colours of a gain, a loss, a lost allele and a stretch
+with no copies left, each only where a segment has one. Named on its own, the segment table is called
 `tumour copy number`, apart from the depth's `tumour`; `--label` names either.
 A chromosome a depth file has no row on would be a gap in its line, not a
 depth of nought.

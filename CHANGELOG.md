@@ -1546,6 +1546,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A stretch with no copies at all is painted along the foot of a copy-number
+  track, and keyed `no copies`, in the ink of the text, dark on a light page
+  and light on a dark one. It was painted in the ink of a loss, and
+  `tumour.bedgraph tumour.cns --ploidy 2` keyed `loss` and `no copies` both
+  `#1634c2`, so a homozygous deletion could not be told from the loss of one
+  copy. `example-copy-number.svg` and its copy on the site move, its one block
+  of no copies along the foot, and so do `genome-copies.svg` and
+  `genome-copies-dark.svg` on the site, their block on 12 and their key.
 - A ruler crowded out of some of its numbers leaves them out evenly, every
   other tick or every third counting from the first, and still writes the
   last. It left out one wherever two met, and a 101 bp window read
