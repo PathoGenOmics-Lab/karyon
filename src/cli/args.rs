@@ -65,6 +65,20 @@ pub enum ArgError {
     UnknownFlag(String),
     /// A flag whose value is missing.
     MissingValue(&'static str),
+    /// A flag that takes a file, given another flag where its file goes, or
+    /// the end of the line after a file it could read: the file written
+    /// before its flag, as `cohort.bcf --genotypes -o fig.svg`, which read
+    /// `-o` as the file and refused it as one that does not exist.
+    FileAfter {
+        /// The flag.
+        flag: &'static str,
+        /// The flag written where its file goes; `None` at the end of the
+        /// line.
+        next: Option<String>,
+        /// The file named on its own just before the flag, where the flag
+        /// could read it.
+        before: Option<String>,
+    },
     /// A value that is not one of the words the flag takes.
     BadValue {
         /// The flag.
@@ -360,6 +374,17 @@ impl fmt::Display for ArgError {
                 ),
             },
             ArgError::MissingValue(flag) => write!(f, "{flag} needs a value"),
+            ArgError::FileAfter { flag, next, before } => {
+                write!(f, "{flag} takes its file after it")?;
+                let next = next.as_deref().unwrap_or("nothing");
+                match before {
+                    Some(file) => write!(
+                        f,
+                        ", as {flag} {file}; {file} came before it and {next} after"
+                    ),
+                    None => write!(f, "; {next} came next"),
+                }
+            }
             ArgError::BadValue {
                 flag,
                 given,
@@ -1283,6 +1308,42 @@ impl Kind {
             "ld" | "bedpe" | "cool" | "mcool" | "hic" => Kind::Pairs,
             _ => return None,
         })
+    }
+
+    /// Whether a track of this kind reads the file `name`, as far as its name
+    /// says: the track it is drawn by named on its own, or another that reads
+    /// the same format, as `--genotypes` reads a BCF, which is drawn as calls
+    /// named on its own.
+    fn could_read(self, name: &str) -> bool {
+        let Some(own) = Kind::for_file(name) else {
+            return false;
+        };
+        let lower = name.to_ascii_lowercase();
+        let lower = lower
+            .strip_suffix(".gz")
+            .or_else(|| lower.strip_suffix(".bgz"))
+            .unwrap_or(&lower);
+        let extension = lower
+            .rsplit_once('.')
+            .map_or("", |(_, extension)| extension);
+        let others: &[Kind] = match extension {
+            "vcf" | "bcf" => &[Kind::Genotypes, Kind::Structural],
+            "bam" | "cram" => &[Kind::Pileup, Kind::SplitReads],
+            "sam" => &[Kind::SplitReads],
+            "bedgraph" | "bdg" | "bg" => &[Kind::Windows, Kind::Dynseq, Kind::Recombination],
+            "bw" | "bigwig" => &[Kind::Windows, Kind::Dynseq],
+            "fa" | "fasta" | "fna" | "fas" | "ffn" | "frn" => {
+                &[Kind::Orfs, Kind::Msa, Kind::Snps, Kind::Logo]
+            }
+            "2bit" => &[Kind::Orfs],
+            "aln" | "afa" | "msa" => &[Kind::Snps, Kind::Logo],
+            "gff" | "gff3" => &[Kind::Loci, Kind::Clades],
+            "bed" => &[Kind::Loci],
+            "nwk" | "newick" | "tree" | "tre" | "treefile" | "nhx" => &[Kind::Tanglegram],
+            "paf" => &[Kind::Dotplot],
+            _ => &[],
+        };
+        own == self || others.contains(&self)
     }
 
     /// Whether this track is drawn in the region, so a command line with it
@@ -2842,7 +2903,34 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
 
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
-        let mut value = |flag: &'static str| rest.next().ok_or(ArgError::MissingValue(flag));
+        // The file named on its own just before this word, which a flag that
+        // takes a file and finds none after it was most likely written for.
+        let at = args.len() - rest.len() - 1;
+        let before = at
+            .checked_sub(1)
+            .map(|before| args[before].as_str())
+            .filter(|word| {
+                tracks.last().is_some_and(|track| {
+                    track.guessed
+                        && matches!(&track.source, Some(Source::Path(path)) if path.as_os_str() == *word)
+                })
+            });
+        let mut value = |flag: &'static str| {
+            let word = rest.next();
+            let next = word.filter(|word| FLAGS.contains(&word.as_str()));
+            let before = before
+                .filter(|before| file_read_by(flag).is_some_and(|kind| kind.could_read(before)));
+            // A file before its flag leaves the flag the word after it, which
+            // was read as the file and refused as one that does not exist.
+            if takes_a_file(flag) && (next.is_some() || (word.is_none() && before.is_some())) {
+                return Err(ArgError::FileAfter {
+                    flag,
+                    next: next.cloned(),
+                    before: before.map(String::from),
+                });
+            }
+            word.ok_or(ArgError::MissingValue(flag))
+        };
 
         // A track flag starts a track. `--axis` and `--codons` are the ones
         // that read nothing.
@@ -4456,6 +4544,30 @@ fn indexed_by(word: &str) -> Option<Option<String>> {
     })
 }
 
+/// Whether `flag` takes a file, as every track's flag does but `--axis` and
+/// `--codons`, and as the flags naming a track's second file do.
+fn takes_a_file(flag: &str) -> bool {
+    file_read_by(flag).is_some() || matches!(flag, "--traits" | "--links")
+}
+
+/// The kind of track whose file `flag` reads: its own, for a track's flag
+/// that reads one, and for a track's second file the kind that file is drawn
+/// as named on its own. `None` for a flag that takes no file, and for
+/// `--traits` and `--links`, whose tables no track draws by their names.
+fn file_read_by(flag: &str) -> Option<Kind> {
+    if let Some(kind) = Kind::ALL.iter().find(|kind| kind.dashed() == flag) {
+        return (!kind.reads_nothing()).then_some(*kind);
+    }
+    Some(match flag {
+        "--with-tree" | "--against" => Kind::Tree,
+        "--with-sequence" => Kind::Sequence,
+        "--with-moves" => Kind::Pileup,
+        "--ld" => Kind::Pairs,
+        "--with-recombination" => Kind::Recombination,
+        _ => return None,
+    })
+}
+
 /// Whether a word is a file's name, going by an extension a tool would give
 /// one, though not one [`Kind::for_file`] can place.
 fn looks_like_a_file(word: &str) -> bool {
@@ -5831,6 +5943,60 @@ mod tests {
     /// [`Kind::flag`] spells the track and [`Kind::dashed`] spells the word,
     /// and a fallback arm once let four tracks fall through so that
     /// `--synteny` with no path reported that `--axis` needed a value.
+    /// A file written before its flag leaves the flag the word after it,
+    /// which was read as the file: `cohort.bcf --genotypes -o task3.svg`
+    /// was refused as `--genotypes -o: No such file or directory`, blaming
+    /// `-o`. It says the flag takes its file after it, and names the file
+    /// before it where the flag could read that one.
+    #[test]
+    fn a_file_written_before_its_flag_is_named_there() {
+        let said = |line: &str| parse(&args(line)).unwrap_err().to_string();
+        for (line, wanted) in [
+            (
+                "chr17:1-70000 genes.gtf.gz cohort.bcf --genotypes -o task3.svg",
+                "--genotypes takes its file after it, as --genotypes cohort.bcf; cohort.bcf came \
+                 before it and -o after",
+            ),
+            (
+                "chr17:1-70000 genes.gtf.gz cohort.bcf --genotypes",
+                "--genotypes takes its file after it, as --genotypes cohort.bcf; cohort.bcf came \
+                 before it and nothing after",
+            ),
+            (
+                "reads.slow5 moves.sam --with-moves --title read",
+                "--with-moves takes its file after it, as --with-moves moves.sam; moves.sam came \
+                 before it and --title after",
+            ),
+            // A file the flag does not read is not offered to it, and a file
+            // given to a flag is not one named on its own.
+            (
+                "chr17:1-70000 cohort.bcf genes.gtf.gz --genotypes -o task3.svg",
+                "--genotypes takes its file after it; -o came next",
+            ),
+            (
+                "chr1:1-1000 --features genes.gff3 --coverage --label depth",
+                "--coverage takes its file after it; --label came next",
+            ),
+            (
+                "tree.nwk --clades gubbins.gff --with-tree -o x.svg",
+                "--with-tree takes its file after it; -o came next",
+            ),
+            (
+                "chr1:1-1000 --manhattan gwas.assoc --traits -o x.svg",
+                "--traits takes its file after it; -o came next",
+            ),
+        ] {
+            assert_eq!(said(line), wanted, "{line}");
+        }
+        // With nothing to offer and nothing after, it is the value it lacks.
+        assert!(matches!(
+            parse(&args("chr17:1-70000 genes.gtf.gz --genotypes")).unwrap_err(),
+            ArgError::MissingValue("--genotypes")
+        ));
+        // A value that is no flag is a file, whatever it is called.
+        assert!(parse(&args("chr17:1-70000 --genotypes -o-bcf -o x.svg")).is_ok());
+    }
+
     #[test]
     fn a_track_flag_missing_its_path_names_itself() {
         for flag in [

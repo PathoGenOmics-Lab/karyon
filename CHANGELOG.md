@@ -1547,6 +1547,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A flag that takes a file, written after its file, says so, as
+  `ArgError::FileAfter`: `cohort.bcf --genotypes -o task3.svg` read `-o` as
+  the file and was refused as `--genotypes -o: No such file or directory`,
+  which blamed `-o`. It reads `--genotypes takes its file after it, as
+  --genotypes cohort.bcf; cohort.bcf came before it and -o after`. The file
+  before the flag is named where the flag reads its format, as `--genotypes`
+  reads a BCF and `--with-moves` a SAM, and a flag written where a file goes
+  is refused the same way after any flag that takes one; a flag with nothing
+  after it and no file before it still needs a value.
 - The reference's letters grow with the room each base has: the widest
   letter in view, measured bold, takes 85% of its base, up to the figure's
   own text and to 80% of the band, so every letter stays inside its base.
