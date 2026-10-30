@@ -695,7 +695,8 @@ karyon NC_000962.3:759,001-768,000 reads.bam genes.gff3 \
 - **Behind the tracks, edged over them.** The wash is under every track, so no
   colour in the figure changes, and its two ends are dashed lines drawn over
   the tracks, so a heatmap whose cells hide the wash still shows where the
-  stretch starts and stops.
+  stretch starts and stops. They come down to a ruler's ticks and stop
+  there, short of its numbers.
 - **Only what is on the coordinates.** A phylogeny, a tanglegram, a
   variable-site panel, an ideogram and the key are not, and the column stops
   at them and goes on under them. Synteny is not shaded either, since its

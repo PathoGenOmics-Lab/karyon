@@ -16,8 +16,9 @@
 //! it to show through but the gaps between rows, so the two ends of the stretch
 //! are drawn again over the tracks as dashed hairlines, which mark it without
 //! changing a single colour a reader looks up. The hairlines leave out the
-//! words a track asked [`SvgWriter::keep_clear`] to keep clear, its key and
-//! the names it writes over marks, which an edge struck through.
+//! words a track asked [`SvgWriter::keep_clear`] to keep clear, its key, the
+//! names it writes over marks and a ruler's numbers, which an edge struck
+//! through.
 //!
 //! # One colour for every shade
 //!

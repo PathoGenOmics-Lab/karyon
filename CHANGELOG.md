@@ -1546,6 +1546,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The dashed edges of a `--shade` come down to a ruler's ticks and stop
+  there, short of its numbers, which `AxisTrack` now asks
+  `SvgWriter::keep_clear` to keep clear across its width. They ran on to the
+  foot of the ruler's band, and over `rpoB` an edge of
+  `--shade NC_000962.3:761,082-761,162=RRDR` went through `761.0 kb` and hid
+  half of its `kb`. The wash still reaches behind the numbers, where it tints
+  and hides nothing, so the stretch is still read off the ruler. No committed
+  figure moves, since none is shaded.
 - Where the guide and the page on the PDF writer describe `-o fig.pdf`, they
   say plainly that its text is in the standard Helvetica and Courier, named
   and not embedded, and what that means for a paper: `pdffonts` lists each

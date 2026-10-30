@@ -156,6 +156,16 @@ impl Track for AxisTrack {
         let tick_length = self.tick_length * ctx.visual_scale;
         let label_y = rule_y + tick_length + font;
 
+        // The row of numbers under the ticks is kept clear of the dashed
+        // edges of a shade, across the whole width, so every edge comes down
+        // to the ticks and stops level with the others. The ruler shows
+        // shades, and an edge run on to the foot of its band went through
+        // the numbers: one hid half of the `kb` of `761.0 kb`. The wash
+        // still reaches behind them, where it tints and hides nothing.
+        let ticks_end = rule_y + tick_length;
+        ctx.svg
+            .keep_clear(band.x, ticks_end, band.w, band.bottom() - ticks_end);
+
         // The rule and its ticks in the quiet inks. The ruler measures every
         // band above it, and drawn in the foreground it was the heaviest line
         // in a figure whose data is lines.

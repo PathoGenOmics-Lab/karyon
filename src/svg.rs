@@ -117,9 +117,10 @@ impl SvgWriter {
 
     /// Asks that nothing laid over the tracks once they are drawn cross the
     /// rectangle at `x`, `y`, `w` wide and `h` tall: the key a track writes
-    /// at the top of its band, or a name over a mark. The dashed edges of a
-    /// stretch the figure shades are drawn over every track, and one struck
-    /// a selection scan's `p ≤ 0.05` out.
+    /// at the top of its band, a name over a mark, or the numbers under a
+    /// ruler's ticks. The dashed edges of a stretch the figure shades are
+    /// drawn over every track, and one struck a selection scan's `p ≤ 0.05`
+    /// out.
     pub fn keep_clear(&mut self, x: f64, y: f64, w: f64, h: f64) {
         if finite(&[x, y, w, h]) && w > 0.0 && h > 0.0 {
             self.clear.push((x, y, w, h));
