@@ -1313,8 +1313,10 @@ impl Kind {
     /// Whether a track of this kind reads the file `name`, as far as its name
     /// says: the track it is drawn by named on its own, or another that reads
     /// the same format, as `--genotypes` reads a BCF, which is drawn as calls
-    /// named on its own.
-    fn could_read(self, name: &str) -> bool {
+    /// named on its own. A CRAM is answered by every track with the command
+    /// that writes what it reads, and is the track's [`Kind::for_file`] names
+    /// alone.
+    pub fn could_read(self, name: &str) -> bool {
         let Some(own) = Kind::for_file(name) else {
             return false;
         };
@@ -1328,7 +1330,7 @@ impl Kind {
             .map_or("", |(_, extension)| extension);
         let others: &[Kind] = match extension {
             "vcf" | "bcf" => &[Kind::Genotypes, Kind::Structural],
-            "bam" | "cram" => &[Kind::Pileup, Kind::SplitReads],
+            "bam" => &[Kind::Pileup, Kind::SplitReads],
             "sam" => &[Kind::SplitReads],
             "bedgraph" | "bdg" | "bg" => &[Kind::Windows, Kind::Dynseq, Kind::Recombination],
             "bw" | "bigwig" => &[Kind::Windows, Kind::Dynseq],

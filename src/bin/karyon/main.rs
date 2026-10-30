@@ -72,8 +72,8 @@ FIGURE OPTIONS, anywhere on the line
     --title <TEXT>   --width <PX>   --theme light|dark   -o fig.svg|fig.pdf
 
 MORE
-    karyon help <track>   what one track reads and the options it takes,
-                          as in karyon help coverage
+    karyon help <track>   what one track reads and the options it takes, as
+                          in karyon help coverage; karyon help hic for a format
     karyon help all       every track and every option, in full
     https://pathogenomics-lab.github.io/karyon/
 ";
@@ -459,6 +459,58 @@ fn help_on(topic: &str) -> Result<String, String> {
         guide_page(kind)
     ));
     Ok(out)
+}
+
+/// The help `karyon help` prints for `topic`, and the line said first on
+/// standard error where the topic is a format's name and not a track's.
+///
+/// A format, as `hic`, `bcf` or `.gtf`, or a file's name, as `contacts.hic`,
+/// is answered with the help on the track a file of that format is named on
+/// its own, after a line saying which track that is and which others read
+/// one. `karyon help hic` was refused as no track, and the options a `.hic`
+/// takes were found by searching `karyon help all`, under `--pairs`. The line
+/// goes to standard error, as a note does, so what is printed is the track's
+/// help and no longer than it.
+fn help_or_format(topic: &str) -> Result<(Option<String>, String), String> {
+    let refused = match help_on(topic) {
+        Ok(help) => return Ok((None, help)),
+        Err(refused) => refused,
+    };
+    let Some((pointer, kind)) = format_track(topic) else {
+        return Err(refused);
+    };
+    Ok((Some(pointer), help_on(&kind.dashed()[2..])?))
+}
+
+/// The track a file of the format `topic` is, named on its own, as
+/// [`args::Kind::for_file`] decides it, and a line saying so and naming the
+/// other tracks that read one: `a .bcf named on its own is a --variants
+/// track; --genotypes and --structural read one too`. `topic` is a format's
+/// extension, with its dot or without, or a file's name.
+fn format_track(topic: &str) -> Option<(String, args::Kind)> {
+    let word = topic.trim_start_matches('.').to_ascii_lowercase();
+    if word.is_empty() {
+        return None;
+    }
+    let named =
+        |file: String, called: String| args::Kind::for_file(&file).map(|kind| (file, called, kind));
+    let (file, called, kind) = named(topic.to_string(), topic.to_string())
+        .filter(|_| word.contains('.'))
+        .or_else(|| named(format!("file.{word}"), format!("a .{word}")))?;
+    let others: Vec<&str> = args::Kind::ALL
+        .iter()
+        .filter(|other| **other != kind && other.could_read(&file))
+        .map(|other| other.dashed())
+        .collect();
+    let mut line = format!("{called} named on its own is a {} track", kind.dashed());
+    match others.as_slice() {
+        [] => {}
+        [one] => line.push_str(&format!("; {one} reads one too")),
+        [many @ .., last] => {
+            line.push_str(&format!("; {} and {last} read one too", many.join(", ")))
+        }
+    }
+    Some((line, kind))
 }
 
 /// What `karyon help all` prints: every track and every option, in full.
@@ -895,7 +947,11 @@ fn run(args: &[String]) -> Result<(), String> {
             return Ok(());
         }
         args::Request::HelpOn(topic) => {
-            print!("{}", help_on(&topic)?);
+            let (pointer, help) = help_or_format(&topic)?;
+            if let Some(pointer) = pointer {
+                eprintln!("karyon: {pointer}");
+            }
+            print!("{help}");
             return Ok(());
         }
         args::Request::Version => {
@@ -1403,6 +1459,98 @@ mod tests {
         }
         assert!(SHORT.contains("karyon help <track>"));
         assert!(SHORT.contains("karyon help all"));
+    }
+
+    /// A format's name is answered with the help on the track a file of it
+    /// is, named on its own, after a line naming that track and the others
+    /// that read one. `karyon help hic` was refused as no track, and the
+    /// options a .hic takes were found under --pairs in `karyon help all`.
+    #[test]
+    fn the_help_on_a_format_is_its_track_s() {
+        let (pointer, help) = help_or_format("hic").unwrap();
+        assert_eq!(
+            pointer.as_deref(),
+            Some("a .hic named on its own is a --pairs track")
+        );
+        assert_eq!(help, help_on("pairs").unwrap());
+        let (pointer, _) = help_or_format("bcf").unwrap();
+        assert_eq!(
+            pointer.as_deref(),
+            Some(
+                "a .bcf named on its own is a --variants track; --genotypes and --structural \
+                 read one too"
+            )
+        );
+        let (pointer, help) = help_or_format("genes.gtf.gz").unwrap();
+        assert_eq!(
+            pointer.as_deref(),
+            Some("genes.gtf.gz named on its own is a --features track")
+        );
+        assert_eq!(help, help_on("features").unwrap());
+        // Every extension a file named on its own is placed by, with its dot
+        // or without, is its track's help and no more.
+        for word in [
+            "hic",
+            "cool",
+            "mcool",
+            "bw",
+            "bigwig",
+            "bb",
+            "bigbed",
+            "2bit",
+            "bcf",
+            "vcf",
+            "cns",
+            "seg",
+            "gtf",
+            "gff",
+            "gff3",
+            "bed",
+            "bam",
+            "cram",
+            "sam",
+            "paf",
+            "slow5",
+            "ld",
+            "bedpe",
+            "nwk",
+            "newick",
+            "nex",
+            "fa",
+            "fasta",
+            "aln",
+            "bedgraph",
+            "bg",
+            "depth",
+            "bedmethyl",
+            "assoc",
+            "regenie",
+        ] {
+            let kind = args::Kind::for_file(&format!("x.{word}")).expect(word);
+            for topic in [word.to_string(), format!(".{word}")] {
+                let (pointer, help) = help_or_format(&topic).expect(word);
+                assert!(
+                    pointer.is_some_and(|line| line.contains(&format!(" {} track", kind.dashed()))),
+                    "{topic}"
+                );
+                assert_eq!(help, help_on(kind.dashed()).unwrap(), "{topic}");
+            }
+        }
+        // A track's own name is its help, with no line before it, though
+        // msa and tree are extensions too; a word that is neither is
+        // refused as it was.
+        for track in ["msa", "tree", "pairs"] {
+            assert_eq!(
+                help_or_format(track).unwrap(),
+                (None, help_on(track).unwrap())
+            );
+        }
+        assert_eq!(
+            help_or_format("hics").unwrap_err(),
+            help_on("hics").unwrap_err()
+        );
+        assert!(help_or_format("").is_err());
+        assert!(help_or_format(".").is_err());
     }
 
     /// Every track has help of its own, which points at a page of the guide

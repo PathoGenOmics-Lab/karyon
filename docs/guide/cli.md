@@ -95,8 +95,12 @@ An option and its value may be written as two words or joined by `=`, as
 `karyon --help` fits on one screen: the grammar, every track by what it draws,
 and the figure options. `karyon help coverage`, or `--help` written after a
 track flag, prints one track's entry and only the options that track takes,
-with a link to its page here. `karyon help all` prints everything, every track
-and every option in full. A flag typed wrong is answered with the one it was
+with a link to its page here. A format's name, or a file's, as `karyon help
+hic` or `karyon help genes.gtf.gz`, prints the help on the track a file of
+that format is named on its own, after a line on standard error that names
+the track and the others that read one: `a .bcf named on its own is a
+--variants track; --genotypes and --structural read one too`. `karyon help
+all` prints everything, every track and every option in full. A flag typed wrong is answered with the one it was
 probably meant to be:
 
 ```text

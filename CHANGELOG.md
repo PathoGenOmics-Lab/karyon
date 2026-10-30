@@ -1547,6 +1547,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `karyon help` given a format's name, as `hic`, `.bcf` or `bigwig`, or a
+  file's, as `genes.gtf.gz`, prints the help on the track a file of that
+  format is named on its own, after a line on standard error naming that
+  track and the others that read one: `a .hic named on its own is a --pairs
+  track`. `karyon help hic` was refused as `no track is called hic`, and the
+  `--resolution` and `--log` a `.hic` takes were found by searching `karyon
+  help all`. The format is the one `Kind::for_file` places a file by, and the
+  other tracks are the ones `Kind::could_read` says read it, so the line and
+  the help are what the parser does. A track's own name is its help as
+  before, though `msa` and `tree` are extensions too, and the help printed
+  is the track's, line for line, so it is no longer than the tested limits.
+  `karyon --help` says so in the line that names `karyon help <track>`.
 - A flag that takes a file, written after its file, says so, as
   `ArgError::FileAfter`: `cohort.bcf --genotypes -o task3.svg` read `-o` as
   the file and was refused as `--genotypes -o: No such file or directory`,
