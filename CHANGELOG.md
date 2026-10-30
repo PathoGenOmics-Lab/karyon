@@ -1698,7 +1698,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   several transcripts says so on standard error, once, naming the flag:
   `NOVA1: 3 transcripts drawn as one model; --isoforms after genes.gtf.gz
   draws a row each`. Three isoforms were merged into one model with nothing
-  printed, and `--isoforms` was found only in `karyon help features`. No
+  printed, and `--isoforms` was found only in `karyon help features`. It is
+  said where the annotation is what the figure is about, with nothing drawn
+  over the gene but the annotation, its reference and rulers: `NOVA1 KAPPA3
+  h3k4me3.bw genes.gtf.gz --panel-columns 2`, two genes with a signal over
+  each, printed it for a figure that never asked about transcripts. No
   committed figure moves.
 - A sequence drawn as far as a table of windows reaches is not said to stop
   short of its end where the table's last window is cut short of the others,

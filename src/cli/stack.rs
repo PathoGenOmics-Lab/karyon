@@ -2151,6 +2151,21 @@ fn build_one(
 
     colored_as_asked(invocation, files)?;
     let lettering = RefCell::new(Vec::new());
+    // The gene an annotation drawn a gene at a time says it merged the
+    // transcripts of, where the annotation is what the figure is about:
+    // nothing is drawn over the gene but the annotation, its reference and
+    // rulers, in each panel of several genes as in a figure of one. Beside a
+    // signal or reads the gene is where they are, and two genes side by side
+    // with a signal over each printed the note for a figure that never asked
+    // about transcripts.
+    let about = gene.map(String::as_str).filter(|_| {
+        invocation.tracks.iter().all(|spec| {
+            matches!(
+                spec.kind,
+                Kind::Features | Kind::Sequence | Kind::Orfs | Kind::Codons | Kind::Axis
+            )
+        })
+    });
     for spec in &invocation.tracks {
         // The ruler is the one track that reads nothing, and the one the plot
         // has to be told about so it does not append a second.
@@ -2197,7 +2212,7 @@ fn build_one(
             genotyped,
             colors: &invocation.colors,
             width: invocation.width.unwrap_or(900.0),
-            gene: gene.map(String::as_str),
+            gene: about,
             consequences,
             lettering: &lettering,
         };
@@ -2219,7 +2234,7 @@ fn build_one(
                         genotyped,
                         colors: &invocation.colors,
                         width: invocation.width.unwrap_or(900.0),
-                        gene: gene.map(String::as_str),
+                        gene: about,
                         consequences,
                         lettering: &lettering,
                     };
@@ -4666,7 +4681,8 @@ struct Context<'a> {
     /// pixel holds and so which zoom level of a bigWig to read.
     width: f64,
     /// The gene the figure is placed on by its name, as its annotation
-    /// spells it, which an annotation drawn a gene at a time says it merged.
+    /// spells it, which an annotation drawn a gene at a time says it merged;
+    /// `None` where the annotation is not what the figure is about.
     gene: Option<&'a str>,
     /// The order the calls of a figure of several places deal their colours
     /// in, which every panel shares; `None` for a figure of one place, whose
@@ -7908,11 +7924,12 @@ fn built(
             if features.is_empty() {
                 return Err(empty("features"));
             }
-            // A gene the figure is placed on, drawn once for transcripts that
-            // differ, says so once: three isoforms drawn as one model printed
-            // nothing, and the flag that draws them apart was found only in
-            // the help on features. Only a gene drawn a gene at a time counts
-            // the transcripts it merged, so `--isoforms` says nothing here.
+            // A gene the figure is placed on and about, drawn once for
+            // transcripts that differ, says so once: three isoforms drawn as
+            // one model printed nothing, and the flag that draws them apart
+            // was found only in the help on features. Only a gene drawn a
+            // gene at a time counts the transcripts it merged, so
+            // `--isoforms` says nothing here.
             let merged = context.gene.and_then(|gene| {
                 features
                     .iter()
@@ -13650,11 +13667,15 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
 
     /// A gene the figure is placed on, drawn as one model of several
     /// transcripts, says so once and names the flag that draws them apart;
-    /// a gene of one transcript, a place written as a span, and a figure
-    /// that asked for the transcripts say nothing.
+    /// a gene of one transcript, a place written as a span, a figure that
+    /// asked for the transcripts, and one that draws data over the gene,
+    /// which is about the data and not the transcripts, say nothing.
     #[test]
     fn a_placed_gene_drawn_as_one_model_names_isoforms() {
-        let held = [("genes.gff3", ISOFORMS)];
+        let held = [
+            ("genes.gff3", ISOFORMS),
+            ("depth.bedgraph", "7\t1000\t9000\t5\n"),
+        ];
         let (svg, notes) = drawn_noting("GENE1 genes.gff3", &held);
         svg.unwrap();
         assert_eq!(
@@ -13664,7 +13685,16 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
               row each"
             ]
         );
-        for line in ["GENE1 genes.gff3 --isoforms", "7:1-10,000 genes.gff3"] {
+        // In a panel of several, the gene's panel says so too.
+        let (svg, notes) = drawn_noting("GENE1 7:1-10,000 genes.gff3", &held);
+        svg.unwrap();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        for line in [
+            "GENE1 genes.gff3 --isoforms",
+            "7:1-10,000 genes.gff3",
+            "GENE1 depth.bedgraph genes.gff3",
+            "GENE1 7:1-10,000 depth.bedgraph genes.gff3 --panel-columns 2",
+        ] {
             let (svg, notes) = drawn_noting(line, &held);
             svg.unwrap();
             assert!(notes.is_empty(), "{line}: {notes:?}");
