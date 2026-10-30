@@ -1313,9 +1313,9 @@ impl Kind {
     /// Whether a track of this kind reads the file `name`, as far as its name
     /// says: the track it is drawn by named on its own, or another that reads
     /// the same format, as `--genotypes` reads a BCF, which is drawn as calls
-    /// named on its own. A CRAM is answered by every track with the command
-    /// that writes what it reads, and is the track's [`Kind::for_file`] names
-    /// alone.
+    /// named on its own. A CRAM, which every track answers with the command
+    /// that writes what it reads, counts only for the track [`Kind::for_file`]
+    /// gives it.
     pub fn could_read(self, name: &str) -> bool {
         let Some(own) = Kind::for_file(name) else {
             return false;

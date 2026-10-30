@@ -106,17 +106,16 @@ pub enum BuildError {
         wanted: &'static str,
         /// How many of them the file did hold.
         held: usize,
-        /// The sequences it named, where naming them helps.
+        /// The sequences it named, where naming them helps, and where it
+        /// names one and was read as text, the first and the last position
+        /// its rows give, as the file writes them: `1, from 604,401 to
+        /// 899,401`. That is what tells a reader whether the rows could be
+        /// the window's at all, where no `--rename` is offered.
         named: String,
         /// The locus that was asked for.
         region: String,
         /// The `--rename` that would draw it, where one plainly would.
         rename: Option<Box<(String, String)>>,
-        /// The first and the last position its rows give, as the file
-        /// writes them, where it names one sequence and was read as text:
-        /// what tells a reader whether the rows could be the window's at
-        /// all, where no `--rename` is offered.
-        span: Option<(u64, u64)>,
     },
     /// A reference whose bases stop before the region starts, or start after
     /// it ends.
@@ -691,25 +690,11 @@ impl fmt::Display for BuildError {
                 named,
                 region,
                 rename,
-                span,
             } => {
-                use crate::track::axis::group_thousands;
                 write!(f, "--{track} {path}: no {wanted} in {region}")?;
                 write!(f, ", though the file holds {held}")?;
                 if !named.is_empty() {
                     write!(f, " on {named}")?;
-                }
-                match span {
-                    Some((first, last)) if first == last => {
-                        write!(f, ", at {}", group_thousands(*first))?
-                    }
-                    Some((first, last)) => write!(
-                        f,
-                        ", from {} to {}",
-                        group_thousands(*first),
-                        group_thousands(*last)
-                    )?,
-                    None => {}
                 }
                 if let Some(pair) = rename {
                     let (from, to) = pair.as_ref();
@@ -1930,7 +1915,6 @@ fn ring_of(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
             // The colour a band of calls gives each class. A call that covers
@@ -7466,10 +7450,9 @@ fn explained(
                     path,
                     wanted,
                     held: held.iter().map(|(_, count)| count).sum(),
-                    named: listed(&held),
+                    named: format!("{}{}", listed(&held), spanned(span)),
                     region: region.to_string(),
                     rename: rename_for(&held, region.seq(), true).map(Box::new),
-                    span,
                 },
                 _ => BuildError::Empty {
                     track,
@@ -7536,6 +7519,21 @@ fn rows_on(kind: Kind, text: &str) -> Vec<(String, usize)> {
         return read::point::association_sequences(text);
     }
     sequence_column(kind).map_or_else(Vec::new, |column| sequences_named(text, column))
+}
+
+/// Where a file's rows lie, as a refusal says it after the sequence they are
+/// on: `, from 604,401 to 899,401`, or `, at 4,800` for one position.
+fn spanned(span: Option<(u64, u64)>) -> String {
+    use crate::track::axis::group_thousands;
+    match span {
+        Some((first, last)) if first == last => format!(", at {}", group_thousands(first)),
+        Some((first, last)) => format!(
+            ", from {} to {}",
+            group_thousands(first),
+            group_thousands(last)
+        ),
+        None => String::new(),
+    }
 }
 
 /// The first and the last position a track's file gives on `sequence`, as
@@ -7827,7 +7825,6 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
 
@@ -7874,7 +7871,6 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
 
@@ -8468,7 +8464,6 @@ fn built(
                     named: code.clone(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
 
@@ -8509,7 +8504,6 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
             let mut track = StructuralTrack::new(found.variants);
@@ -8537,7 +8531,6 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
             let mut track = SplitReadTrack::new(found.reads);
@@ -8575,7 +8568,6 @@ fn built(
                     named: context.clone(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
 
@@ -8622,7 +8614,6 @@ fn built(
                     named: analysis.clone(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
             if found.rows.iter().all(|row| row.features.is_empty()) {
@@ -8682,7 +8673,6 @@ fn built(
                     named: found.sequences.join(", "),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
 
@@ -8748,7 +8738,6 @@ fn built(
                     named: String::new(),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
 
@@ -8951,7 +8940,6 @@ fn built(
                     named: found.samples.join(", "),
                     region: region.to_string(),
                     rename: None,
-                    span: None,
                 });
             }
 
