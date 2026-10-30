@@ -1546,6 +1546,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A ruler crowded out of some of its numbers leaves them out evenly, every
+  other tick or every third counting from the first, and still writes the
+  last. It left out one wherever two met, and a 101 bp window read
+  `1,100,250`, a bare tick at 260, 270 to 330, a bare tick at 340 and
+  `1,100,350`, the two bare ticks reading as marking something; it reads 250,
+  270, 290, 310, 330 and 350. A stride that lands on the last tick is taken
+  over a shorter one that does not, up to twice as long, so ten ticks crowded
+  at the first are numbered every third rather than every other with the last
+  two a tick apart. `example.svg` and `example-dark.svg`, and their copies on
+  the site, move: their ruler read `761.0 kb`, a bare tick, then every tick to
+  `762.8 kb`, and reads `761.0`, `761.6`, `762.2` and `762.8 kb`.
 - The dashed edges of a `--shade` come down to a ruler's ticks and stop
   there, short of its numbers, which `AxisTrack` now asks
   `SvgWriter::keep_clear` to keep clear across its width. They ran on to the

@@ -198,14 +198,9 @@ impl Track for AxisTrack {
             family: Some(&ctx.theme.mono_family),
             ..TextStyle::default()
         };
-        // Where the last label drawn ends. The first and last labels are
-        // pulled inside the figure, and a label pulled in can land on its
-        // neighbour; that neighbour is left unlabelled rather than printed
-        // through it.
-        //
-        // The last label is placed first and the others give way to it, so
-        // the ruler says where it ends: given way to, it was the one left
-        // out, and a 101 bp window ended on a bare tick at 1,100,350.
+        // The first and last labels are pulled inside the figure, and a label
+        // pulled in can land on its neighbour, which is then left unlabelled
+        // rather than printed through.
         let place = |pos: u64| -> (f64, String, Anchor, f64, f64) {
             // Ticks are computed in 1-based space so their labels are round
             // numbers; the scale works in 0-based space.
@@ -226,32 +221,71 @@ impl Track for AxisTrack {
             };
             (x, text, anchor, tx, left)
         };
-        let end_left = match ticks.positions[..] {
-            [_, .., last] => place(last).4,
-            _ => f64::INFINITY,
-        };
-        let count = ticks.positions.len();
-        let mut last_right = f64::NEG_INFINITY;
-        for (index, pos) in ticks.positions.into_iter().enumerate() {
-            let (x, text, anchor, tx, left) = place(pos);
+        let placed: Vec<_> = ticks.positions.iter().map(|&pos| place(pos)).collect();
+        let spans: Vec<(f64, f64)> = placed
+            .iter()
+            .map(|(_, text, _, _, left)| (*left, left + mono_width(text, font)))
+            .collect();
+        let written = labelled(&spans, font * 0.5);
+        // Each tick, then its number where it has one, in the order the
+        // ruler was always written in.
+        for (index, (x, text, anchor, tx, _)) in placed.iter().enumerate() {
             ctx.svg.line(
-                x,
+                *x,
                 rule_y,
-                x,
+                *x,
                 rule_y + tick_length,
                 &tick_ink,
                 ctx.theme.tokens.stroke,
             );
-            let width = mono_width(&text, font);
-            let last = index + 1 == count;
-            if left < last_right + font * 0.5 || (!last && left + width + font * 0.5 > end_left) {
-                continue;
+            if written.contains(&index) {
+                ctx.svg
+                    .text_styled(*tx, label_y, text, &ctx.theme.muted, font, *anchor, style);
             }
-            last_right = left + width;
-            ctx.svg
-                .text_styled(tx, label_y, &text, &ctx.theme.muted, font, anchor, style);
         }
     }
+}
+
+/// Which of the labels spanning `spans`, left to right, are written, so that
+/// no two come closer than `gap`: every one, or failing that every other one,
+/// every third and so on from the first, and always the last.
+///
+/// Labels are dropped evenly or not at all. Dropped one at a time wherever
+/// two met, a 101 bp window was labelled 250, a bare tick at 260, 270 to 330,
+/// a bare tick at 340 and 350, and the two bare ticks read as marking
+/// something. The last is always kept, so the ruler says where it ends: a
+/// stride that would leave it crowded is passed over for a longer one, and a
+/// 101 bp window once ended on a bare tick at 1,100,350. Where not even the
+/// two ends fit, the last stands alone.
+///
+/// A stride that lands on the last tick is taken over a shorter one that
+/// does not, up to twice as long. Every other tick of ten ended on two
+/// numbers a tick apart, 762.6 kb and 762.8 kb after steps of 0.4 kb, and
+/// every third reads 761.0, 761.6, 762.2 and 762.8 kb, evenly to the end.
+fn labelled(spans: &[(f64, f64)], gap: f64) -> Vec<usize> {
+    let count = spans.len();
+    if count < 2 {
+        return (0..count).collect();
+    }
+    let every = |stride: usize| -> Vec<usize> {
+        let mut chosen: Vec<usize> = (0..count).step_by(stride).collect();
+        if chosen.last() != Some(&(count - 1)) {
+            chosen.push(count - 1);
+        }
+        chosen
+    };
+    let apart = |stride: &usize| {
+        every(*stride)
+            .windows(2)
+            .all(|pair| spans[pair[1]].0 >= spans[pair[0]].1 + gap)
+    };
+    let Some(shortest) = (1..count).find(apart) else {
+        return vec![count - 1];
+    };
+    let even = (shortest..=(2 * shortest).min(count - 1))
+        .filter(|stride| (count - 1) % stride == 0)
+        .find(apart);
+    every(even.unwrap_or(shortest))
 }
 
 struct Ticks {
@@ -646,8 +680,8 @@ mod tests {
         assert_eq!(tick_unit(20_000, 100).format(19_900), "19.9 kb");
     }
 
-    /// The last label stands and an interior one gives way to it, so the
-    /// ruler says where it ends: a 101 bp window ended on a bare tick.
+    /// The last label stands and interior ones give way to it, so the ruler
+    /// says where it ends: a 101 bp window ended on a bare tick.
     #[test]
     fn the_last_label_stands_and_an_interior_one_gives_way() {
         use crate::figure::Figure;
@@ -665,6 +699,50 @@ mod tests {
         assert_eq!(labels.first(), Some(&"1,100,250"), "{labels:?}");
         assert_eq!(labels.last(), Some(&"1,100,350"), "{labels:?}");
         assert!(labels.len() >= 6, "{labels:?}");
+    }
+
+    /// The numbers a ruler is crowded out of are dropped evenly, every other
+    /// tick or every third, and never one here and one there: a 101 bp window
+    /// read 250, then a bare tick at 260, then 270 to 330, then a bare tick at
+    /// 340, then 350, as if those two ticks were something else.
+    #[test]
+    fn a_crowded_ruler_labels_every_other_tick_and_both_ends() {
+        use crate::figure::Figure;
+        use crate::region::Region;
+
+        // The positions of the ticks and of the numbers, as written.
+        let read = |place: &str, width: f64| -> (usize, Vec<u64>) {
+            let svg = Figure::new(Region::parse(place).unwrap())
+                .width(width)
+                .show_region_label(false)
+                .push(AxisTrack::new())
+                .to_svg();
+            let ticks = svg.matches("<line").count() - 1;
+            let numbers = svg
+                .split("</text>")
+                .filter_map(|text| text.rsplit('>').next())
+                .filter(|text| text.starts_with("1,100,"))
+                .map(|text| text.replace(',', "").parse().unwrap())
+                .collect();
+            (ticks, numbers)
+        };
+        let (ticks, numbers) = read("chr17:1,100,250-1,100,350", 900.0);
+        assert_eq!(ticks, 11);
+        assert_eq!(
+            numbers,
+            [1_100_250, 1_100_270, 1_100_290, 1_100_310, 1_100_330, 1_100_350]
+        );
+        // Ten ticks have no every other tick that ends on the last, and every
+        // third does: 260 to 350 at a width that crowds its two ends.
+        let (ticks, numbers) = read("chr17:1,100,258-1,100,350", 830.0);
+        assert_eq!(ticks, 10);
+        assert_eq!(numbers, [1_100_260, 1_100_290, 1_100_320, 1_100_350]);
+        // Every other tick of the same ten fits where only the first number
+        // is crowded, and ends on two numbers a tick apart, 330 and 340; every
+        // third lands on the last.
+        let (ticks, numbers) = read("chr17:1,100,250-1,100,345", 900.0);
+        assert_eq!(ticks, 10);
+        assert_eq!(numbers, [1_100_250, 1_100_280, 1_100_310, 1_100_340]);
     }
 
     #[test]
