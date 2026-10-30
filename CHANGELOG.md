@@ -1128,8 +1128,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   does not use says which `--rename` would draw it, where one plainly would:
   the figure's own with a `chr` more or less, or the one sequence the file
   names where neither name is a chromosome's number. One name renamed two
-  ways is refused. All three simulated users had to
-  find out by reading the file that PLINK named the chromosome `1`.
+  ways is refused. All three simulated users had to find out by reading the
+  file that PLINK named the chromosome `1`.
 - A sequence drawn whole to where its rows reach, because no file gives its
   length, says so on standard error: all three simulated users saw that the
   figure stopped at the last tested position only from the corner label. The
@@ -1552,10 +1552,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   wide a figure of the whole read letters every one: `sample:1-304 letters
   the 14 of the read's 114 bases in it`, then `read_1: --width 6200 letters
   every one of its 114 bases`. `sample:1-304 letters every base` was read as
-  lettering the whole read, and no line said how to. The width is named only
-  where the read is drawn whole and the figure would be no wider than
-  `--width` takes, and drawn at it, every base is lettered and nothing is
-  said. No committed figure moves.
+  lettering the whole read, and nothing said how to letter it. The width is
+  named only where the read is drawn whole, and only up to the 100,000
+  pixels `--width` takes; drawn at it, every base is lettered and nothing more
+  is said. No committed figure moves.
 - `karyon help` given a format's name, as `hic`, `.bcf` or `bigwig`, or a
   file's, as `genes.gtf.gz`, prints the help on the track a file of that
   format is named on its own, after a line on standard error naming that
@@ -1563,20 +1563,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   track`. `karyon help hic` was refused as `no track is called hic`, and the
   `--resolution` and `--log` a `.hic` takes were found by searching `karyon
   help all`. The format is the one `Kind::for_file` places a file by, and the
-  other tracks are the ones `Kind::could_read` says read it, so the line and
-  the help are what the parser does. A track's own name is its help as
-  before, though `msa` and `tree` are extensions too, and the help printed
-  is the track's, line for line, so it is no longer than the tested limits.
-  `karyon --help` says so in the line that names `karyon help <track>`.
+  other tracks are the ones `Kind::could_read` says read it, so the line says
+  what the parser does. A track's own name is its help as before, though
+  `msa` and `tree` are extensions too, and what a format prints is its
+  track's help line for line, the pointer going to standard error, so no help
+  grows longer. `karyon --help` says so in the line that names `karyon help
+  <track>`. No committed figure moves.
 - A flag that takes a file, written after its file, says so, as
   `ArgError::FileAfter`: `cohort.bcf --genotypes -o task3.svg` read `-o` as
   the file and was refused as `--genotypes -o: No such file or directory`,
   which blamed `-o`. It reads `--genotypes takes its file after it, as
   --genotypes cohort.bcf; cohort.bcf came before it and -o after`. The file
   before the flag is named where the flag reads its format, as `--genotypes`
-  reads a BCF and `--with-moves` a SAM, and a flag written where a file goes
-  is refused the same way after any flag that takes one; a flag with nothing
-  after it and no file before it still needs a value.
+  reads a BCF and `--with-moves` a SAM. Every flag that takes a file, a
+  track's or a second file's as `--with-tree` does, is refused this way where
+  another flag stands in its file's place; one with nothing after it and no
+  file before it still needs a value. No committed figure moves.
 - The reference's letters grow with the room each base has: the widest
   letter in view, measured bold, takes 85% of its base, up to the figure's
   own text and to 80% of the band, so every letter stays inside its base.
@@ -1800,10 +1802,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its `notes` say how many and a window that letters every base in it, which
   the command line prints as `read_1: 1 of 18 bases are too narrow for their
   letters at this width, each a dot where its letter would be;
-  sample:221-524 letters the 13 of the read's 114 bases in it`. The letter was left out with no mark,
-  so over the first 400 samples of a read whose basecall starts
-  GGATCACAGTCTACACT a C of five samples went missing and the row read one
-  base short.
+  sample:221-524 letters the 13 of the read's 114 bases in it`. The letter
+  was left out with no mark, so over the first 400 samples of a read whose
+  basecall starts GGATCACAGTCTACACT a C of five samples went missing and the
+  row read one base short.
 - `--variants`, as a band and as a ring, deals its colours from the most
   damaging consequence down rather than by which call comes first in the
   window. Across the whole of rpoB, whose first call is synonymous, missense
