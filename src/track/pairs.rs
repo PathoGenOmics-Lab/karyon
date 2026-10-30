@@ -183,6 +183,9 @@ impl PairTrack {
     /// Colours on a log scale, as a contact map is read: contacts fall by
     /// orders of magnitude with distance, and on a straight ramp the
     /// diagonal is the only thing with a colour.
+    ///
+    /// The scale is `ln(1 + x)`, so a value of nought is the pale end, and
+    /// the key says so and writes the value half way along it.
     pub fn log_scale(mut self, log: bool) -> Self {
         self.log = log;
         self
@@ -476,16 +479,33 @@ impl Track for PairTrack {
         let top = self.top(&drawn)?;
         let hue = self.hue.clone().unwrap_or_else(|| theme.accent.clone());
         let named = self.label.clone().unwrap_or_else(|| "value".to_string());
-        Some(crate::track::legend::Legend::new().ramp(
-            if self.log {
-                format!("{named}, log scale")
-            } else {
-                named
-            },
-            mix(theme.surface(), &hue, ZERO_TINT),
+        let low = mix(theme.surface(), &hue, ZERO_TINT);
+        let high = text_rounded(top, 2);
+        let legend = crate::track::legend::Legend::new();
+        if !self.log {
+            return Some(legend.ramp(named, low, hue, "0", high));
+        }
+        // On a log scale the key says which, since a count of nought stays
+        // at nought only because it is `ln(1 + x)`, and a key reading `log
+        // scale` from `0` was taken for a mistake. With its ends alone the
+        // ramp could not be read back to a count: a colour half way along a
+        // map topped at 302.64 is 16.43, not 151. So the value half way is
+        // written between the two halves of the strip, in the colour a pair
+        // of that value is painted, where it rounds to a number of its own.
+        let middle = (1.0 + top).sqrt() - 1.0;
+        let middle_text = text_rounded(middle, 2);
+        let title = format!("{named}, log(1 + x)");
+        if middle_text == "0" || middle_text == high {
+            return Some(legend.ramp(title, low, hue, "0", high));
+        }
+        Some(legend.diverging(
+            title,
+            low,
+            self.color_of(middle, top, theme),
             hue,
             "0",
-            text_rounded(top, 2),
+            middle_text,
+            high,
         ))
     }
 
@@ -638,6 +658,44 @@ mod tests {
                 "{page} does not say how deep the triangle is"
             );
         }
+    }
+
+    /// A key on a log scale says which, `log(1 + x)`, and writes the value
+    /// half way along it, in the colour a pair of that value is painted: a
+    /// contact map's key read `contacts, log scale` from `0` to `302.64`, and
+    /// a colour could not be read back to a count.
+    #[test]
+    fn a_log_key_says_log_one_plus_x_and_writes_its_middle() {
+        let theme = Theme::light();
+        let pairs = vec![Pair::new(100, 400, 302.64), Pair::new(100, 200, 3.0)];
+        let track = PairTrack::new(pairs.clone())
+            .label("contacts")
+            .log_scale(true);
+        let key = track.key(&region(), 1.0, &theme).unwrap();
+        let crate::LegendItem::Ramp {
+            label,
+            low,
+            high,
+            through,
+            ..
+        } = &key.items()[0]
+        else {
+            panic!("not a ramp: {key:?}");
+        };
+        assert_eq!(label, "contacts, log(1 + x)");
+        assert_eq!((low.as_str(), high.as_str()), ("0", "302.64"));
+        let (ink, middle) = through.as_ref().expect("a middle");
+        // Half way along ln(1 + x) to ln(303.64) is the square root of
+        // 303.64, less one.
+        assert_eq!(middle, "16.43");
+        assert_eq!(ink, &track.color_of(303.64f64.sqrt() - 1.0, 302.64, &theme));
+        // A straight ramp is read from its two ends, as it always was.
+        let straight = PairTrack::new(pairs).label("contacts");
+        let key = straight.key(&region(), 1.0, &theme).unwrap();
+        let crate::LegendItem::Ramp { label, through, .. } = &key.items()[0] else {
+            panic!("not a ramp: {key:?}");
+        };
+        assert_eq!((label.as_str(), through), ("contacts", &None));
     }
 
     #[test]

@@ -1546,6 +1546,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The key of pairs drawn with `--log` says what the scale is,
+  `contacts, log(1 + x)`, and writes the value half way along its ramp,
+  between two halves of the strip, as `Legend::diverging` writes a centre,
+  in the colour a pair of that value is painted. `contacts.hic --resolution
+  10000 --log` keyed `contacts, log scale` from `0` to `302.64`: a log key
+  starting at nought was read as a mistake, and a colour half way along it,
+  which is 16.43 and not 151, could not be read back to a count. It reads
+  `0`, `16.43` and `302.64`. A middle that rounds to nought or to the top is
+  not written. No committed figure moves, since none draws pairs on a log
+  scale.
 - A selection track's row of p-values is titled `-log10 p` under the
   track's name, as a scan is, by `Track::axis_title`, and its top tick is the
   number alone. `--selection fel.csv` wrote `-log10 p 2.4` at the top of the

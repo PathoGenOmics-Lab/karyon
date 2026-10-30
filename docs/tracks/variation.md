@@ -550,7 +550,7 @@ Pairs of places and a value between them: linkage between variants, contacts bet
 | `.height(200.0)` | Band height in pixels (`--height`) | a triangle as deep as its widest pair, up to `240`; arcs `90` |
 | `.ceiling(1.0)` | The value the ramp saturates at (`--max`, which wins over the r² default) | the largest value drawn; `1` on the command line for an r², r or D' |
 | `.threshold(0.2)` | Draws only the pairs at or above this value (`--threshold`) | every pair |
-| `.log_scale(true)` | Colours on a log scale, as a contact map is read (`--log`) | linear |
+| `.log_scale(true)` | Colours on a log scale, `ln(1 + x)` so that nought is the pale end, as a contact map is read; the key says `log(1 + x)` and writes the value half way along (`--log`) | linear |
 | `.color("#d55e00")` | The hue at the top of the ramp (`--color`) | theme accent |
 
 #### Notes
