@@ -376,7 +376,7 @@ pub(crate) fn placeholder(alt: &str) -> bool {
 
 /// An allele as a tooltip writes it: in full up to twelve characters, and
 /// past that its first twelve and how many more there are.
-fn spelled(allele: &str) -> String {
+pub(crate) fn spelled(allele: &str) -> String {
     let length = allele.chars().count();
     if length <= SPELLED {
         return allele.to_string();

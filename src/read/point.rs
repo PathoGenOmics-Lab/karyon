@@ -62,7 +62,8 @@ use super::{columns, lines, number, ReadError};
 /// VCF `POS` is 1-based, so the variant lands at `POS - 1`. The category is
 /// taken from the `ANN` or `BCSQ` consequence when one is there, and otherwise
 /// from the shape of the call: a substitution, an insertion or a deletion,
-/// which is `REF` against `ALT` and needs no annotation.
+/// which is `REF` against `ALT` and needs no annotation. Each call keeps its
+/// `REF` and its own `ALT`, which its tooltip writes as `C>T`.
 ///
 /// The value is the allele fraction, from `AF` in `INFO` when present, and
 /// none when not: a call with no fraction is still a call, and stands full
@@ -118,7 +119,9 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
                 continue;
             }
             let category = consequence(info, alt).unwrap_or_else(|| shape(reference, alt));
-            let mut call = Variant::new(pos).category(category);
+            let mut call = Variant::new(pos)
+                .category(category)
+                .alleles(reference, *alt);
             if let Some(fraction) = fractions.as_ref().and_then(|all| all[index]) {
                 call = call.value(fraction);
             }
@@ -1292,6 +1295,25 @@ fn shape(reference: &str, alt: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Each call keeps the reference allele and its own alternate, one call
+    /// per alternate of a row, the placeholder for any allele left out.
+    #[test]
+    fn a_call_keeps_its_reference_and_its_own_alternate() {
+        let vcf = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                   chr1\t761139\t.\tC\tT\t.\t.\tAF=0.62\n\
+                   chr1\t761200\t.\tGA\tG,GAA,<NON_REF>\t.\t.\t.\n";
+        let region = Region::parse("chr1:761,000-762,000").unwrap();
+        let calls = variants(vcf, &region).unwrap();
+        let alleles: Vec<(&str, &str)> = calls
+            .iter()
+            .map(|call| {
+                let (reference, alternate) = call.alleles.as_ref().unwrap();
+                (reference.as_str(), alternate.as_str())
+            })
+            .collect();
+        assert_eq!(alleles, [("C", "T"), ("GA", "G"), ("GA", "GAA")]);
+    }
 
     /// A file's categories are every call's, on every sequence: a gVCF's
     /// reference blocks and its placeholder allele are no call, a call

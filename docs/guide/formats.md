@@ -588,6 +588,9 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 - **Reach**: a call is kept when what REF spells touches the window, not only
   its first base, since a deletion is written one base to the left of what it
   removes.
+- **Alleles**: each call keeps REF and its own ALT, which its tooltip writes
+  after its place, `761,139 C>T`, and which a figure zoomed to a letter a base
+  writes beside its head where there is room.
 
 ### VCF genotypes { #vcf-genotypes }
 

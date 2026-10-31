@@ -18725,6 +18725,21 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         );
     }
 
+    /// A call's tooltip says its change after where it is, from the VCF's
+    /// REF and its own ALT: it said `variant, 761,139, missense_variant, AF
+    /// 0.62`, and a reader after the bases opened the file.
+    #[test]
+    fn a_call_from_a_vcf_names_its_change() {
+        let calls = "##fileformat=VCFv4.2\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t761139\t.\tC\tT\t60\tPASS\tAF=0.62;ANN=T|missense_variant|MODERATE|g\n";
+        let svg = drawn_from("chr1:761,001-762,000 calls.vcf", &[("calls.vcf", calls)]).unwrap();
+        assert!(
+            svg.contains("<title>variant, 761,139 C&gt;T, missense_variant, AF 0.62</title>"),
+            "{svg}"
+        );
+    }
+
     /// A consequence keeps its colour in a zoom that leaves out every more
     /// damaging one, since the colours are dealt from every call of the file
     /// and not from those in view: thirty bases holding a synonymous call

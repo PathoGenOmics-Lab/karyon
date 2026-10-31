@@ -69,6 +69,7 @@ use crate::style::{legible_ticks, Emphasis, QuantitativeAxis, Symbol};
 use crate::svg::Anchor;
 use crate::theme::Theme;
 use crate::track::axis::group_thousands;
+use crate::track::genotype::spelled;
 use crate::track::{DrawContext, Legend, Track};
 
 /// How a variant track is drawn.
@@ -94,6 +95,10 @@ pub struct Variant {
     /// Group this variant belongs to, which decides its colour and its legend
     /// entry. Typically the consequence, the lineage or the sample.
     pub category: Option<String>,
+    /// The reference allele and the alternate allele this call is of, as a
+    /// VCF's `REF` and `ALT` spell them, which its tooltip writes as `C>T`
+    /// and, zoomed to a few pixels a base, the alternate beside its head.
+    pub alleles: Option<(String, String)>,
 }
 
 impl Variant {
@@ -103,7 +108,15 @@ impl Variant {
             pos,
             value: None,
             category: None,
+            alleles: None,
         }
+    }
+
+    /// Sets the reference allele and the alternate one, as `REF` and `ALT`
+    /// spell them.
+    pub fn alleles(mut self, reference: impl Into<String>, alternate: impl Into<String>) -> Self {
+        self.alleles = Some((reference.into(), alternate.into()));
+        self
     }
 
     /// Sets the value driving the stem height, for example an allele frequency.
@@ -568,7 +581,11 @@ impl Track for VariantTrack {
         } else {
             Vec::new()
         };
-        let mut placed = moved.iter();
+        // Zoomed until the reference's bases are letters, a head with room
+        // on its right has its alternate allele written there.
+        let lettered = ctx.scale.px_per_bp() >= crate::track::sequence::LETTER_PX;
+        let letter_size = ctx.theme.font_size - 1.0;
+        let mut at = 0;
 
         for variant in &self.variants {
             if !ctx.region.contains(variant.pos) {
@@ -610,7 +627,7 @@ impl Track for VariantTrack {
                         .value
                         .filter(|value| value.is_finite())
                         .map_or(baseline - stem_room, y_of);
-                    let head = placed.next().copied().unwrap_or(x);
+                    let head = moved.get(at).copied().unwrap_or(x);
                     // A lollipop is a stem and a head, and the group is what
                     // makes the two of them one thing. A tooltip on half of a
                     // mark is worse than none.
@@ -644,7 +661,38 @@ impl Track for VariantTrack {
                         ctx.theme.surface(),
                         ctx.theme.tokens.hairline,
                     );
+                    let written = variant
+                        .alleles
+                        .as_ref()
+                        .map(|(_, alternate)| alternate.as_str())
+                        .filter(|alternate| lettered && written_beside(alternate));
+                    if let Some(alternate) = written {
+                        let width = crate::svg::text_width(alternate, letter_size);
+                        let beside = Beside {
+                            radius,
+                            size: letter_size,
+                            width,
+                            right: band.right(),
+                        };
+                        if beside.has_room(at, &heads, &moved) {
+                            // A base in the colour the reference's letter of
+                            // it is drawn in, and more than one in the ink.
+                            let ink = match alternate.as_bytes() {
+                                [base] => ctx.theme.bases.of(*base),
+                                _ => &ctx.theme.foreground,
+                            };
+                            ctx.svg.text(
+                                head + radius + 1.5,
+                                top + letter_size * 0.35,
+                                alternate,
+                                ink,
+                                letter_size,
+                                Anchor::Start,
+                            );
+                        }
+                    }
                     ctx.svg.end_group();
+                    at += 1;
                 }
             }
         }
@@ -652,6 +700,45 @@ impl Track for VariantTrack {
         if self.keyed() && !slots.is_empty() {
             legend.draw(ctx.svg, band.x, band.y, band.w, ctx.theme);
         }
+    }
+}
+
+/// Whether an alternate allele is written beside its head: a few bases, three
+/// at most, of the letters a sequence is spelled in. A longer one, or a
+/// symbolic allele such as `<DEL>`, is named in the tooltip alone.
+fn written_beside(alternate: &str) -> bool {
+    (1..=3).contains(&alternate.len()) && alternate.bytes().all(|b| b.is_ascii_alphabetic())
+}
+
+/// The room a head's alternate allele needs on its right.
+struct Beside {
+    radius: f64,
+    size: f64,
+    width: f64,
+    right: f64,
+}
+
+impl Beside {
+    /// Whether the allele beside head `at` of `heads`, their calls' centres,
+    /// drawn at `drawn`, stays in the band and clear of every other head and
+    /// stem: a mark whose head is lower than the letters passes under them,
+    /// and any other in their way is crossed by them.
+    fn has_room(&self, at: usize, heads: &[(f64, f64)], drawn: &[f64]) -> bool {
+        let (x, top) = (drawn[at], heads[at].1);
+        let (from, to) = (x + self.radius + 1.0, x + self.radius + 2.0 + self.width);
+        if to > self.right {
+            return false;
+        }
+        let bottom = top + self.size * 0.4;
+        !heads
+            .iter()
+            .zip(drawn)
+            .enumerate()
+            .any(|(other, ((stem, high), head))| {
+                let across = (head + self.radius > from && head - self.radius < to)
+                    || (*stem >= from - 1.0 && *stem <= to + 1.0);
+                other != at && across && high - self.radius < bottom
+            })
     }
 }
 
@@ -739,9 +826,10 @@ fn apart(heads: &[(f64, f64)], radius: f64, left: f64, right: f64) -> Vec<f64> {
 /// What a reader hovering one mark is told.
 ///
 /// The noun first, then the position in the 1-based form the ruler under it
-/// prints, then what kind of event it is and what number it carried. The last
-/// two are optional in the data and neither is invented when it is absent: a
-/// mark with nothing but a position says nothing but its noun and a position.
+/// prints and the change, `C>T`, where the call carries its alleles, then
+/// what kind of event it is and what number it carried. All but the position
+/// are optional in the data and none is invented when it is absent: a mark
+/// with nothing but a position says nothing but its noun and a position.
 ///
 /// The noun is there because every tooltip in the crate is `what it is, where
 /// it is`, and a mark that opened on a bare `31,218,401` was the one glyph on
@@ -761,6 +849,15 @@ fn tooltip(variant: &Variant, measure: Option<&str>) -> String {
         "variant, {}",
         group_thousands(variant.pos.saturating_add(1))
     );
+    // The change, `C>T`, after the place it is at, each allele spelled to
+    // twelve characters and counted past them, as a genotype's tooltip
+    // spells it: an indel's REF can run to thousands of bases.
+    if let Some((reference, alternate)) = &variant.alleles {
+        text.push(' ');
+        text.push_str(&spelled(reference));
+        text.push('>');
+        text.push_str(&spelled(alternate));
+    }
     if let Some(category) = variant.category.as_deref() {
         if !category.is_empty() {
             text.push_str(", ");
@@ -1265,6 +1362,84 @@ mod tests {
         let crowd: Vec<(f64, f64)> = (0..50).map(|i| (50.0 + i as f64 * 0.1, 50.0)).collect();
         let left = apart(&crowd, 4.0, 0.0, 100.0);
         assert_eq!(left, crowd.iter().map(|(x, _)| *x).collect::<Vec<_>>());
+    }
+
+    /// A mark says the change it is, after where it is: `761,139 C>T`. An
+    /// allele longer than twelve bases is its first twelve and how many more,
+    /// as a genotype's tooltip spells it.
+    #[test]
+    fn a_mark_says_its_change_after_where_it_is() {
+        let long = "ACGTACGTACGTACGTACGT";
+        let svg = Figure::new(Region::parse("chr1:761,001-761,300").unwrap())
+            .show_region_label(false)
+            .push(
+                VariantTrack::new(vec![
+                    Variant::new(761_138)
+                        .value(0.62)
+                        .category("missense_variant")
+                        .alleles("C", "T"),
+                    Variant::new(761_200).alleles(long, "A"),
+                ])
+                .axis_title("AF")
+                .show_legend(false),
+            )
+            .to_svg();
+        assert!(
+            svg.contains("<title>variant, 761,139 C&gt;T, missense_variant, AF 0.62</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>variant, 761,201 ACGTACGTACGT+8&gt;A</title>"),
+            "{svg}"
+        );
+    }
+
+    /// Zoomed until a base is a letter wide, a head with room on its right
+    /// has its alternate allele written there, a base in the colour of its
+    /// letter; not over a wider window, not where another mark stands in the
+    /// way, and not for an allele longer than three bases or one with no
+    /// bases to it.
+    #[test]
+    fn at_a_letter_a_base_a_head_with_room_writes_its_alternate() {
+        let theme = Theme::light();
+        let calls = vec![
+            Variant::new(761_109).value(0.35).alleles("A", "T"),
+            Variant::new(761_138).value(0.62).alleles("C", "G"),
+            // A taller call a base on stands where the letter would go.
+            Variant::new(761_139).value(0.90).alleles("C", "A"),
+            Variant::new(761_150).value(0.20).alleles("C", "<DEL>"),
+            Variant::new(761_160).value(0.20).alleles("C", "CAAAA"),
+        ];
+        let drawn = |window: &str| {
+            Figure::new(Region::parse(window).unwrap())
+                .show_region_label(false)
+                .push(VariantTrack::new(calls.clone()).show_legend(false))
+                .to_svg()
+        };
+        let letters = |svg: &str| -> Vec<(String, String)> {
+            svg.split("<text ")
+                .skip(1)
+                .filter_map(|text| {
+                    let fill = text.split("fill=\"").nth(1)?.split('"').next()?;
+                    let body = text.split_once('>')?.1.split("</text>").next()?;
+                    Some((body.to_string(), fill.to_string()))
+                })
+                .filter(|(body, _)| {
+                    body.len() <= 5 && body.chars().all(|c| c.is_ascii_alphabetic())
+                })
+                .collect()
+        };
+        let near = drawn("chr1:761,101-761,170");
+        assert_eq!(
+            letters(&near),
+            [
+                ("T".to_string(), theme.bases.of(b'T').to_string()),
+                ("A".to_string(), theme.bases.of(b'A').to_string()),
+            ],
+            "{near}"
+        );
+        let far = drawn("chr1:760,001-763,000");
+        assert!(letters(&far).is_empty(), "{far}");
     }
 
     #[test]

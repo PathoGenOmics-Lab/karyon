@@ -1547,6 +1547,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A call's tooltip says the change it is after where it is, `variant,
+  761,139 C>T, missense_variant, AF 0.62`, where it said `variant, 761,139,
+  missense_variant, AF 0.62` and the bases were only in the file.
+  `Variant::alleles` is new, and the reader of a VCF or a BCF gives each call
+  its `REF` and its own `ALT`; an allele longer than twelve bases is written
+  as its first twelve and how many more, `ACGTACGTACGT+8>A`, as a genotype's
+  tooltip writes it. Zoomed until a base is a letter wide, a lollipop with
+  room on its right has its alternate allele written there, a base in the
+  colour the reference's letter of it is drawn in, where it is three bases
+  or fewer and no other head or stem stands in the way. `reads.svg` and
+  `reads-dark.svg` on the site move, in their tooltips alone.
 - Lollipop heads closer than a head is wide are moved apart along the band,
   into a row a head and a pixel apart, in the order of their calls and
   centred where the calls are, each on a stem that rises at its call and
