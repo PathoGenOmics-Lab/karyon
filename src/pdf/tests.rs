@@ -641,6 +641,16 @@ fn a_character_no_embedded_face_has_is_a_question_mark_and_a_note() {
     );
     // The title keeps the character, since a PDF string can hold any.
     assert!(text(&pdf).contains("/Title <FEFF4E2D002000730061006D0070006C0065>"));
+    // Hebrew is in the face, and is marked rather than drawn backwards.
+    let mut svg = SvgWriter::new();
+    svg.text(10.0, 20.0, "\u{5d0} \u{4e2d}", "#000", 10.0, Anchor::Start);
+    let pdf = convert(&svg.finish(100.0, 50.0, "none", "sans-serif"));
+    assert_eq!(pdf.notes.len(), 2, "{:?}", pdf.notes);
+    assert!(
+        pdf.notes[1].contains("U+05D0) is written right to left"),
+        "{:?}",
+        pdf.notes
+    );
 }
 
 /// A serif stack and a bold monospaced one ask for faces the PDF does not

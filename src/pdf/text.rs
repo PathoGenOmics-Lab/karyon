@@ -130,22 +130,30 @@ pub(crate) struct Run {
 ///
 /// A character goes to `base` when it has it, and otherwise to Liberation
 /// Sans, which has every glyph the bold and the monospaced face have and a
-/// few more. One neither has is drawn as a question mark in `base` and added
-/// to `missing`, once. A question mark is a visible stand-in rather than a
-/// gap, so the label keeps its length and a reader can see something was
-/// there; the document's title and alt text keep the exact text either way.
+/// few more. One neither has, or one written right to left, is drawn as a
+/// question mark in `base` and added to `missing`, once. A question mark is a
+/// visible stand-in rather than a gap, so the label keeps its length and a
+/// reader can see something was there; the document's title and alt text
+/// keep the exact text either way.
 pub(crate) fn runs(text: &str, base: Face, missing: &mut Vec<char>) -> Vec<Run> {
     let mut runs: Vec<Run> = Vec::new();
     for c in text.chars().filter(|c| !invisible(*c)) {
-        let (face, glyph, c) = if let Some(glyph) = base.font().glyph(c) {
-            (base, glyph, c)
-        } else if let Some(glyph) = Face::Sans.font().glyph(c) {
-            (Face::Sans, glyph, c)
+        let found = if right_to_left(c) {
+            None
         } else {
-            if !missing.contains(&c) {
-                missing.push(c);
+            base.font()
+                .glyph(c)
+                .map(|glyph| (base, glyph))
+                .or_else(|| Face::Sans.font().glyph(c).map(|glyph| (Face::Sans, glyph)))
+        };
+        let (face, glyph, c) = match found {
+            Some((face, glyph)) => (face, glyph, c),
+            None => {
+                if !missing.contains(&c) {
+                    missing.push(c);
+                }
+                (base, base.font().glyph('?').unwrap_or(0), '?')
             }
-            (base, base.font().glyph('?').unwrap_or(0), '?')
         };
         let width = f64::from(face.font().width(glyph));
         match runs.last_mut() {
@@ -178,6 +186,18 @@ fn invisible(c: char) -> bool {
             | '\u{2060}'..='\u{206f}'
             | '\u{fe00}'..='\u{fe0f}'
             | '\u{feff}'
+    )
+}
+
+/// Letters written right to left: Hebrew, Arabic and the scripts beside
+/// them. A browser lays a run of them out from the right, and a PDF draws
+/// glyphs in the order they are given, so Hebrew, which Liberation has, would
+/// come out backwards; it is marked as missing instead, as Arabic, which
+/// Liberation does not have, would be anyway.
+pub(crate) fn right_to_left(c: char) -> bool {
+    matches!(
+        c,
+        '\u{590}'..='\u{8ff}' | '\u{fb1d}'..='\u{fdff}' | '\u{fe70}'..='\u{fefc}'
     )
 }
 
@@ -274,6 +294,12 @@ mod tests {
         let mut missing = Vec::new();
         runs("x \u{2208} S", Face::SansBold, &mut missing);
         assert_eq!(missing, ['\u{2208}']);
+        // Hebrew is in Liberation, and would be drawn backwards.
+        let mut missing = Vec::new();
+        let set = runs("\u{5e9}\u{5dc}\u{5d5}\u{5dd} 1", Face::Sans, &mut missing);
+        let text: String = set[0].glyphs.iter().map(|(_, c)| *c).collect();
+        assert_eq!(text, "???? 1");
+        assert_eq!(missing.len(), 4);
         // What a browser draws as nothing is left out rather than marked.
         let mut missing = Vec::new();
         let set = runs("rpoB\u{200f}\u{ad}", Face::Sans, &mut missing);

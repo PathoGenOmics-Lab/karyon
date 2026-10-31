@@ -697,14 +697,24 @@ impl<'a, 'w> Painter<'a, 'w> {
                 self.restore();
             }
         }
-        if !self.missing.is_empty() {
-            let named: Vec<String> = self
-                .missing
+        let (backwards, absent): (Vec<char>, Vec<char>) =
+            self.missing.iter().partition(|c| text::right_to_left(**c));
+        for (characters, why) in [
+            (absent, "in none of the faces the PDF embeds"),
+            (
+                backwards,
+                "written right to left, which the PDF would draw backwards",
+            ),
+        ] {
+            if characters.is_empty() {
+                continue;
+            }
+            let named: Vec<String> = characters
                 .iter()
                 .map(|c| format!("{c} (U+{:04X})", u32::from(*c)))
                 .collect();
             self.notes.add(format!(
-                "{} {} in none of the faces the PDF embeds, and {} drawn as a question mark",
+                "{} {} {why}, and {} drawn as a question mark",
                 named.join(", "),
                 if named.len() == 1 { "is" } else { "are" },
                 if named.len() == 1 { "is" } else { "each is" },
