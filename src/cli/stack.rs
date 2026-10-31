@@ -2092,8 +2092,8 @@ fn build_one(
         .filter(|_| counting.is_none() && rescaled.is_none())
         .cloned();
     // A sequence no file gives the length of ends where its rows do, which
-    // is a figure worth drawing and an end worth saying where it came from:
-    // three simulated users read it as the end of the chromosome.
+    // is a figure worth drawing and an end worth saying where it came from,
+    // since unsaid it reads as the end of the chromosome.
     let reached = placed
         .as_ref()
         .filter(|placed| !placed.ends_there)
@@ -7415,7 +7415,7 @@ impl std::error::Error for Binary {}
 /// is two files, so neither gets one.
 fn default_label(spec: &TrackSpec) -> Option<String> {
     // A phylogeny is plain to see, and named after its file it put a stray
-    // word in the margin of every tree: three simulated users asked what it was.
+    // word in the margin of every tree that said nothing about it.
     if matches!(spec.kind, Kind::Tanglegram | Kind::Axis | Kind::Tree) {
         return None;
     }
@@ -11920,8 +11920,8 @@ chr2\t300\t.\tA\tG\t.\t.\t.
     }
 
     /// A BAM named on its own is its depth, and over a window a few reads
-    /// wide the figure says the reads could be drawn: a simulated user drew
-    /// four hundred bases of depth where the task wanted the reads.
+    /// wide the figure says the reads could be drawn, since four hundred bases
+    /// of depth is easy to draw where the reads themselves were wanted.
     #[test]
     fn a_bam_named_on_its_own_over_a_few_reads_says_they_could_be_drawn() {
         let dir = Scratch::new("bam-note");
@@ -15351,7 +15351,7 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
 
     /// Bases too narrow for their letters are blocks of colour, which the key
     /// names; with letters, or with nothing drawn, there is nothing to name.
-    /// No simulated user could say which colour was which base.
+    /// Without the key nothing said which colour was which base.
     #[test]
     fn the_key_names_the_bases_while_they_are_blocks() {
         let fasta = format!(">chr1\n{}\n", "ACGT".repeat(500));
