@@ -5942,9 +5942,6 @@ mod tests {
         );
     }
 
-    /// [`Kind::flag`] spells the track and [`Kind::dashed`] spells the word,
-    /// and a fallback arm once let four tracks fall through so that
-    /// `--synteny` with no path reported that `--axis` needed a value.
     /// A file written before its flag leaves the flag the word after it,
     /// which was read as the file: `cohort.bcf --genotypes -o task3.svg`
     /// was refused as `--genotypes -o: No such file or directory`, blaming
@@ -5999,6 +5996,9 @@ mod tests {
         assert!(parse(&args("chr17:1-70000 --genotypes -o-bcf -o x.svg")).is_ok());
     }
 
+    /// [`Kind::flag`] spells the track and [`Kind::dashed`] spells the word,
+    /// and a fallback arm once let four tracks fall through so that
+    /// `--synteny` with no path reported that `--axis` needed a value.
     #[test]
     fn a_track_flag_missing_its_path_names_itself() {
         for flag in [

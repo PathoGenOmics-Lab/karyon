@@ -677,7 +677,7 @@ mod tests {
     /// A 101 bp window ends on its last number, which lands on the stride:
     /// it once ended on a bare tick at 1,100,350.
     #[test]
-    fn the_last_label_stands_and_an_interior_one_gives_way() {
+    fn a_ruler_whose_stride_lands_on_its_end_numbers_its_end() {
         use crate::figure::Figure;
         use crate::region::Region;
 
@@ -703,7 +703,7 @@ mod tests {
     /// lengthened to reach the last tick, which is numbered only where it is
     /// on the stride or has room beside the last number that is.
     #[test]
-    fn a_crowded_ruler_labels_every_other_tick_and_both_ends() {
+    fn a_crowded_ruler_drops_its_numbers_on_one_even_stride() {
         use crate::figure::Figure;
         use crate::region::Region;
 
