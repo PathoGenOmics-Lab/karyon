@@ -12,7 +12,10 @@
 //! styles, so [`VariantStyle`] is worth choosing again whenever the number of
 //! marks changes by an order of magnitude. The ring is what keeps two marks a
 //! base apart reading as two: it is drawn in the background colour, so a head
-//! in front of another head still has an edge.
+//! in front of another head still has an edge. Two heads closer than a head
+//! is wide are one blot all the same, and are moved apart along the band, on
+//! stems that rise at their calls and lean over to them; a head that touches
+//! none stays where its call is.
 //!
 //! # Only lollipops carry a tooltip
 //!
@@ -546,6 +549,27 @@ impl Track for VariantTrack {
         // are two different claims.
         let mut drawn: BTreeSet<(i64, usize)> = BTreeSet::new();
 
+        // Where each lollipop's head is drawn: at its call, but for heads that
+        // would cover each other, which are moved apart along the band.
+        let heads: Vec<(f64, f64)> = self
+            .variants
+            .iter()
+            .filter(|variant| ctx.region.contains(variant.pos))
+            .map(|variant| {
+                let top = variant
+                    .value
+                    .filter(|value| value.is_finite())
+                    .map_or(baseline - stem_room, y_of);
+                (ctx.scale.x_center(variant.pos), top)
+            })
+            .collect();
+        let moved = if self.style == VariantStyle::Lollipop {
+            apart(&heads, radius, band.x, band.right())
+        } else {
+            Vec::new()
+        };
+        let mut placed = moved.iter();
+
         for variant in &self.variants {
             if !ctx.region.contains(variant.pos) {
                 continue;
@@ -586,20 +610,33 @@ impl Track for VariantTrack {
                         .value
                         .filter(|value| value.is_finite())
                         .map_or(baseline - stem_room, y_of);
+                    let head = placed.next().copied().unwrap_or(x);
                     // A lollipop is a stem and a head, and the group is what
                     // makes the two of them one thing. A tooltip on half of a
                     // mark is worse than none.
                     ctx.svg
                         .begin_titled(&tooltip(variant, self.title.as_deref()));
-                    ctx.svg
-                        .line(x, baseline, x, top, color, ctx.theme.tokens.stroke);
+                    if (head - x).abs() < 1e-9 {
+                        ctx.svg
+                            .line(x, baseline, x, top, color, ctx.theme.tokens.stroke);
+                    } else {
+                        // A head moved off its call stands on a stem that
+                        // rises at the call and leans over to it at the
+                        // last, so the stem still says where the call is.
+                        let knee = (top + 2.0 * radius).min(baseline);
+                        ctx.svg.polyline(
+                            &[(x, baseline), (x, knee), (head, top)],
+                            color,
+                            ctx.theme.tokens.stroke,
+                        );
+                    }
                     // The ring is what keeps two variants a base apart reading
                     // as two variants instead of one blob.
                     let symbol = slot
                         .and_then(|index| palette.get(index))
                         .map_or(Symbol::Circle, |(_, symbol)| *symbol);
                     ctx.svg.symbol_ringed(
-                        x,
+                        head,
                         top,
                         radius,
                         symbol,
@@ -616,6 +653,87 @@ impl Track for VariantTrack {
             legend.draw(ctx.svg, band.x, band.y, band.w, ctx.theme);
         }
     }
+}
+
+/// Where each head of `heads`, their centres in the order they are drawn,
+/// is drawn across a band from `left` to `right`, so no two of them cover
+/// each other.
+///
+/// Two heads whose centres are closer than a head is wide were one mark: a
+/// call at 761,110 of 0.50 and one four bases on of 0.53 drew two heads of
+/// four pixels a pixel apart, and the figure said nothing. Heads that touch,
+/// and those that touch them, are laid in a row a head and a pixel apart,
+/// in the order of their calls, centred where their calls are on average,
+/// and kept inside the band; a head that touches none stays where it was, so
+/// a figure with no heads that touch is drawn as it always was. A row moved
+/// onto another head takes that one in and is laid out again. Heads too many
+/// for the band to hold in a row are left where they are, which is the
+/// density ticks are for.
+fn apart(heads: &[(f64, f64)], radius: f64, left: f64, right: f64) -> Vec<f64> {
+    let mut drawn: Vec<f64> = heads.iter().map(|(x, _)| *x).collect();
+    let mut group: Vec<usize> = (0..heads.len()).collect();
+    fn root(group: &mut [usize], mut at: usize) -> usize {
+        while group[at] != at {
+            group[at] = group[group[at]];
+            at = group[at];
+        }
+        at
+    }
+    let width = 2.0 * radius;
+    let pitch = width + 1.0;
+    // A row moved onto a head takes it in, so the groups only grow, and a
+    // few rounds settle every figure a lollipop is drawn for.
+    for _ in 0..16 {
+        let mut order: Vec<usize> = (0..heads.len()).collect();
+        order.sort_by(|a, b| drawn[*a].total_cmp(&drawn[*b]));
+        let mut joined = false;
+        for (from, &a) in order.iter().enumerate() {
+            for &b in &order[from + 1..] {
+                let dx = drawn[b] - drawn[a];
+                if dx >= width {
+                    break;
+                }
+                let dy = heads[b].1 - heads[a].1;
+                if dx.hypot(dy) < width {
+                    let (ra, rb) = (root(&mut group, a), root(&mut group, b));
+                    if ra != rb {
+                        group[ra] = rb;
+                        joined = true;
+                    }
+                }
+            }
+        }
+        if !joined {
+            break;
+        }
+        let mut members: std::collections::BTreeMap<usize, Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for at in 0..heads.len() {
+            let top = root(&mut group, at);
+            members.entry(top).or_default().push(at);
+        }
+        for mut row in members.into_values().filter(|row| row.len() > 1) {
+            let span = (row.len() - 1) as f64 * pitch;
+            if span > right - left - width {
+                continue;
+            }
+            row.sort_by(|a, b| {
+                heads[*a]
+                    .0
+                    .total_cmp(&heads[*b].0)
+                    .then(heads[*a].1.total_cmp(&heads[*b].1))
+                    .then(a.cmp(b))
+            });
+            let middle = row.iter().map(|at| heads[*at].0).sum::<f64>() / row.len() as f64;
+            let first = (middle - span / 2.0)
+                .max(left + radius)
+                .min(right - radius - span);
+            for (index, at) in row.iter().enumerate() {
+                drawn[*at] = first + index as f64 * pitch;
+            }
+        }
+    }
+    drawn
 }
 
 /// What a reader hovering one mark is told.
@@ -1040,6 +1158,113 @@ mod tests {
         );
         assert!(svg.contains("<title>variant, 761,156, synonymous, value 0.55</title>"));
         assert!(groups_balance(&svg));
+    }
+
+    /// The heads of a document's lollipops, each with the title of its mark
+    /// and where its stem stands at the foot of the band.
+    fn heads(svg: &str) -> Vec<(String, f64, f64, f64)> {
+        svg.split("<g><title>variant, ")
+            .skip(1)
+            .map(|mark| {
+                let title = mark[..mark.find("</title>").unwrap()].to_string();
+                let number = |after: &str, key: &str| -> f64 {
+                    let rest = &after[after.find(&format!("{key}=\"")).unwrap() + key.len() + 2..];
+                    rest[..rest.find('"').unwrap()].parse().unwrap()
+                };
+                let stem = match mark.find("points=\"") {
+                    Some(at) if at < mark.find("<circle").unwrap() => {
+                        let points = &mark[at + 8..];
+                        points[..points.find(',').unwrap()].parse().unwrap()
+                    }
+                    _ => number(mark, "x1"),
+                };
+                let circle = &mark[mark.find("<circle").unwrap()..];
+                (title, stem, number(circle, "cx"), number(circle, "cy"))
+            })
+            .collect()
+    }
+
+    /// Two heads closer than a head is wide are moved apart along the band,
+    /// each on a stem that rises at its call and leans over to it, and each
+    /// named at its call: a call at 761,110 of 0.50 and one four bases on of
+    /// 0.53 were two heads a pixel apart, one mark. A head that touches
+    /// neither stays where it is, on a straight stem.
+    #[test]
+    fn heads_that_would_cover_each_other_are_moved_apart() {
+        let svg = Figure::new(Region::parse("NC_1:759,456-763,676").unwrap())
+            .show_region_label(false)
+            .push(
+                VariantTrack::new(vec![
+                    Variant::new(761_109).value(0.50).category("missense"),
+                    Variant::new(761_113).value(0.53).category("missense"),
+                    Variant::new(762_000).value(0.52).category("missense"),
+                ])
+                .show_legend(false),
+            )
+            .to_svg();
+        let drawn = heads(&svg);
+        assert_eq!(drawn.len(), 3, "{svg}");
+        let (first, second, alone) = (&drawn[0], &drawn[1], &drawn[2]);
+        assert!(first.0.starts_with("761,110,"), "{first:?}");
+        assert!(second.0.starts_with("761,114,"), "{second:?}");
+        // Apart by a head and a pixel, in the order of the calls, about
+        // where the two calls are.
+        // Written to a thousandth of a pixel.
+        assert!((second.2 - first.2 - 9.0).abs() < 2e-3, "{drawn:?}");
+        assert!(first.2 < first.1 && second.2 > second.1, "{drawn:?}");
+        assert!(((first.2 + second.2) / 2.0 - (first.1 + second.1) / 2.0).abs() < 2e-3);
+        assert!(svg.matches("<polyline").count() == 2, "{svg}");
+        // The third is where its call is.
+        assert_eq!(alone.1, alone.2, "{alone:?}");
+        assert!(groups_balance(&svg));
+    }
+
+    /// Heads that touch none stay exactly where they were, on a straight
+    /// stem: a figure with no heads that collide is drawn as it always was.
+    #[test]
+    fn heads_that_touch_none_are_where_their_calls_are() {
+        let calls = vec![
+            Variant::new(761_109).value(0.10),
+            Variant::new(761_113).value(0.90),
+            Variant::new(761_600).value(0.50),
+        ];
+        let svg = Figure::new(Region::parse("NC_1:759,456-763,676").unwrap())
+            .show_region_label(false)
+            .push(VariantTrack::new(calls).show_legend(false))
+            .to_svg();
+        assert!(!svg.contains("<polyline"), "{svg}");
+        for (title, stem, x, _) in heads(&svg) {
+            assert_eq!(stem, x, "{title}");
+        }
+    }
+
+    /// Heads laid in a row take in a head the row reaches, and are laid out
+    /// again with it; a row kept inside the band; and heads too many for the
+    /// band to hold in a row left where they are.
+    #[test]
+    fn a_row_of_heads_takes_in_what_it_reaches_and_stays_in_the_band() {
+        // Three at one height, the third far enough from the first two to
+        // touch only the row they are moved into.
+        let moved = apart(
+            &[(100.0, 50.0), (101.0, 50.0), (110.0, 50.0)],
+            4.0,
+            0.0,
+            400.0,
+        );
+        let middle = (100.0 + 101.0 + 110.0) / 3.0;
+        for (at, expected) in moved.iter().zip([middle - 9.0, middle, middle + 9.0]) {
+            assert!((at - expected).abs() < 1e-9, "{moved:?}");
+        }
+        // At the left edge the row starts a head's half inside it.
+        let edge = apart(&[(1.0, 50.0), (2.0, 50.0)], 4.0, 0.0, 400.0);
+        assert_eq!(edge, [4.0, 13.0]);
+        // Far apart in height, they do not touch.
+        let tall = apart(&[(100.0, 10.0), (100.5, 90.0)], 4.0, 0.0, 400.0);
+        assert_eq!(tall, [100.0, 100.5]);
+        // Fifty in a band of a hundred pixels cannot be a row.
+        let crowd: Vec<(f64, f64)> = (0..50).map(|i| (50.0 + i as f64 * 0.1, 50.0)).collect();
+        let left = apart(&crowd, 4.0, 0.0, 100.0);
+        assert_eq!(left, crowd.iter().map(|(x, _)| *x).collect::<Vec<_>>());
     }
 
     #[test]

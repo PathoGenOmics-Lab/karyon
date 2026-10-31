@@ -1547,6 +1547,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Lollipop heads closer than a head is wide are moved apart along the band,
+  into a row a head and a pixel apart, in the order of their calls and
+  centred where the calls are, each on a stem that rises at its call and
+  leans over to its head at the last; a tooltip still names its call. A
+  call at 761,110 of 0.50 and one four bases on of 0.53 drew two heads of
+  four pixels at (399.9, 95.3) and (400.7, 93.5), one mark, and nothing was
+  said. A row moved onto another head takes it in and is laid out again,
+  and is kept inside the band. Heads that touch none stay exactly where
+  they were, so a figure with no heads that collide is drawn as before, and
+  heads too many for the band to hold in a row are left as they are, the
+  density ticks are for. `gallery.svg` and its copy on the site move, its
+  calls of no value side by side.
 - A consequence keeps its colour at every zoom of a file of calls: the
   colours are dealt from every call of the file, on every sequence, ranked
   from the most damaging down, rather than from the calls in view.
