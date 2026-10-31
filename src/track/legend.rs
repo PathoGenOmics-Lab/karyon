@@ -291,6 +291,16 @@ impl Legend {
         self.items.is_empty()
     }
 
+    /// How wide the widest of its items is drawn with letters of `font`
+    /// pixels, which a row narrower than that cannot hold: such an item has
+    /// a row to itself and runs past its end.
+    pub(crate) fn widest(&self, font: f64) -> f64 {
+        self.items
+            .iter()
+            .map(|item| self.item_width(item, font))
+            .fold(0.0, f64::max)
+    }
+
     /// How wide one item needs to be.
     fn item_width(&self, item: &LegendItem, font: f64) -> f64 {
         match item {

@@ -1594,8 +1594,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   starting at nought was read as a mistake, and a colour half way along it,
   which is 16.43 and not 151, could not be read back to a count. It reads
   `0`, `16.43` and `302.64`. A middle that rounds to nought or to the top is
-  not written. No committed figure moves, since none draws pairs on a log
-  scale.
+  not written, and nor is one the plot has no room for: in a figure 300
+  pixels wide the key keeps its two ends, which fit, where the middle carried
+  `302.64` past the edge. No committed figure moves, since none draws pairs
+  on a log scale.
 - A selection track's row of p-values is titled `-log10 p` under the
   track's name, as a scan is, by `Track::axis_title`, and its top tick is the
   number alone. `--selection fel.csv` wrote `-log10 p 2.4` at the top of the

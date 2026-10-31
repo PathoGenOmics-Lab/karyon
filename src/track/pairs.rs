@@ -472,7 +472,7 @@ impl Track for PairTrack {
     fn key(
         &self,
         region: &Region,
-        _px_per_bp: f64,
+        px_per_bp: f64,
         theme: &Theme,
     ) -> Option<crate::track::legend::Legend> {
         let drawn = self.drawn((region.start(), region.end()));
@@ -491,14 +491,21 @@ impl Track for PairTrack {
         // ramp could not be read back to a count: a colour half way along a
         // map topped at 302.64 is 16.43, not 151. So the value half way is
         // written between the two halves of the strip, in the colour a pair
-        // of that value is painted, where it rounds to a number of its own.
+        // of that value is painted, where it rounds to a number of its own
+        // and the key has room for it: the key is drawn across the plot, and
+        // where the plot is narrower than the title, three numbers and two
+        // halves of the strip, it would run past the figure's edge, so it
+        // keeps its two ends, as a straight ramp does.
         let middle = (1.0 + top).sqrt() - 1.0;
         let middle_text = text_rounded(middle, 2);
         let title = format!("{named}, log(1 + x)");
+        let ends = legend
+            .clone()
+            .ramp(title.clone(), low.clone(), hue.clone(), "0", high.clone());
         if middle_text == "0" || middle_text == high {
-            return Some(legend.ramp(title, low, hue, "0", high));
+            return Some(ends);
         }
-        Some(legend.diverging(
+        let middled = legend.diverging(
             title,
             low,
             self.color_of(middle, top, theme),
@@ -506,7 +513,12 @@ impl Track for PairTrack {
             "0",
             middle_text,
             high,
-        ))
+        );
+        let plot = region.len() as f64 * px_per_bp;
+        if middled.widest(theme.font_size - 1.0) > plot {
+            return Some(ends);
+        }
+        Some(middled)
     }
 
     fn draw(&self, ctx: &mut DrawContext<'_>) {
@@ -696,6 +708,52 @@ mod tests {
             panic!("not a ramp: {key:?}");
         };
         assert_eq!((label.as_str(), through), ("contacts", &None));
+    }
+
+    /// A log key keeps its two ends where its middle would carry it past
+    /// the plot: in a figure 300 pixels wide the key with `16.43` between
+    /// its halves wrote `302.64` at 284 pixels, past the plot's edge, where
+    /// the key of two ends fitted. And a middle that rounds to nought, or
+    /// to the top, is not written, since it would say a second `0`.
+    #[test]
+    fn a_log_key_keeps_its_ends_where_its_middle_has_no_room() {
+        let theme = Theme::light();
+        let pairs = vec![Pair::new(100, 400, 302.64), Pair::new(100, 200, 3.0)];
+        let track = PairTrack::new(pairs).label("contacts").log_scale(true);
+        let font = theme.font_size - 1.0;
+        let middle = |width: f64| {
+            let figure = Figure::new(region()).width(width).push(track.clone());
+            let key = track.key(&region(), figure.px_per_bp(), &theme).unwrap();
+            // Drawn under the pairs, the key's last number ends inside the
+            // figure.
+            let svg = figure
+                .push(crate::track::legend::LegendTrack::new(key.clone()))
+                .to_svg();
+            let (before, _) = svg.split_once(">302.64</text>").expect("the top");
+            let x: f64 = before.rsplit(" x=\"").next().unwrap()[..]
+                .split('"')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let end = x + crate::svg::text_width("302.64", font);
+            assert!(end <= width, "302.64 ends at {end} in a {width} px figure");
+            let crate::LegendItem::Ramp { through, .. } = &key.items()[0] else {
+                panic!("not a ramp: {key:?}");
+            };
+            through.as_ref().map(|(_, middle)| middle.clone())
+        };
+        assert_eq!(middle(300.0), None);
+        assert_eq!(middle(900.0).as_deref(), Some("16.43"));
+        // Half way along a top of 0.004 is 0.002, which is written 0.
+        let faint = PairTrack::new(vec![Pair::new(100, 400, 0.004)])
+            .label("contacts")
+            .log_scale(true);
+        let key = faint.key(&region(), 1.0, &theme).unwrap();
+        let crate::LegendItem::Ramp { high, through, .. } = &key.items()[0] else {
+            panic!("not a ramp: {key:?}");
+        };
+        assert_eq!((high.as_str(), through), ("0", &None), "{key:?}");
     }
 
     #[test]
