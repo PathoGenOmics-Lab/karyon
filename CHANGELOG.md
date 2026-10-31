@@ -1579,6 +1579,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   track's or a second file's as `--with-tree` does, is refused this way where
   another flag stands in its file's place; one with nothing after it and no
   file before it still needs a value. No committed figure moves.
+- `-o` and `--output` followed by another flag are refused as a track's flag
+  is, `-o takes its file after it; --title came next`. `karyon
+  chr17:1,000,000-1,070,000 h3k4me3.bw -o --title` wrote the figure to a
+  file called `--title` and exited 0, saying nothing. No committed figure
+  moves.
 - The reference's letters grow with the room each base has: the widest
   letter in view, measured bold, takes 85% of its base, up to the figure's
   own text and to 80% of the band, so every letter stays inside its base.

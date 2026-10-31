@@ -4116,9 +4116,11 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 let text = value("--shade")?;
                 shades.push(shading(text)?);
             }
-            "-o" | "--output" => {
+            flag @ ("-o" | "--output") => {
                 figure_once(&mut given, "-o")?;
-                let path = PathBuf::from(value("-o")?);
+                // Named as it was written, for a refusal to say back.
+                let flag = if flag == "-o" { "-o" } else { "--output" };
+                let path = PathBuf::from(value(flag)?);
                 if let Some(format) = named_format(&path) {
                     return Err(ArgError::NotSvg {
                         path: path.display().to_string(),
@@ -4547,9 +4549,11 @@ fn indexed_by(word: &str) -> Option<Option<String>> {
 }
 
 /// Whether `flag` takes a file, as every track's flag does but `--axis` and
-/// `--codons`, and as the flags naming a track's second file do.
+/// `--codons`, as the flags naming a track's second file do, and as `-o`
+/// does, the file the figure is written to: `-o --title` wrote the figure to
+/// a file called `--title` and said nothing.
 fn takes_a_file(flag: &str) -> bool {
-    file_read_by(flag).is_some() || matches!(flag, "--traits" | "--links")
+    file_read_by(flag).is_some() || matches!(flag, "--traits" | "--links" | "-o" | "--output")
 }
 
 /// The kind of track whose file `flag` reads: its own, for a track's flag
@@ -5987,10 +5991,28 @@ mod tests {
         ] {
             assert_eq!(said(line), wanted, "{line}");
         }
+        // The file the figure is written to is a file too, and a flag in
+        // its place wrote the figure to a file named for the flag.
+        for (line, wanted) in [
+            (
+                "chr17:1-70000 h3k4me3.bw -o --title",
+                "-o takes its file after it; --title came next",
+            ),
+            (
+                "chr17:1-70000 h3k4me3.bw --output --width 600",
+                "--output takes its file after it; --width came next",
+            ),
+        ] {
+            assert_eq!(said(line), wanted, "{line}");
+        }
         // With nothing to offer and nothing after, it is the value it lacks.
         assert!(matches!(
             parse(&args("chr17:1-70000 genes.gtf.gz --genotypes")).unwrap_err(),
             ArgError::MissingValue("--genotypes")
+        ));
+        assert!(matches!(
+            parse(&args("chr17:1-70000 h3k4me3.bw -o")).unwrap_err(),
+            ArgError::MissingValue("-o")
         ));
         // A value that is no flag is a file, whatever it is called.
         assert!(parse(&args("chr17:1-70000 --genotypes -o-bcf -o x.svg")).is_ok());
