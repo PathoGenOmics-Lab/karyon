@@ -45,11 +45,11 @@
 //! figures that have to agree on what red means must be given their variants in
 //! one order, or one order of categories through
 //! [`VariantTrack::category_order`], which fixes each category's slot whatever
-//! the window holds. The command line hands it the categories in view ranked
-//! from the most damaging consequence to the least, so a category's colour
-//! does not hang on which call happens to come first in the window, and in a
-//! figure of several places the categories of every panel, ranked together,
-//! so a category is one colour across the figure.
+//! the window holds. The command line hands it the categories of every call
+//! of the file ranked from the most damaging consequence to the least, so a
+//! category's colour does not hang on which call happens to come first in
+//! the window, nor move in a zoom that leaves out a more damaging one, and
+//! is one colour across the panels of a figure of several places.
 //!
 //! [`VariantTrack::uniform_color`] paints every call one colour instead, as a
 //! figure whose calls are to match a colour already used elsewhere asks. The

@@ -1547,6 +1547,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A consequence keeps its colour at every zoom of a file of calls: the
+  colours are dealt from every call of the file, on every sequence, ranked
+  from the most damaging down, rather than from the calls in view.
+  `NC_000962.3:760,300-760,330 calls.vcf.gz`, thirty bases holding one
+  synonymous call, keyed it `#1634c2`, the first colour, where the figure of
+  the whole gene keyed it `#e63f9f`, under its missense calls; both key it
+  `#e63f9f` now. A bgzipped VCF or a BCF drawn a window at a time through its
+  index is read to its end for this where it is no larger than 8 MB, so it
+  deals as the same file read whole does; a larger one ranks the calls in
+  view, as before, since reading every call of a cohort's file to draw one
+  gene is the read its index spares. `--color` still deals its four shapes
+  to the consequences in view. `read::point::ranked_file` ranks a VCF's
+  text the same way for the library. No committed figure moves.
 - A genotype pixel whose sites a sample was called differently at is cut
   into thin stripes stacked down the row, a stripe a site with the first on
   top, each in the colour of that sample's call there, as long as the row

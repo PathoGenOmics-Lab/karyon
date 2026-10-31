@@ -3158,14 +3158,13 @@ struct Consequences {
 }
 
 impl Consequences {
-    /// The order `calls` are dealt their colours in: the one every panel
-    /// shares, once it is known, and else their own, kept to rank with the
-    /// other panels'.
-    fn deal(&mut self, calls: &[crate::Variant]) -> Vec<String> {
+    /// The order a panel's calls are dealt their colours in: the one every
+    /// panel shares, once it is known, and else `own`, the panel's, kept to
+    /// rank with the other panels'.
+    fn deal(&mut self, own: Vec<String>) -> Vec<String> {
         if let Some(dealt) = &self.dealt {
             return dealt.clone();
         }
-        let own = read::point::ranked(calls);
         self.own.push(own.clone());
         own
     }
@@ -3995,6 +3994,56 @@ fn note_one_interval(
             ));
         }
     }
+}
+
+/// The largest file of calls, as it is on disk, compressed, read to its
+/// end to rank the consequences of every call it holds where only a window
+/// of it is drawn through its index.
+///
+/// Ranked over the calls in the window, a consequence took another colour in
+/// a zoom that left out a more damaging one. Ranked over the file, it keeps
+/// its colour at every zoom, which a file read whole gives for the price of
+/// a pass over text already read. Through an index the window is what was
+/// read, and the rest is a second read of the whole file, which for a
+/// cohort of thousands of samples is gigabytes a figure of one gene was
+/// spared by the index: past this size the window's own calls are ranked,
+/// across every panel of a figure of several places as before. Eight
+/// megabytes of bgzip is a few tenths of a second of reading.
+const RANKED_WHOLE: u64 = 8 << 20;
+
+/// Every consequence the calls of the file a band of calls was read from
+/// carry, ranked as their colours are dealt, where the file is all there is
+/// to rank: a text read whole, and a bgzipped VCF or a BCF read a window at
+/// a time through an index, read to its end where it is no larger than
+/// [`RANKED_WHOLE`]. `None` where it is larger, or will not read again,
+/// for the window's calls to be ranked instead.
+fn ranked_whole(
+    spec: &TrackSpec,
+    files: &mut dyn Files,
+    origin: Origin,
+    text: &str,
+) -> Option<Vec<String>> {
+    if origin == Origin::Text {
+        return Some(read::point::ranked_file(text));
+    }
+    let source = spec.source.as_ref()?;
+    let mut file = files.seekable(source).ok().flatten()?;
+    let size = file.seek(io::SeekFrom::End(0)).ok()?;
+    if size > RANKED_WHOLE {
+        return None;
+    }
+    file.seek(io::SeekFrom::Start(0)).ok()?;
+    let whole = match origin {
+        Origin::Window => {
+            let mut bytes = Vec::new();
+            file.read_to_end(&mut bytes).ok()?;
+            let inside = read::gzip::decompress(&bytes).ok()?;
+            String::from_utf8(inside).ok()?
+        }
+        Origin::Native(Binary::Bcf) => read::bcf::whole(file, read::bcf::Fields::Sites).ok()?,
+        _ => return None,
+    };
+    Some(read::point::ranked_file(&whole))
 }
 
 /// The largest bigBed read whole to look a gene up by its name. A bigBed is
@@ -8076,10 +8125,20 @@ fn built(
             // Colours are dealt from the most damaging consequence down
             // rather than by which call comes first in the window, which
             // painted one consequence two ways in a gene and a zoom into it,
-            // and in the one order every panel of several places deals.
+            // and from every consequence of the file rather than of the
+            // window, so a zoom that leaves out a more damaging one keeps
+            // each colour where it was; and in the one order every panel of
+            // several places deals. In one colour a consequence is its
+            // shape, and the four shapes are dealt to what is in view.
+            let own = spec
+                .color
+                .is_none()
+                .then(|| ranked_whole(spec, files, origin, &text))
+                .flatten()
+                .unwrap_or_else(|| read::point::ranked(&variants));
             let ranked = match context.consequences {
-                Some(sheet) => sheet.borrow_mut().deal(&variants),
-                None => read::point::ranked(&variants),
+                Some(sheet) => sheet.borrow_mut().deal(own),
+                None => own,
             };
             // In one colour a consequence is told by its shape alone, and the
             // shapes come round again: a fifth consequence was drawn and keyed
@@ -18666,6 +18725,73 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         );
     }
 
+    /// A consequence keeps its colour in a zoom that leaves out every more
+    /// damaging one, since the colours are dealt from every call of the file
+    /// and not from those in view: thirty bases holding a synonymous call
+    /// alone keyed it in the first colour, and the gene in the second, under
+    /// a missense call. Read a window at a time through an index, a small
+    /// file is ranked whole all the same, and a BCF as the VCF it was
+    /// written from.
+    #[test]
+    fn a_consequence_keeps_its_colour_in_a_zoom_that_leaves_out_the_rest() {
+        let calls = "##fileformat=VCFv4.2\n\
+                     ##contig=<ID=chr1,length=2000>\n\
+                     ##contig=<ID=chr2,length=2000>\n\
+                     ##INFO=<ID=ANN,Number=.,Type=String,Description=\"x\">\n\
+                     #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                     chr1\t100\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                     chr1\t500\t.\tC\tT\t.\t.\tANN=T|missense_variant|MODERATE|g\n\
+                     chr2\t50\t.\tC\tA\t.\t.\tANN=A|stop_gained|HIGH|h\n";
+        let theme = Theme::default();
+        let colour = |held: &mut Held, line: &str, category: &str| -> String {
+            let svg = held_figure(held, line).unwrap();
+            let rest = svg
+                .split(&format!("<title>{category}, colour "))
+                .nth(1)
+                .unwrap_or_else(|| panic!("no {category} in the key of {line}: {svg}"));
+            rest[..rest.find("</title>").unwrap()].to_string()
+        };
+        let mut held = Held::new();
+        held.insert("calls.vcf", calls);
+        // stop_gained, on chr2, deals first, then missense, then synonymous.
+        for line in ["chr1:1-1000 calls.vcf", "chr1:90-110 calls.vcf"] {
+            assert_eq!(
+                colour(&mut held, line, "synonymous_variant"),
+                theme.color(2),
+                "{line}"
+            );
+        }
+        assert_eq!(
+            colour(&mut held, "chr1:400-600 calls.vcf", "missense_variant"),
+            theme.color(1)
+        );
+        // In one colour the shapes are dealt to what is in view, four of
+        // them, as before.
+        let one = held_figure(&mut held, "chr1:90-110 calls.vcf --color #8b0000").unwrap();
+        assert!(one.contains("<title>synonymous_variant"), "{one}");
+        // The documentation's calls, bgzipped with a .tbi beside them, read
+        // a window at a time: thirty bases holding a synonymous call alone
+        // key it as the gene does, under its missense calls, and the file is
+        // still drawn through its index, not read as text.
+        let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/data");
+        let at = |name: &str| data.join(name).display().to_string();
+        let key = |svg: &str| -> String {
+            let rest = svg
+                .split("<title>synonymous_variant, colour ")
+                .nth(1)
+                .unwrap_or_else(|| panic!("no synonymous call keyed: {svg}"));
+            rest[..rest.find("</title>").unwrap()].to_string()
+        };
+        let (zoom, whole, _) = watched(&format!(
+            "NC_000962.3:760,300-760,330 {}",
+            at("calls.vcf.gz")
+        ));
+        let (gene, _, _) = watched(&format!("rpoB {} {}", at("genes.gff3"), at("calls.vcf.gz")));
+        assert_eq!(key(&zoom), theme.color(1), "{zoom}");
+        assert_eq!(key(&zoom), key(&gene));
+        assert!(!whole.contains(&at("calls.vcf.gz")), "{whole:?}");
+    }
+
     /// `--color` after calls paints every call that colour, in the band and
     /// on a ring, and takes the consequences' colours out of the key; the
     /// band keeps each consequence's shape, and a ring, whose ticks have
@@ -18740,11 +18866,10 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
             let synonymous = keyed(&svg, "synonymous_variant");
             assert_eq!(missense.len(), 1, "{line}");
             assert_eq!(synonymous.len(), 1, "{line}");
-            // Missense is the most damaging the sheet holds, or the second
-            // where a third place holds a stop.
-            let first = if stop.is_empty() { 0 } else { 1 };
-            assert_eq!(missense[0], theme.color(first), "{line}");
-            assert_eq!(synonymous[0], theme.color(first + 1), "{line}");
+            // The file's stop takes the first colour, whether a place holds
+            // it or not, then missense and synonymous.
+            assert_eq!(missense[0], theme.color(1), "{line}");
+            assert_eq!(synonymous[0], theme.color(2), "{line}");
             assert!(stop.iter().all(|colour| colour == theme.color(0)), "{line}");
         }
     }

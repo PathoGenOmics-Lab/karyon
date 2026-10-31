@@ -136,12 +136,46 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
 /// came first in the window: missense was the second colour across a whole
 /// gene whose first call was synonymous, and the first over a window of
 /// missense calls alone, so two figures of one file painted it two ways.
-/// Ranked, it moves only when a zoom leaves out a more damaging consequence.
-/// The calls and not the file are ranked, since a file read a window at a
-/// time through its index has only the window's to give, and a BCF draws
-/// what the VCF it was written from draws.
+/// Ranked, it moves only when a zoom leaves out a more damaging consequence,
+/// which [`ranked_file`] stops by ranking every call of the file instead.
 pub fn ranked(calls: &[Variant]) -> Vec<String> {
     in_rank(calls.iter().filter_map(|call| call.category.as_deref()))
+}
+
+/// Every category the calls of a VCF's text carry, on every sequence and at
+/// every position, in the order [`ranked`] deals them: for calls over one
+/// window to take the colours every window of the file deals them.
+///
+/// Ranked over the calls in view, a consequence's colour moved with the
+/// zoom: synonymous was the first colour over thirty bases holding nothing
+/// more damaging, and the second over the gene, under a missense call. A row
+/// [`variants`] would refuse is passed over here, since this reads past the
+/// window that reader is held to.
+///
+/// ```
+/// use karyon::read;
+///
+/// let vcf = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+///            chr1\t10\t.\tC\tT\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+///            chr2\t90\t.\tA\tG\t.\t.\tANN=G|missense_variant|MODERATE|h\n";
+/// assert_eq!(read::point::ranked_file(vcf), ["missense_variant", "synonymous_variant"]);
+/// ```
+pub fn ranked_file(text: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for (_, row) in lines(text) {
+        let fields = columns(row);
+        if fields.len() < 8 || reference_block(fields[4]) {
+            continue;
+        }
+        let (reference, info) = (fields[3], fields[7]);
+        for alt in fields[4].split(',').filter(|alt| !placeholder(alt)) {
+            let category = consequence(info, alt).unwrap_or_else(|| shape(reference, alt));
+            if !found.contains(&category) {
+                found.push(category);
+            }
+        }
+    }
+    in_rank(found.iter().map(String::as_str))
 }
 
 /// The categories named, each once, in the order [`ranked`] deals them: for
@@ -1258,6 +1292,24 @@ fn shape(reference: &str, alt: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file's categories are every call's, on every sequence: a gVCF's
+    /// reference blocks and its placeholder allele are no call, a call
+    /// nothing annotated is its shape, and a row the window's reader would
+    /// refuse is passed over rather than stopping the ranking.
+    #[test]
+    fn a_file_is_ranked_from_every_call_it_holds() {
+        let vcf = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                   chr1\t5\t.\tA\t<NON_REF>\t.\t.\tEND=90\n\
+                   chr1\t100\t.\tC\tT,<NON_REF>\t.\t.\tANN=T|synonymous_variant|LOW|g\n\
+                   chr1\t200\t.\tCA\tC\t.\t.\t.\n\
+                   chr1\tnowhere\n\
+                   chr9\t300\t.\tG\tA\t.\t.\tBCSQ=stop_gained|h\n";
+        assert_eq!(
+            ranked_file(vcf),
+            ["stop_gained", "synonymous_variant", "deletion"]
+        );
+    }
 
     /// One annotated call in rpoB, the position the whole conversion turns on.
     const RPOB: &str = "\
