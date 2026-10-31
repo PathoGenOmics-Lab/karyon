@@ -547,7 +547,7 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 | | |
 |:--|:--|
 | Read by | `--variants`; `read::point::variants` |
-| Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ` |
+| Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ`, `CSQ`; the header's `##INFO=<ID=CSQ` line for the order of `CSQ`'s fields |
 | Ignored | 3 ID, 6 QUAL, 7 FILTER, and 9 onwards, which `--genotypes` reads, so a call that failed a filter is still drawn and a sites-only VCF reads like a cohort's |
 | Coordinates | 1-based: `POS 21563` is 0-based 21562 |
 | With an index | read a window at a time, through the `.tbi` that `tabix -p vcf calls.vcf.gz` writes or the `.csi` of `bcftools index`; the header comes with every window. The same calls as [BCF](#bcf) are read through theirs and draw the same figure |
@@ -562,8 +562,15 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 - **Category** is what an annotator wrote: the `ANN` entry naming this allele
   (from snpEff, or from VEP run with `--vcf_info_field ANN`), or else the
   first; or the first `BCSQ` consequence (from bcftools csq), without the `*`
-  of an uncertain one. VEP's own `CSQ`, which it writes unless told
-  otherwise, is not read, and its calls are named by their shape. With neither, it is
+  of an uncertain one; or the `CSQ` VEP writes unless told otherwise, its
+  fields found by the names its header's `Format: Allele|Consequence|...`
+  gives them, or in VEP's own order, the allele first and the consequence
+  second, where no header line says. VEP writes an entry per transcript in no
+  order of damage, so of the entries naming this allele, as the row spells it
+  or as VEP spells an indel's once the base its alleles share is off, `T` for
+  `C>CT` and `-` for `CA>C`, the most damaging is read, as the first of
+  snpEff's sorted `ANN` is; consequences joined with `&` are kept whole, as
+  they are from `ANN`. With none of them, it is
   the shape of REF against ALT: `substitution`, `insertion` or `deletion` by
   length, `breakend` for square brackets, and `deletion` for `*`. A symbolic
   allele is named by its tag: `<DEL>` is `deletion`, `<INS:ME:ALU>` is

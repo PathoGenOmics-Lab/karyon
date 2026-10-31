@@ -567,8 +567,9 @@ TRACKS
                          use over a line through its introns, and the ends
                          that do not code at half height
     --variants <FILE>    point calls, VCF or BCF, coloured by the consequence
-                         an annotator wrote in ANN or BCSQ, or else by the
-                         shape of the call: substitution, insertion, deletion
+                         an annotator wrote in ANN, BCSQ or VEP's CSQ, or else
+                         by the shape of the call: substitution, insertion,
+                         deletion
     --genotypes <FILE>   the call of each sample at each site of a VCF or BCF,
                          a row per sample: reference, heterozygous, alternate
                          or not called, at its position
@@ -1411,7 +1412,7 @@ mod tests {
             variants.contains("coloured by the consequence"),
             "{variants}"
         );
-        for field in ["ANN", "BCSQ"] {
+        for field in ["ANN", "BCSQ", "CSQ"] {
             assert!(names(&variants, field), "{field}: {variants}");
         }
         assert!(variants.contains("--color <HEX>"), "{variants}");
@@ -1443,7 +1444,11 @@ mod tests {
             .expect("a row numbers the codons");
         assert!(codons.contains("is read from `genes.gff3`"), "{codons}");
         assert!(
-            READS.contains("`ANN` or `BCSQ`"),
+            READS
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains("`ANN`, `BCSQ` or `CSQ`"),
             "the calls' colour unexplained"
         );
 

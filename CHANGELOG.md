@@ -35,6 +35,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   short of the others. `read::table::genome_windows` reads every window of
   every sequence, wide or long, into a `GenomeWindows`. No committed figure
   moves.
+- Calls are named by the consequence Ensembl VEP writes in its `CSQ`, as they
+  are by snpEff's `ANN` and bcftools' `BCSQ`: a VCF straight out of VEP was
+  drawn with every call named by its shape. Its fields are found by the names
+  the header's `Format: Allele|Consequence|...` gives them, as `--fields`
+  orders them, or in VEP's own order where no header line says. VEP writes an
+  entry per transcript in no order of damage, so of the entries naming the
+  allele, as the row spells it or as VEP does once the base an indel's alleles
+  share is off, `-` for `CA>C`, the most damaging is read, which is what the
+  first of snpEff's sorted `ANN` is; consequences joined with `&` are kept
+  whole, as they are from `ANN`. No committed figure moves.
 - Bold and semibold text is measured at least as wide as Helvetica-Bold draws
   it, which is the face Arial sets a bold label in and the one a PDF sets it
   in. Nine characters, `& ? B K L ^ i j l`, were measured at Inter's narrower
