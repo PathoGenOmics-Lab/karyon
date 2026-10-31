@@ -1547,6 +1547,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A coverage track draws a pixel that holds more than one value as the
+  spread between them, as a genome browser draws whiskers, wherever no
+  `--aggregate` is written: the profile, its line and the fill under it or
+  its bar, runs along the lowest value under the pixel, and a flat pale wash
+  of the same colour stands on it up to the highest. A pixel was drawn at
+  the most of its values, so across a whole genome a half megabase of no
+  copies, 0.18 in its bedGraph, was drawn at 60.5, the depth beside it,
+  right above a copy-number track drawing no copies there. There the line
+  now falls to the floor under a wash that stays at sixty, and a spike is a
+  pale column over the line. A pixel of one value adds nothing, so a figure
+  whose pixels each hold one, as at a few pixels a base, is drawn as it was,
+  and one whose pixels pool differs only by the wash and by its line
+  following the lowest. The key names the two, `lowest value in a
+  pixel` swatched as the track is drawn and `highest value in a pixel` as
+  the wash, wherever a pixel is drawn this way. `--aggregate max`, `mean` or
+  `min` draws one value a pixel as before, and `karyon help` now says what
+  is drawn without it; a ring still takes the most. In the library
+  `CoverageTrack::aggregate` is the same choice, and a track given none
+  draws the spread. A bigWig drawn from a zoom level is read for the least
+  of each bin as well as its most, so a pixel reaches down as far as the
+  values as written take it. `example-genomewide.svg`,
+  `example-gene-models.svg`, `example-ideogram.svg`, `example-regulation.svg`,
+  `example-split.svg`, `example-structural.svg`, `example-visual-system.svg`
+  and `gallery.svg`, and their copies on the site, move, each depth along
+  its lowest values under a pale wash, and so do `reads.svg`, `genome.svg`
+  and `genome-copies.svg` on the site, light and dark, which gain the two
+  keys.
 - A squiggle's note on bases too narrow for their letters says how many of
   the read's bases the window it names holds, and the command line adds how
   wide a figure of the whole read letters every one: `sample:1-304 letters

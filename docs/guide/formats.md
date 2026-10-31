@@ -296,7 +296,8 @@ bedGraph it was written from does.
 or more of a zoom level, the coarsest such level is read instead of the values
 as written, and each bin is painted over its bases with what `--aggregate`
 takes of a pixel: its highest value, its lowest, or its sum spread over its
-bases, with the bases no value covers counted as 0 in each. A chromosome of
+bases, and without it both its lowest and its highest, the profile and the top
+of the pale wash over it, with the bases no value covers counted as 0 in each. A chromosome of
 249 Mb written as 4.7 million spans, a 38 MB bigWig, is then 5,139 bins of
 51,200 bases, and draws 900 pixels wide in 0.01 s and 4 MB, where its bedGraph
 takes 0.95 s and 216 MB. The figure is the one the values as written draw, but

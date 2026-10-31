@@ -10,17 +10,27 @@
 //! # What a pixel column throws away
 //!
 //! A region wider than the figure has more bases than columns, so each column
-//! is a summary of the bases beneath it. Which summary is [`Aggregate`], and
-//! the default is [`Aggregate::Max`], so a single base spike survives being
-//! drawn at a megabase.
+//! stands for the bases beneath it, and one number cannot stand for all of
+//! them. A maximum keeps a single base spike at a megabase and cannot show a
+//! hole: across a whole genome a pixel spans half a megabase, and a stretch of
+//! no depth that fills most of one column was drawn at the depth of the bases
+//! beside it, sixty, over a copy-number track saying no copies. A minimum
+//! shows the hole and hides the spike, and a mean shows neither.
 //!
-//! The cost is the mirror image, and it is quiet: a maximum cannot show a hole.
-//! Across a 5 Mb view one pixel spans thousands of bases, and a 300 bp deletion
-//! inside an otherwise well covered gene contributes nothing to the maximum of
-//! its column, so the profile is drawn flat over it. [`Aggregate::Min`] takes
-//! the floor of each column instead, and the dropout appears. A column with
-//! nothing under it at all is skipped rather than drawn at zero, so a gap in
-//! the input stays a gap in the profile.
+//! So by default a column that holds more than one value draws the two ends
+//! of what it holds, as genome browsers draw whiskers: the profile, its line
+//! and the fill under it, runs along the lowest value under each column, and
+//! a pale wash of the same colour stands on it up to the highest. A dropout
+//! is then the line falling to the floor under a wash that stays high, and a
+//! spike is a pale column over the line. Where a column holds one value
+//! nothing is added, so where every column does, as at a few bases a pixel
+//! or more, the profile is the one it always was. [`Track::key`] names the
+//! profile and the wash wherever a column is drawn this way.
+//! [`CoverageTrack::aggregate`] asks for one number a column instead, the
+//! most, the mean or the least, and draws that alone.
+//!
+//! A column with nothing under it at all is skipped rather than drawn at
+//! zero, so a gap in the input stays a gap in the profile.
 //!
 //! # The ceiling moves unless it is pinned
 //!
@@ -35,7 +45,7 @@ use crate::region::Region;
 use crate::scale::Scale;
 use crate::style::{legible_ticks, Emphasis, QuantitativeAxis};
 use crate::svg::{num, text_width, Anchor};
-use crate::theme::Theme;
+use crate::theme::{mix, Theme};
 use crate::track::window::Window;
 use crate::track::{unbroken, DrawContext, Extent, Track};
 
@@ -51,7 +61,10 @@ pub enum CoverageStyle {
     Bars,
 }
 
-/// How values are combined when one pixel covers many bases.
+/// How values are combined into one when one pixel covers many bases.
+///
+/// A [`CoverageTrack`] given none draws the lowest and the highest value of
+/// each such pixel instead; see [`CoverageTrack::aggregate`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Aggregate {
     /// Highest value in the column. Keeps narrow spikes visible, which is
@@ -72,8 +85,10 @@ pub enum Aggregate {
 ///
 /// Values are kept from a start position as runs of bases holding one value,
 /// so a stretch of one depth costs one entry however long it is. When a pixel
-/// covers more than one base the column is reduced with [`Aggregate`]; the SVG
-/// therefore has at most one point per pixel however wide the region is.
+/// covers more than one base the column is drawn from the lowest and the
+/// highest value under it, or reduced to one with [`Aggregate`] where one is
+/// asked for; the SVG therefore holds a few points per pixel at most however
+/// wide the region is.
 ///
 /// ```
 /// use karyon::{CoverageTrack, Figure, Region};
@@ -96,7 +111,14 @@ pub struct CoverageTrack {
     height: f64,
     color: Option<String>,
     style: CoverageStyle,
-    aggregate: Aggregate,
+    /// The one value a column of many bases is reduced to, or `None` to draw
+    /// the lowest and the highest under it.
+    aggregate: Option<Aggregate>,
+    /// The least of the values each run summarises, where the runs hold the
+    /// most of them rather than the values: a bigWig's zoom level, whose bins
+    /// keep both. The least of the runs alone is the least of those most,
+    /// which is not low enough to show a stretch of none.
+    floor: Option<Box<CoverageTrack>>,
     max: Option<f64>,
     /// The most of the values the runs summarise, where they summarise them
     /// rather than hold them, which the automatic ceiling reaches as though
@@ -128,7 +150,8 @@ impl CoverageTrack {
             height: 60.0,
             color: None,
             style: CoverageStyle::Area,
-            aggregate: Aggregate::Max,
+            aggregate: None,
+            floor: None,
             max: None,
             reach: None,
             log_scale: false,
@@ -364,9 +387,26 @@ impl CoverageTrack {
         self
     }
 
-    /// Chooses how a pixel column summarises the bases under it.
+    /// Draws one value a pixel column of many bases, the one `aggregate`
+    /// takes of the bases under it.
+    ///
+    /// Left alone, the profile of a column holding more than one value runs
+    /// along the lowest of them, with a pale wash above it up to the highest,
+    /// so neither a dropout nor a spike narrower than a column is lost. One
+    /// value a column is lighter to read and loses one of the two:
+    /// [`Aggregate::Max`] the dropout, [`Aggregate::Min`] the spike.
     pub fn aggregate(mut self, aggregate: Aggregate) -> Self {
-        self.aggregate = aggregate;
+        self.aggregate = Some(aggregate);
+        self
+    }
+
+    /// The least of the values under each run, for runs painted with the
+    /// most of them: a bigWig read from a zoom level, whose bins keep both.
+    /// A column drawn as a spread then reaches down to the least of its
+    /// bins, as the values as written would take it. `floor` holds a value
+    /// for the bases this track does, painted as this track is.
+    pub(crate) fn floored(mut self, floor: CoverageTrack) -> Self {
+        self.floor = Some(Box::new(floor));
         self
     }
 
@@ -411,7 +451,9 @@ impl CoverageTrack {
     ///
     /// Left alone, each style picks what suits it: an area is a wash under a
     /// drawn line, so it fills at a fifth and lets whatever is behind it show
-    /// through, while bars are the mark itself and stay solid.
+    /// through, while bars are the mark itself and stay solid. The wash a
+    /// column drawn as a spread has above its lowest value is a quarter of
+    /// the colour whatever this is.
     pub fn fill_opacity(mut self, opacity: f64) -> Self {
         self.fill_opacity = Some(opacity.clamp(0.0, 1.0));
         self
@@ -491,17 +533,31 @@ impl CoverageTrack {
         (hi > lo).then_some((lo, hi))
     }
 
-    /// Reduces the bases in `[lo, hi)` to the single value a pixel shows.
-    fn sample(&self, lo: f64, hi: f64) -> Option<f64> {
+    /// The whole bases a stretch from `lo` to `hi` touches, cut to what this
+    /// track holds, or `None` where it touches none.
+    ///
+    /// An end a hair past a whole base is taken to be on it: a pixel's edge
+    /// worked out in floating point lands a millionth of a base either side
+    /// of the base it falls on, and taken at its word it took in a base of
+    /// the column beside it.
+    fn bases(&self, lo: f64, hi: f64) -> Option<(u64, u64)> {
+        const SLACK: f64 = 1e-6;
         let origin = self.start as f64;
-        let first = (lo - origin).floor().max(0.0);
-        let last = (hi - origin).ceil().min((self.end() - self.start) as f64);
-        if last <= first {
-            return None;
-        }
-        let (from, to) = (self.start + first as u64, self.start + last as u64);
+        let first = (lo - origin + SLACK).floor().max(0.0);
+        let last = (hi - origin - SLACK)
+            .ceil()
+            .min((self.end() - self.start) as f64);
+        (last > first).then(|| (self.start + first as u64, self.start + last as u64))
+    }
+
+    /// Reduces the bases in `[lo, hi)` to the single value a pixel shows:
+    /// what the track's [`Aggregate`] takes of them, the most where it was
+    /// given none.
+    fn sample(&self, lo: f64, hi: f64) -> Option<f64> {
+        let (from, to) = self.bases(lo, hi)?;
+        let aggregate = self.aggregate.unwrap_or(Aggregate::Max);
         let mut count = 0u64;
-        let mut acc = match self.aggregate {
+        let mut acc = match aggregate {
             Aggregate::Max => f64::NEG_INFINITY,
             Aggregate::Min => f64::INFINITY,
             Aggregate::Mean => 0.0,
@@ -513,7 +569,7 @@ impl CoverageTrack {
             // Every base of the run counts once, as it did one at a time.
             let bases = run_to - run_from;
             count += bases;
-            acc = match self.aggregate {
+            acc = match aggregate {
                 Aggregate::Max => acc.max(value),
                 Aggregate::Min => acc.min(value),
                 Aggregate::Mean => acc + value * bases as f64,
@@ -522,10 +578,73 @@ impl CoverageTrack {
         if count == 0 {
             return None;
         }
-        Some(match self.aggregate {
+        Some(match aggregate {
             Aggregate::Mean => acc / count as f64,
             _ => acc,
         })
+    }
+
+    /// The lowest and the highest value under the bases in `[lo, hi)`, or
+    /// `None` where none of them holds one: a floor of summaries, where the
+    /// track has one, answers for the lowest.
+    fn spread(&self, lo: f64, hi: f64) -> Option<(f64, f64)> {
+        let (from, to) = self.bases(lo, hi)?;
+        let ends = |track: &CoverageTrack| {
+            track
+                .overlapping(from, to)
+                .map(|(_, _, value)| value)
+                .filter(|value| value.is_finite())
+                .fold(None, |ends: Option<(f64, f64)>, value| {
+                    Some(ends.map_or((value, value), |(low, high)| {
+                        (low.min(value), high.max(value))
+                    }))
+                })
+        };
+        let (low, high) = ends(self)?;
+        let least = self
+            .floor
+            .as_deref()
+            .and_then(ends)
+            .map_or(low, |(least, _)| least.min(low));
+        Some((least, high))
+    }
+
+    /// What each pixel column of a band `width` pixels wide over `region` is
+    /// drawn from, and how far apart the columns are: the lowest and the
+    /// highest value under it where the track draws the spread, and the one
+    /// value its [`Aggregate`] takes twice over where it was given one.
+    /// `None` for a column with nothing under it.
+    ///
+    /// Worked out from the region and the width alone, so the key a figure
+    /// asks for at its zoom and the band it draws agree on every column.
+    fn columns(&self, region: &Region, width: f64) -> (Vec<Option<(f64, f64)>>, f64) {
+        let (count, step) = column_grid(width);
+        let (start, span) = (region.start() as f64, region.len() as f64);
+        let width = width.max(1.0);
+        let at = |x: f64| start + x / width * span;
+        let held = (0..count)
+            .map(|column| {
+                let (lo, hi) = (at(column as f64 * step), at((column + 1) as f64 * step));
+                match self.aggregate {
+                    Some(_) => self.sample(lo, hi).map(|value| (value, value)),
+                    None => self.spread(lo, hi),
+                }
+            })
+            .collect();
+        (held, step)
+    }
+
+    /// Whether the band over `region`, `width` pixels wide, is drawn as a
+    /// spread: no [`Aggregate`] was asked for, a pixel holds more than one
+    /// base, and some column holds more than one value.
+    ///
+    /// A pixel of less than a base holds the two bases either side of an
+    /// edge between them, and is no pooling of many: drawn as a spread,
+    /// every edge at a few pixels a base was a sliver of pale ink.
+    fn spreads(&self, region: &Region, width: f64, columns: &[Option<(f64, f64)>]) -> bool {
+        self.aggregate.is_none()
+            && region.len() as f64 > width
+            && columns.iter().flatten().any(|(low, high)| low < high)
     }
 
     fn transform(&self, value: f64) -> f64 {
@@ -579,9 +698,65 @@ fn column_grid(width: f64) -> (usize, f64) {
     (columns, step)
 }
 
+/// The opacity of the wash from a column's lowest value up to its highest:
+/// pale beside the profile's line, and dark enough against the page to see
+/// a spike or a dropout in.
+const PALE: f64 = 0.25;
+
+/// A closed path through `points`, as an SVG path's `d`.
+fn outline(points: &[(f64, f64)]) -> String {
+    let mut d = String::new();
+    for (index, (x, y)) in points.iter().enumerate() {
+        d.push_str(if index == 0 { "M" } else { " L" });
+        d.push_str(&num(*x));
+        d.push(' ');
+        d.push_str(&num(*y));
+    }
+    if !d.is_empty() {
+        d.push('Z');
+    }
+    d
+}
+
 impl Track for CoverageTrack {
     fn noun(&self) -> &str {
         "a coverage profile"
+    }
+
+    /// What a spread is drawn with, where a column over `region` is drawn as
+    /// one: the profile, swatched as the track draws it, for the lowest value
+    /// in a pixel, and the pale wash above it for the highest. Nothing where
+    /// every column is one value, which the profile says by itself.
+    fn key(
+        &self,
+        region: &Region,
+        px_per_bp: f64,
+        theme: &Theme,
+    ) -> Option<crate::track::legend::Legend> {
+        // The width the figure lays the band out at, to the millionth of a
+        // pixel: worked back from its pixels a base, it came out a hair over
+        // and took a column more than the band draws.
+        let width = (region.len() as f64 * px_per_bp * 1e6).round() / 1e6;
+        if !width.is_finite() {
+            return None;
+        }
+        let (columns, _) = self.columns(region, width);
+        if !self.spreads(region, width, &columns) {
+            return None;
+        }
+        let color = self.color.clone().unwrap_or_else(|| theme.accent.clone());
+        // The wash as it lands on the page, which a swatch of the colour with
+        // no opacity has to be mixed to; a colour that is not one the mix
+        // reads stays itself.
+        let ink = |share: f64| mix(&color, theme.surface(), 1.0 - share);
+        let lowest = "lowest value in a pixel";
+        let key = crate::track::legend::Legend::new();
+        let key = match self.style {
+            CoverageStyle::Area => key.area(lowest, &color),
+            CoverageStyle::Line => key.line(lowest, &color),
+            CoverageStyle::Bars => key.key(lowest, ink(self.fill_opacity.unwrap_or(1.0))),
+        };
+        Some(key.key("highest value in a pixel", ink(PALE)))
     }
 
     fn axis_title(&self) -> Option<&str> {
@@ -678,52 +853,71 @@ impl Track for CoverageTrack {
             baseline - ((self.transform(value) - transformed_floor) / span).clamp(0.0, 1.0) * band.h
         };
 
-        let (columns, step) = column_grid(band.w);
-        let mut points: Vec<Option<(f64, f64)>> = Vec::with_capacity(columns);
+        let (columns, step) = self.columns(ctx.region, band.w);
+        let spread = self.spreads(ctx.region, band.w, &columns);
+        // Each column's x and the heights of its lowest and highest value,
+        // which are one height but where the column is drawn as a spread.
+        let mut placed: Vec<Option<(f64, f64, f64)>> = Vec::with_capacity(columns.len());
         // The columns a pinned ceiling cut short, as runs of x.
         let mut cut: Vec<(f64, f64)> = Vec::new();
-        for column in 0..columns {
+        for (column, held) in columns.iter().enumerate() {
             let x = band.x + column as f64 * step;
-            let lo = ctx.scale.pos_at_x(x);
-            let hi = ctx.scale.pos_at_x(x + step);
-            let Some(value) = self.sample(lo, hi) else {
-                points.push(None);
+            let Some((low, high)) = *held else {
+                placed.push(None);
                 continue;
             };
-            if value > visual_ceiling {
+            if high > visual_ceiling {
                 match cut.last_mut() {
                     Some((_, to)) if (*to - x).abs() < 1e-9 => *to = x + step,
                     _ => cut.push((x, x + step)),
                 }
             }
-            let y = y_of(value);
-            match self.style {
-                CoverageStyle::Bars => {
-                    ctx.svg.rect_opacity(
-                        x,
-                        y,
-                        step,
-                        baseline - y,
-                        &color,
-                        self.fill_opacity.unwrap_or(1.0),
-                    );
-                }
-                _ => points.push(Some((x, y))),
-            }
+            placed.push(Some((x, y_of(low), y_of(high))));
         }
 
-        // The profile is drawn once per unbroken run of columns. A column with
-        // nothing under it is a gap, and drawn as one line the profile ran
-        // straight across it, from the last value before the gap to the first
-        // one after, at a depth nothing measured.
-        if self.style != CoverageStyle::Bars {
-            for mut run in unbroken(points) {
+        // The profile runs along the one value of each column, or along the
+        // lowest of a column drawn as a spread, with a pale wash from there
+        // up to its highest: the track looks as it always does, and only a
+        // column that pools values that differ adds anything to it.
+        let edge = |(x, low, high): (f64, f64, f64)| (x, if spread { low } else { high });
+        if self.style == CoverageStyle::Bars {
+            for (x, low, high) in placed.iter().flatten() {
+                let (_, y) = edge((*x, *low, *high));
+                ctx.svg.rect_opacity(
+                    *x,
+                    y,
+                    step,
+                    baseline - y,
+                    &color,
+                    self.fill_opacity.unwrap_or(1.0),
+                );
+                if spread && high < low {
+                    ctx.svg
+                        .rect_opacity(*x, *high, step, low - high, &color, PALE);
+                }
+            }
+        } else {
+            // The profile is drawn once per unbroken run of columns. A column
+            // with nothing under it is a gap, and drawn as one line the
+            // profile ran straight across it, from the last value before the
+            // gap to the first one after, at a depth nothing measured.
+            for mut held in unbroken(placed.iter().copied()) {
                 // A column standing alone between two gaps still holds a
                 // value, and a line needs two ends, so it is drawn across its
                 // own width rather than dropped.
-                if let [(x, y)] = run[..] {
-                    run.push((x + step, y));
+                if let [(x, low, high)] = held[..] {
+                    held.push((x + step, low, high));
                 }
+                // The wash from the lowest value of each column up to its
+                // highest, behind the profile and through the same columns,
+                // so its foot is the profile's line.
+                if spread && held.iter().any(|(_, low, high)| high < low) {
+                    let tops = held.iter().map(|(x, _, high)| (*x, *high));
+                    let feet = held.iter().rev().map(|(x, low, _)| (*x, *low));
+                    let around: Vec<(f64, f64)> = tops.chain(feet).collect();
+                    ctx.svg.path(&outline(&around), &color, PALE);
+                }
+                let run: Vec<(f64, f64)> = held.into_iter().map(edge).collect();
                 if self.style == CoverageStyle::Area {
                     let mut d = String::with_capacity(run.len() * 14);
                     d.push('M');
@@ -1460,6 +1654,200 @@ mod tests {
                 assert_eq!(areas(&svg).len(), 1, "and fills under it");
             }
         }
+    }
+
+    /// Sixty over ten thousand bases but for five of nought: a deletion
+    /// narrower than a pixel at ten thousand bases over a band of eight
+    /// hundred, as a stretch of no copies is at a whole genome.
+    fn deleted() -> Vec<f64> {
+        (0..10_000)
+            .map(|i| {
+                if (5_003..5_008).contains(&i) {
+                    0.0
+                } else {
+                    60.0
+                }
+            })
+            .collect()
+    }
+
+    /// The paths of a document, each its vertices and the opacity it is
+    /// filled at, one where none is written.
+    fn filled(svg: &str) -> Vec<(Vec<(f64, f64)>, f64)> {
+        let opacities = svg.split("<path d=\"").skip(1).map(|rest| {
+            let tag = rest.split("/>").next().unwrap_or_default();
+            tag.split("fill-opacity=\"")
+                .nth(1)
+                .and_then(|value| value.split('"').next())
+                .map_or(1.0, |value| value.parse().unwrap())
+        });
+        areas(svg).into_iter().zip(opacities).collect()
+    }
+
+    /// `svg` with every element filled at the opacity of a spread's wash
+    /// taken out of it.
+    fn unwashed(svg: &str) -> String {
+        let mark = format!(" fill-opacity=\"{PALE}\"/>");
+        let mut out = String::new();
+        let mut rest = svg;
+        while let Some(end) = rest.find(&mark) {
+            let start = rest[..end].rfind('<').unwrap();
+            out.push_str(&rest[..start]);
+            rest = &rest[end + mark.len()..];
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// A dropout narrower than a pixel is drawn as the profile's line falling
+    /// to the floor, under a pale wash that stays at the depth beside it. The
+    /// most of a column, which drew it until now, drew sixty there, and so
+    /// does one value a column asked for by name. Nothing else moves: the
+    /// figure is the one the least of each column draws, with the wash on it.
+    #[test]
+    fn a_column_holding_a_dropout_is_its_lowest_under_a_wash_up_to_its_highest() {
+        let region = Region::new("chr1", 0, 10_000).unwrap();
+        let track = CoverageTrack::new(0, deleted());
+        let (columns, _) = track.columns(&region, 800.0);
+        assert!(columns.contains(&Some((0.0, 60.0))), "{columns:?}");
+        assert!(track.spreads(&region, 800.0, &columns));
+        let most = track.clone().aggregate(Aggregate::Max);
+        let (one, _) = most.columns(&region, 800.0);
+        assert!(one.iter().flatten().all(|ends| *ends == (60.0, 60.0)));
+        assert!(!most.spreads(&region, 800.0, &one));
+
+        let svg = drawn(region.clone(), track.clone());
+        let paths = filled(&svg);
+        assert_eq!(paths.len(), 2, "the wash and the area: {svg}");
+        assert_eq!(paths[0].1, PALE, "{svg}");
+        // The area closes along the floor, where its line falls at the
+        // dropout.
+        let floor = paths[1].0[0].1;
+        let lines = crate::track::polylines(&svg);
+        assert_eq!(lines.len(), 1, "{svg}");
+        assert!(lines[0].iter().any(|(_, y)| *y == floor), "{lines:?}");
+        let least = drawn(region.clone(), track.aggregate(Aggregate::Min));
+        assert_eq!(unwashed(&svg), least);
+        // One value a column draws the line it drew, at sixty throughout.
+        let flat = drawn(region, most);
+        assert!(
+            !flat.contains(&format!("fill-opacity=\"{PALE}\"")),
+            "{flat}"
+        );
+        let lines = crate::track::polylines(&flat);
+        assert_eq!(lines.len(), 1);
+        assert!(
+            lines[0].iter().all(|(_, y)| *y == lines[0][0].1),
+            "{lines:?}"
+        );
+    }
+
+    /// The key names the profile and the wash where a column is drawn as a
+    /// spread, as the figure asks at its zoom, and only there: not over one
+    /// value a column asked for, and not at a few pixels a base, where no
+    /// column pools anything.
+    #[test]
+    fn the_key_names_the_profile_and_the_wash_only_where_a_spread_is_drawn() {
+        use crate::track::legend::LegendItem;
+        let labels = |figure: crate::Figure| -> Vec<String> {
+            figure
+                .key()
+                .items()
+                .iter()
+                .filter_map(|item| match item {
+                    LegendItem::Key { label, .. } => Some(label.clone()),
+                    LegendItem::Ramp { .. } => None,
+                })
+                .collect()
+        };
+        let wide = Region::new("chr1", 0, 10_000).unwrap();
+        let spread = crate::Figure::new(wide.clone()).push(CoverageTrack::new(0, deleted()));
+        assert_eq!(
+            labels(spread),
+            ["lowest value in a pixel", "highest value in a pixel"]
+        );
+        let one = crate::Figure::new(wide)
+            .push(CoverageTrack::new(0, deleted()).aggregate(Aggregate::Min));
+        assert!(labels(one).is_empty());
+        let near = Region::new("chr1", 4_950, 5_100).unwrap();
+        let bases = crate::Figure::new(near).push(CoverageTrack::new(0, deleted()));
+        assert!(labels(bases).is_empty());
+    }
+
+    /// Where every column holds one value, or is the two bases either side
+    /// of an edge between them, the profile is the one it was before any
+    /// spread was drawn: the same document as the most of each column draws.
+    #[test]
+    fn a_profile_of_a_value_a_pixel_is_drawn_as_it_always_was() {
+        let varied: Vec<f64> = (0..300).map(|i| (i % 7) as f64 * 3.0).collect();
+        let region = Region::new("chr1", 0, 300).unwrap();
+        for style in [
+            CoverageStyle::Area,
+            CoverageStyle::Line,
+            CoverageStyle::Bars,
+        ] {
+            let left = CoverageTrack::new(0, varied.clone()).style(style);
+            let most = left.clone().aggregate(Aggregate::Max);
+            assert_eq!(
+                drawn(region.clone(), left),
+                drawn(region.clone(), most),
+                "{style:?}"
+            );
+        }
+        // And a stretch of one value, pooled many bases a pixel.
+        let flat = Region::new("chr1", 0, 10_000).unwrap();
+        let track = CoverageTrack::new(0, vec![30.0; 10_000]);
+        assert_eq!(
+            drawn(flat.clone(), track.clone()),
+            drawn(flat, track.aggregate(Aggregate::Max))
+        );
+    }
+
+    /// A line runs along the lowest value under a pale band up to the
+    /// highest, and a bar stands to the lowest under a pale bar, each the
+    /// figure the least of each column draws with the wash on it.
+    #[test]
+    fn a_line_and_bars_draw_a_spread_in_their_own_way() {
+        let region = Region::new("chr1", 0, 10_000).unwrap();
+        let line = drawn(
+            region.clone(),
+            CoverageTrack::new(0, deleted()).style(CoverageStyle::Line),
+        );
+        let lines = crate::track::polylines(&line);
+        assert_eq!(lines.len(), 1, "{line}");
+        let lowest = lines[0].iter().map(|(_, y)| *y).fold(f64::MIN, f64::max);
+        let pale = filled(&line);
+        assert_eq!(pale.len(), 1, "{line}");
+        assert_eq!(pale[0].1, PALE);
+        // The line falls to the floor of the band at the dropout, where the
+        // band above it stays at sixty.
+        assert!(pale[0].0.iter().any(|(_, y)| *y == lowest), "{line}");
+        let least = |style| {
+            drawn(
+                region.clone(),
+                CoverageTrack::new(0, deleted())
+                    .style(style)
+                    .aggregate(Aggregate::Min),
+            )
+        };
+        assert_eq!(unwashed(&line), least(CoverageStyle::Line));
+        let bars = drawn(
+            region.clone(),
+            CoverageTrack::new(0, deleted()).style(CoverageStyle::Bars),
+        );
+        assert!(bars.contains(&format!("fill-opacity=\"{PALE}\"")), "{bars}");
+        assert_eq!(unwashed(&bars), least(CoverageStyle::Bars));
+    }
+
+    /// A floor of summaries answers for the lowest value of a column, as
+    /// the least of a bigWig's bins does where its runs are their most.
+    #[test]
+    fn a_floor_of_summaries_answers_for_the_lowest_value() {
+        let most = CoverageTrack::new(0, vec![5.0, 7.0, 5.0, 6.0]);
+        assert_eq!(most.spread(0.0, 4.0), Some((5.0, 7.0)));
+        let floored = most.floored(CoverageTrack::new(0, vec![1.0, 2.0, 0.5, 4.0]));
+        assert_eq!(floored.spread(0.0, 4.0), Some((0.5, 7.0)));
+        assert_eq!(floored.spread(1.0, 2.0), Some((2.0, 7.0)));
     }
 
     /// Profiles laid end to end, each cut to its sequence's length: a

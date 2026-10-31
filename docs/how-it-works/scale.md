@@ -69,15 +69,16 @@ pileup packs only the reads in view, so its height follows the view.
 [`CoverageTrack`](../tracks/signal-sequence.md#coveragetrack) holds one value
 per base, which is the shape `samtools depth` output arrives in. It does not
 walk that array. It walks the pixel columns of its band, asks `pos_at_x` which
-bases fall under each one, reduces them to a single number and emits one
-point:
+bases fall under each one, and emits a point or two for them: the lowest and
+the highest value under the column by default, or the one number its
+`Aggregate` reduces them to:
 
 ```text
 for column in 0 .. band width:
     x     = band.x + column
     first = floor(scale.pos_at_x(x))
     last  = ceil(scale.pos_at_x(x + 1))
-    point = reduce(values[first .. last])    # by the track's Aggregate
+    point = (min, max) of values[first .. last]   # or reduce() by an Aggregate
 ```
 
 The size of the output therefore follows the width of the figure, not the
@@ -88,12 +89,18 @@ breaks the build rather than quietly getting slower.
 
 ## Aggregate, and when it changes the answer
 
-Reducing a column to one number is a choice, and `Aggregate` makes it explicit
-because no default is right for every question.
+Reducing a column to one number is a choice, and no one number is right for
+every question. So by default a column that holds more than one value is not
+reduced at all: it is drawn as its spread, as a genome browser draws
+whiskers, the profile along the lowest value under it and a pale wash of the
+same colour from there up to the highest, and the key names the two. A column
+of one value adds nothing to the profile. `Aggregate` asks for one number a
+column instead.
 
-| `Aggregate` | A column reads | Use it when |
+| Drawn by | A column reads | Use it when |
 |:--|:--|:--|
-| `Max`, the default | the highest value under it | hunting for spikes and duplications |
+| no `Aggregate`, the default | the profile at the lowest value under it, a pale wash up to the highest | not knowing yet what is there |
+| `Max` | the highest value under it | hunting for spikes and duplications |
 | `Mean` | the mean of the values under it | reading the overall level |
 | `Min` | the lowest value under it | hunting for dropouts and deletions |
 
@@ -102,8 +109,9 @@ narrower than a pixel. Take a 100-base dropout to zero in an otherwise flat
 profile at 60x, drawn across four megabases at the default width, where one
 column holds about 5,000 bases:
 
-| `Aggregate` | The column holding the dropout reads | The dropout |
+| Drawn by | The column holding the dropout reads | The dropout |
 |:--|:--|:--|
+| the default spread | 0, under a pale wash to 60 | the line falling to the floor |
 | `Max` | 60 | invisible |
 | `Mean` | 58.8 | a 2% dip, inside the noise of a real profile |
 | `Min` | 0 | the full depth of the hole |
@@ -127,11 +135,15 @@ column holds about 5,000 bases:
       --coverage depth.bedgraph --label depth --aggregate min -o depth.svg
     ```
 
-`Max` is the default because a spike is the commoner thing to hunt for, and
-because it never shows a value the data does not contain. It is also the one
-that quietly hides a deletion. The locus figure below uses `Aggregate::Min` for
-that reason: at two and a half bases per pixel, the dropout is the thing worth
-not smoothing away.
+`Max` was the default once, because a spike is the commoner thing to hunt for
+and because it never shows a value the data does not contain. It is also the
+one that quietly hides a deletion: across a whole genome, a stretch of no
+depth filling most of a pixel was drawn at the depth beside it, over a
+copy-number track saying no copies. The spread shows both, and where every
+column holds one value, as at a few pixels a base, it draws the one line it
+always did. The locus figure below uses `Aggregate::Min` for one line that
+keeps the dropout: at two and a half bases per pixel, the dropout is the
+thing worth not smoothing away.
 
 <figure class="k-plate" markdown>
 ![The rpoB locus over two kilobases: a depth profile whose dropout reaches zero because each pixel column takes its minimum, a reference track too zoomed out for bases that says so, the rpoB gene and its resistance-determining region, and variants coloured by consequence](../assets/figures/example.svg){ width="900" height="305" loading="lazy" }

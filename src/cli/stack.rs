@@ -1690,6 +1690,7 @@ fn ring_of(
         held: _,
         reference: native_reference,
         most: _,
+        least: _,
         absent,
     } = slurped;
     // A file named on its own may hold another kind than its name says, as
@@ -2711,28 +2712,56 @@ impl Spread {
                         WindowTrack::label,
                     )));
                 }
-                let mut most: Option<f64> = None;
-                let mut parts: std::collections::HashMap<String, CoverageTrack> =
-                    std::collections::HashMap::new();
-                for (own, _, signal) in read {
-                    let Some(sequence) = figured(&own) else {
-                        continue;
-                    };
-                    if let Some(high) = signal.most {
-                        most = Some(most.map_or(high, |most| most.max(high)));
+                // A band drawing each pixel's lowest value as well as its
+                // highest reads the least of each bin of a zoom level too,
+                // as a window does.
+                let least = if spec.kind == Kind::Coverage
+                    && spec.aggregate.is_none()
+                    && read.iter().any(|(_, _, signal)| signal.zoom.is_some())
+                {
+                    let floor = read::bigwig::genome(&mut file, per_pixel, Aggregate::Min)
+                        .map_err(|cause| BuildError::Open {
+                            track: name,
+                            path: path.clone(),
+                            cause: unreadable(cause),
+                        })?;
+                    Some(floor)
+                } else {
+                    None
+                };
+                // Each sequence's spans painted end to end, a stretch the file
+                // never names missing rather than nought.
+                let joined = |read: Vec<(String, u64, read::bigwig::Signal)>| {
+                    let mut parts: std::collections::HashMap<String, CoverageTrack> =
+                        std::collections::HashMap::new();
+                    for (own, _, signal) in read {
+                        let Some(sequence) = figured(&own) else {
+                            continue;
+                        };
+                        let mut painted = CoverageTrack::unbounded(0);
+                        for (start, end, value) in signal.spans {
+                            painted.paint(start, end, value);
+                        }
+                        parts.insert(sequence, painted);
                     }
-                    let mut painted = CoverageTrack::unbounded(0);
-                    for (start, end, value) in signal.spans {
-                        painted.paint(start, end, value);
-                    }
-                    parts.insert(sequence, painted);
+                    CoverageTrack::end_to_end(
+                        genome
+                            .sequences()
+                            .iter()
+                            .map(|sequence| (parts.remove(&sequence.name), sequence.length)),
+                    )
+                };
+                let most = read
+                    .iter()
+                    .filter(|(own, _, _)| figured(own).is_some())
+                    .filter_map(|(_, _, signal)| signal.most)
+                    .fold(None, |most: Option<f64>, high| {
+                        Some(most.map_or(high, |most| most.max(high)))
+                    });
+                let mut track = joined(read);
+                if let Some(least) = least {
+                    track = track.floored(joined(least));
                 }
-                let track = CoverageTrack::end_to_end(
-                    genome
-                        .sequences()
-                        .iter()
-                        .map(|sequence| (parts.remove(&sequence.name), sequence.length)),
-                );
                 Box::new(named(
                     dressed_coverage(track, spec, most),
                     label,
@@ -3007,7 +3036,12 @@ fn one_sample(spec: &TrackSpec, path: &str, text: &str) -> Result<(), BuildError
 /// is summed up, its style, its scale and its colour. `most` lifts the scale
 /// to the most of the values a bigWig's zoom level summarises.
 fn dressed_coverage(painted: CoverageTrack, spec: &TrackSpec, most: Option<f64>) -> CoverageTrack {
-    let mut track = painted.aggregate(spec.aggregate.unwrap_or(Aggregate::Max));
+    // With no --aggregate, a pixel of several values is drawn as the spread
+    // between its lowest and its highest, which the track does by itself.
+    let mut track = match spec.aggregate {
+        Some(aggregate) => painted.aggregate(aggregate),
+        None => painted,
+    };
     // A bigWig's zoom level painted with its bins' means or least, scaled to
     // the most of the values under them, as the values as written scale it.
     if let Some(most) = most {
@@ -4941,6 +4975,11 @@ struct Slurped {
     /// zoom level painted with their mean or their least do not reach, for
     /// the track's scale to reach instead.
     most: Option<f64>,
+    /// The least of a bigWig's values under each bin of the zoom level the
+    /// text was read from with each bin's most, for a band that draws a
+    /// pixel's lowest value as well as its highest; `None` where the text is
+    /// the values as written, or one value a pixel was asked for.
+    least: Option<Vec<(u64, u64, f64)>>,
     /// What a bigWig or a bigBed said of a window on a sequence its index
     /// does not name, where `text` holds no rows: a track that finds none
     /// says this, rather than that the region holds none.
@@ -4990,6 +5029,7 @@ fn slurp(
             held: None,
             reference: None,
             most: None,
+            least: None,
             absent: None,
         });
     };
@@ -5012,6 +5052,7 @@ fn slurp(
             held: None,
             reference: None,
             most: None,
+            least: None,
             absent: None,
         });
     }
@@ -5052,6 +5093,7 @@ fn slurp(
         held: None,
         reference: None,
         most: None,
+        least: None,
         absent: None,
     })
 }
@@ -5130,6 +5172,7 @@ fn natively(
         });
     }
     let mut absent = None;
+    let mut least = None;
     let (text, reference, most) = match (binary, spec.kind) {
         (Binary::BigWig, Kind::Coverage | Kind::Windows | Kind::Dynseq)
         | (Binary::BigBed, Kind::Features) => {
@@ -5141,12 +5184,31 @@ fn natively(
                         Kind::Coverage => (per_pixel, spec.aggregate.unwrap_or(Aggregate::Max)),
                         _ => (1.0, Aggregate::Max),
                     };
-                    read::bigwig::window(&mut file, region, per_pixel, aggregate).map(|signal| {
-                        (
-                            read::bigwig::bedgraph(region.seq(), &signal.spans),
-                            signal.most,
-                        )
-                    })
+                    read::bigwig::window(&mut file, region, per_pixel, aggregate).and_then(
+                        |signal| {
+                            // A band drawing each pixel's lowest value as
+                            // well as its highest needs the least of each
+                            // bin too, where the bins are a zoom level's:
+                            // the least of their most is not low enough to
+                            // show a stretch of none.
+                            if spec.kind == Kind::Coverage
+                                && spec.aggregate.is_none()
+                                && signal.zoom.is_some()
+                            {
+                                let floor = read::bigwig::window(
+                                    &mut file,
+                                    region,
+                                    per_pixel,
+                                    Aggregate::Min,
+                                )?;
+                                least = Some(floor.spans);
+                            }
+                            Ok((
+                                read::bigwig::bedgraph(region.seq(), &signal.spans),
+                                signal.most,
+                            ))
+                        },
+                    )
                 }
                 _ => read::bigbed::bed(&mut file, Some(region)).map(|text| (text, None)),
             };
@@ -5186,6 +5248,7 @@ fn natively(
         held: None,
         reference,
         most,
+        least,
         absent,
     })
 }
@@ -5297,6 +5360,7 @@ fn contact_map(
         held: None,
         reference: None,
         most: None,
+        least: None,
         absent,
     })
 }
@@ -5379,6 +5443,7 @@ fn calls(
         held: None,
         reference: None,
         most: None,
+        least: None,
         absent: None,
     })
 }
@@ -6038,6 +6103,7 @@ fn windowed(
         held,
         reference: None,
         most: None,
+        least: None,
         absent: None,
     })
 }
@@ -7752,6 +7818,7 @@ fn built(
         held: counted,
         reference: native_reference,
         most,
+        least,
         absent,
     } = slurped;
     // A file named on its own was placed by its name, and a few names hide
@@ -7833,6 +7900,9 @@ fn built(
             }
             if spans == 0 {
                 return Err(empty("values"));
+            }
+            if let Some(least) = least {
+                painted = painted.floored(CoverageTrack::from_spans(region, least));
             }
             Box::new(named(
                 dressed_coverage(painted, spec, most),
@@ -13185,6 +13255,74 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         );
     }
 
+    /// Across a whole genome a pixel holds several windows of a depth, and
+    /// one window of none among them was drawn at the depth beside it: a
+    /// sample's half megabase of no copies read 60 where its file holds
+    /// 0.18. With no `--aggregate` the profile's line falls to the floor at
+    /// the pixel holding it, under a pale wash up to the depth beside it,
+    /// and the key says which is which; `--aggregate max` draws the one
+    /// value it drew before.
+    #[test]
+    fn a_window_of_no_depth_across_a_genome_is_a_line_that_falls_to_the_floor() {
+        use std::fmt::Write as _;
+        let mut depth = String::new();
+        // Thirty sequences of twenty megabases, so a pixel holds more than
+        // one window of half a megabase, as twelve chromosomes' did.
+        for sequence in 1..=30 {
+            for window in 0..40u64 {
+                let value = if sequence == 12 && window == 10 {
+                    0.18
+                } else {
+                    60.0 + (window % 3) as f64
+                };
+                let (start, end) = (window * 500_000, (window + 1) * 500_000);
+                writeln!(depth, "{sequence}\t{start}\t{end}\t{value}").unwrap();
+            }
+        }
+        let held = [("tumour.bedgraph", depth.as_str())];
+        // The floor the area under the profile closes along, its first
+        // vertex, and the lowest point of the profile's line.
+        let floor = |svg: &str| -> f64 {
+            let d = svg
+                .split("<path d=\"")
+                .skip(1)
+                .find(|rest| !rest.split("/>").next().unwrap().contains("opacity"))
+                .and_then(|rest| rest.split('"').next())
+                .unwrap_or_else(|| panic!("no area: {svg}"));
+            d.trim_start_matches('M')
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .parse()
+                .unwrap()
+        };
+        let lowest = |svg: &str| -> f64 {
+            crate::track::polylines(svg)
+                .iter()
+                .flatten()
+                .map(|(_, y)| *y)
+                .fold(f64::MIN, f64::max)
+        };
+        let spread = drawn_from("tumour.bedgraph", &held).unwrap();
+        assert!(
+            spread.contains(">lowest value in a pixel</text>"),
+            "{spread}"
+        );
+        assert!(
+            spread.contains(">highest value in a pixel</text>"),
+            "{spread}"
+        );
+        // The line falls to within a pixel of the floor, a hundredth of the
+        // band, at the pixel holding the window of 0.18.
+        assert!(lowest(&spread) > floor(&spread) - 1.0, "{spread}");
+        let most = drawn_from("tumour.bedgraph --aggregate max", &held).unwrap();
+        assert!(!most.contains("value in a pixel"), "{most}");
+        assert!(
+            lowest(&most) < floor(&most) - 20.0,
+            "the most of each pixel: {most}"
+        );
+    }
+
     /// A sequence one file names and another does not is drawn as missing in
     /// the second, a gap in its line, rather than as a depth of nought, which
     /// would say every sequence a sample's file left out was lost. A gap
@@ -15907,6 +16045,79 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             assert!(scale(&zoomed).contains(&"30".to_string()), "{aggregate}");
             assert!(zoomed.contains("<path"), "{aggregate}: no profile");
         }
+    }
+
+    /// Drawn from a zoom level as a spread, a bigWig is read twice, for the
+    /// most of each bin and for its least, so a pixel reaches down to the
+    /// least of its bins as the values as written take it. Painted with each
+    /// bin's most alone, the lowest value of a pixel was the least of those
+    /// most, which over a file of peaks is a peak. One value a pixel, or a
+    /// window read as written, reads the file once.
+    #[test]
+    fn a_bigwig_drawn_as_a_spread_reads_the_least_of_its_bins_too() {
+        let region = Region::parse("chr1:1-6,000,000").unwrap();
+        let read = |line: &str, per_pixel: f64| {
+            let spec = invocation(line).tracks.remove(0);
+            let file: Box<dyn Seekable> = Box::new(io::Cursor::new(STEPS_BW));
+            natively(
+                &spec,
+                &region,
+                per_pixel,
+                Binary::BigWig,
+                file,
+                "steps.bw".into(),
+            )
+            .unwrap()
+        };
+        let least = |per_pixel: f64| {
+            read::bigwig::window(
+                io::Cursor::new(STEPS_BW),
+                &region,
+                per_pixel,
+                Aggregate::Min,
+            )
+            .unwrap()
+            .spans
+        };
+        let spread = read("chr1:1-6,000,000 --coverage steps.bw", 6_667.0);
+        assert_eq!(spread.least, Some(least(6_667.0)));
+        assert_ne!(
+            spread.text,
+            read::bigwig::bedgraph("chr1", &least(6_667.0)),
+            "the text is the most of each bin"
+        );
+        for (line, per_pixel) in [
+            (
+                "chr1:1-6,000,000 --coverage steps.bw --aggregate max",
+                6_667.0,
+            ),
+            (
+                "chr1:1-6,000,000 --coverage steps.bw --aggregate min",
+                6_667.0,
+            ),
+            ("chr1:1-6,000,000 --coverage steps.bw", 1.0),
+            ("chr1:1-6,000,000 --windows steps.bw", 6_667.0),
+        ] {
+            assert_eq!(read(line, per_pixel).least, None, "{line}");
+        }
+        // And the spread it draws is the one its text draws.
+        let mut held = Held::new();
+        held.insert("steps.bw", STEPS_BW);
+        held.insert(
+            "steps.bedgraph",
+            include_str!("../read/fixtures/steps.bedgraph"),
+        );
+        let line = |file: &str| format!("chr1:1-6,000,000 --coverage {file} --label steps");
+        let zoomed = held_figure(&mut held, &line("steps.bw")).unwrap();
+        let written = held_figure(&mut held, &line("steps.bedgraph")).unwrap();
+        assert!(
+            zoomed.contains(">lowest value in a pixel</text>"),
+            "{zoomed}"
+        );
+        assert!(
+            written.contains(">lowest value in a pixel</text>"),
+            "{written}"
+        );
     }
 
     /// A value a bigWig holds as not a number, or as infinite, is read back

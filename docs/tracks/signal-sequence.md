@@ -51,19 +51,19 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 |:--|:--|:--|
 | `.label("depth")` | Names the track in the left gutter (`--label`) | none |
 | `.height(70.0)` | Band height in pixels (`--height`) | `60` |
-| `.aggregate(Aggregate::Min)` | How a pixel column covering many bases is reduced: `Max`, `Mean` or `Min` (`--aggregate`) | `Max` |
+| `.aggregate(Aggregate::Min)` | Draws one value for a pixel column covering many bases: `Max`, `Mean` or `Min` (`--aggregate`) | the spread: the profile along the lowest value, a pale wash up to the highest |
 | `.style(CoverageStyle::Line)` | `Area`, `Line` or `Bars` (`--style area`, `line` or `bars`) | `Area` |
 | `.axis_title("cM/Mb")` | What the value axis measures, under the track's name | none; `cM/Mb` from `--recombination` |
 | `.max(120.0)` | Pins the top of the axis, taken literally (`--max`); where the profile in view runs past it, the top label reads `120+` and the columns cut short are struck along the top in the alert colour | the largest value on screen, plus six per cent |
 | `.log_scale(true)` | Plots `log10(1 + value)`, still labelled in the original units (`--log`) | off |
 | `.color("#0072b2")` | Colour of the profile (`--color`) | theme accent |
-| `.fill_opacity(0.4)` | Fill opacity, from 0 to 1 | `0.18` for an area, solid for bars |
+| `.fill_opacity(0.4)` | Fill opacity, from 0 to 1 | `0.18` for an area, solid for bars; the pale wash of a spread is a quarter of the colour whatever this is |
 | `.show_max(false)` | Shows or hides the small maximum-value note | shown |
 | `.axis(QuantitativeAxis::new().range(0.0, 100.0))` | Replaces the value axis: range, ticks, unit, reference lines | automatic |
 
 #### Notes
 
-When a pixel covers many bases, the aggregate is a claim about what you are looking for. `Max`, the default, keeps a one-base spike visible across a megabase, which is what you want when hunting duplications; across the same view it draws a 300 bp deletion flat. `Min` shows the dropout. Whatever the region, the SVG holds at most one point per pixel column.
+When a pixel covers many bases, one number cannot stand for them all. `Max` keeps a one-base spike visible across a megabase and draws a 300 bp deletion flat; `Min` shows the dropout and loses the spike; `Mean` shows neither. So by default a pixel that holds more than one value is drawn as its spread, the whiskers a genome browser draws: the profile, its line and its fill or its bar, runs along the lowest value under it, and a pale wash of the same colour stands on it up to the highest. A deletion is the line falling to the floor under a wash that stays high, and a spike is a pale column over the line. A pixel of one value adds nothing, so where every pixel holds one, as at a few pixels a base, the profile is the one it always was, and where some pool the figure differs only by the wash and by the line following the lowest. The key names the two, `lowest value in a pixel` swatched as the track is drawn and `highest value in a pixel` as the wash, wherever a pixel is drawn this way. `.aggregate` draws one value a pixel instead. Whatever the region, the SVG holds a few points per pixel column at most.
 
 The ceiling moves with the view unless it is pinned, and each profile has its own, so two samples side by side are two scales the eye reads as one. Put them on one scale with `same_scale()` on the plot (`--same-scale`), which reads every profile in the same units off the ceiling of the deepest, or pin `max` (`--max`) for figures drawn apart. `log_scale` is the other way to fit a thousandfold range into one band.
 

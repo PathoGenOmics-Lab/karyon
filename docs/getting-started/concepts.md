@@ -87,8 +87,10 @@ start to the border and make it look shorter than it is.
 
 **A pixel can cover many bases.** Across a genome one pixel may stand for
 thousands of bases, so a track has to choose what to show for them. Coverage
-shows the highest value in each pixel by default; the lowest is what keeps a
-dropout visible:
+shows the spread by default, its profile along the lowest value in each pixel
+under a pale wash up to the highest, so neither a dropout nor a spike is lost;
+one value a pixel, here the lowest, is the profile alone, which keeps the
+dropout:
 
 === "Rust"
 
