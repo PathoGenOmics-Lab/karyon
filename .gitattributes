@@ -24,8 +24,8 @@
 # every file here today, and a guess is not what should keep a BAM intact.
 # The list runs ahead of the repository on purpose: it names the formats the
 # readers and their fixtures deal in, the compressed and indexed ones, the
-# binary ones the command line names and refuses, the playground's wasm and
-# the pictures and documents a page may one day carry.
+# binary ones the command line names and refuses, the playground's wasm, the
+# fonts a PDF embeds, and the pictures and documents a page may one day carry.
 *.bam binary
 *.bai binary
 *.gz binary
@@ -42,3 +42,4 @@
 *.wasm binary
 *.png binary
 *.pdf binary
+*.ttf binary

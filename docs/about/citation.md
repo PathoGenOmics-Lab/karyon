@@ -196,6 +196,14 @@ copyright 2026 Paula Ruiz-Rodriguez and Mireia Coscolla. A plotting library is
 meant to be a dependency, and a permissive licence lets any tool depend on it
 whatever that tool's own licence is.
 
+The three faces a PDF embeds, Liberation Sans, Liberation Sans Bold and
+Liberation Mono, version 2.00.1, ship in the crate's
+[fonts](https://github.com/PathoGenOmics-Lab/karyon/tree/main/fonts) folder
+under the [SIL Open Font License 1.1](https://github.com/PathoGenOmics-Lab/karyon/blob/main/fonts/LICENSE),
+copyright Google and Red Hat, so the crate's licence is `MIT AND OFL-1.1`. The
+OFL is as permissive for this as MIT is: a program may carry the fonts whatever
+its own licence, and a PDF made with them is not under the OFL.
+
 ## Where next
 
 <div class="grid cards" markdown>
