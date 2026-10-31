@@ -43,6 +43,11 @@ it is drawn over one.
     The depth of one sample or several along a whole chromosome, of every
     chromosome at once, or round the chromosome as a circle.
 
+-   [![A plasmid drawn round](../assets/start/plasmid.svg){ .k-light width="720" height="751" loading="lazy" }![A plasmid drawn round](../assets/start/plasmid-dark.svg){ .k-dark width="720" height="751" loading="lazy" }](plasmid.md)
+
+    **[A plasmid or circular genome](plasmid.md)**
+    A plasmid's annotation drawn round, its genes as arrows on a ring.
+
 -   [![A heatmap of many samples](../assets/start/heatmap.svg){ .k-light width="720" height="602" loading="lazy" }![A heatmap of many samples](../assets/start/heatmap-dark.svg){ .k-dark width="720" height="602" loading="lazy" }](samples.md)
 
     **[A heatmap of many samples](samples.md)**

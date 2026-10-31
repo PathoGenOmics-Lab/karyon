@@ -503,6 +503,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A page of the Your data guide for a plasmid or another circular sequence,
+  opening with `karyon pEX1 --circular pEX1.gff3`, its figure on the light
+  page and the dark one, and a table of the changes made most, linked from
+  the guide's index and from a whole sequence's circle. Its files,
+  `docs/data/pEX1.fa` and `pEX1.gff3`, a plasmid of 7,800 bases with genes on
+  both strands and its origins of replication and of transfer, are written by
+  `write_plasmid` in `make_data.py` with a seed of its own, so no other
+  example file changes, and `examples.zip` holds them. A circle could be
+  found only under the depth along a whole chromosome.
 - `Feature::kind` holds what an annotation calls a feature, as GFF3 and GTF
   write it in their third column, which the readers now keep, and
   `Feature::is_genic` says whether it is a gene, a transcript or a part of
