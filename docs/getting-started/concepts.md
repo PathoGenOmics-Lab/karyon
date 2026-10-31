@@ -219,7 +219,7 @@ that looks right and is not.
 | A homology file whose names match no gene | Refuses and prints the first names that did not match, instead of outlining every gene as having no counterpart. |
 | Identities that could be fractions or percentages | Asks for `--identity`. A wrong guess turns every ribbon into a perfect match, or every one into the palest shade. |
 | A methylation site that no read covered | Leaves it out and counts it, instead of drawing it as 0% methylated. |
-| A copy number track with no ploidy | Refuses until `--ploidy` says where balanced sits. A rule in the wrong place swaps every gain for a loss. |
+| A copy number track with no ploidy | Takes where balanced sits from the file's calls and says so, or, for a file of log ratios that does not say, refuses until `--ploidy` does. A rule in the wrong place swaps every gain for a loss. |
 | A file with nothing in the region | Stops and names the file, instead of drawing an empty lane that reads as a stretch with no data. |
 
 All six are the same mistake: a value standing in for the absence of a value.

@@ -936,7 +936,8 @@ out rather than drawn at nought.
 
 ### The segment table { #the-segment-table }
 
-Copy number over segments, as a caller concluded it. Used with `--ploidy`.
+Copy number over segments, as a caller concluded it, balanced at `--ploidy`
+or where the calls say.
 
 ```text
 chromosome  start      end        gene  log2   cn  cn1  cn2
@@ -962,16 +963,22 @@ chr17       7590000    7700000    -     NA     NA  NA   NA
 | log2 ratio, read last | `log2`, `log2ratio`, `logR`; `seg.mean` in a `.seg` file |
 | sample, where there is one | `sample`, `ID`, `sampleid`, `sample_id`, `name` |
 
-A log2 ratio becomes copies as `ploidy * 2^log2`, and the ploidy is not in the
-file, which is why `--ploidy` is required. The allele split is read first
-because a caller that wrote it did so on purpose, and a total cannot be turned
-back into one. A missing copy number leaves a gap rather than a level nobody
-called.
+A log2 ratio becomes copies as `ploidy * 2^log2`, and the ploidy is not in a
+file of ratios, which is why one with no copy numbers needs `--ploidy`. A file
+of called copies says it itself, and with no `--ploidy` it is read from there
+and said on standard error (`read::segments::balanced`): two where any call is
+split between two alleles, one copy of each, and else the whole number of
+copies the most bases carry, across every sequence of the one sample drawn. Two
+numbers carrying as many bases, or most of them at nought, say nothing, and
+`--ploidy` is asked for. The allele split is read first because a caller that
+wrote it did so on purpose, and a total cannot be turned back into one. A
+missing copy number leaves a gap rather than a level nobody called.
 
 Named with no place, the table is drawn across the whole genome, every
 sequence it calls a segment on end to end in the order chromosomes are
 counted, each as long as its furthest segment or as another file of the figure
-reaches, with `--ploidy` and `--sample` as over a place:
+reaches, with `--ploidy` and `--sample` as over a place, and balanced where the
+file says when `--ploidy` is left out:
 
 ```bash
 karyon tumour.bedgraph tumour.cns --ploidy 2 -o genome.svg

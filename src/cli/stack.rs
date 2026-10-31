@@ -290,15 +290,21 @@ pub enum BuildError {
         /// How many it picks.
         held: usize,
     },
-    /// A copy number track with no ploidy to read its levels against.
+    /// A copy number track given no ploidy, whose file does not say where
+    /// balanced sits either: it writes log ratios and no copies, or copies
+    /// none of which carries more of it than every other, as
+    /// [`read::segments::balanced`] reads it.
     ///
-    /// The parser refuses this, so it reaches here only from an [`Invocation`]
-    /// built by hand, whose fields are all public. Defaulting it would draw a
-    /// confident ladder whose rule came from nowhere, and the rule is what
-    /// separates a gain from a loss.
+    /// Defaulting it would draw a confident ladder whose rule came from
+    /// nowhere, and the rule is what separates a gain from a loss.
     MissingPloidy {
         /// Which track is short of it.
         track: &'static str,
+        /// What its file is called.
+        path: String,
+        /// Whether the file writes log ratios and no copies, rather than
+        /// copies none of which carries most of it.
+        ratios: bool,
     },
     /// A track drawn from two files was handed one.
     ///
@@ -905,9 +911,23 @@ impl fmt::Display for BuildError {
                 f,
                 "--{track} {path} has {held} {what}s called {name}, so the name does not pick one"
             ),
-            BuildError::MissingPloidy { track } => write!(
+            BuildError::MissingPloidy {
+                track,
+                path,
+                ratios: true,
+            } => write!(
                 f,
-                "a {track} track is drawn against a ploidy, and none was given"
+                "--{track} {path} needs --ploidy: it holds log2 ratios and no copy numbers, \
+                 so where balanced sits is not in the file"
+            ),
+            BuildError::MissingPloidy {
+                track,
+                path,
+                ratios: false,
+            } => write!(
+                f,
+                "--{track} {path} needs --ploidy: no one number of copies carries more of it \
+                 than every other, so where balanced sits is not in the file"
             ),
             BuildError::MissingSecond { track } => write!(
                 f,
@@ -2541,8 +2561,9 @@ enum Spreading {
     },
     /// Windows on each sequence.
     Windows(Vec<(String, Vec<crate::Window>)>),
-    /// The segments called on each sequence, at the track's ploidy.
-    Copies(Vec<(String, Vec<crate::CopyNumberSegment>)>),
+    /// The segments called on each sequence, and the ploidy they were read
+    /// at, which balanced sits at.
+    Copies(Vec<(String, Vec<crate::CopyNumberSegment>)>, f64),
 }
 
 impl Spread {
@@ -2578,7 +2599,7 @@ impl Spread {
                     )
                 })
                 .collect(),
-            Spreading::Copies(sequences) => sequences
+            Spreading::Copies(sequences, _) => sequences
                 .iter()
                 .map(|(name, segments)| {
                     (
@@ -2759,12 +2780,7 @@ impl Spread {
                     WindowTrack::label,
                 ))
             }
-            Spreading::Copies(sequences) => {
-                // Checked by the parser, so this is reached only from an
-                // Invocation built by hand.
-                let Some(ploidy) = spec.ploidy else {
-                    return Err(BuildError::MissingPloidy { track: name });
-                };
+            Spreading::Copies(sequences, ploidy) => {
                 let segments: Vec<crate::CopyNumberSegment> = sequences
                     .iter()
                     .flat_map(|(sequence, segments)| {
@@ -2921,10 +2937,8 @@ fn spread_of(
             Spreading::Windows(gathered(invocation, read))
         }
         Kind::CopyNumber => {
-            let Some(ploidy) = spec.ploidy else {
-                return Err(BuildError::MissingPloidy { track: name });
-            };
             one_sample(&spec, &path, &text)?;
+            let ploidy = ploidy_of(&spec, &path, &text, files)?;
             let read = wrap(
                 name,
                 &path,
@@ -2944,7 +2958,7 @@ fn spread_of(
                     wanted: "called segments",
                 });
             }
-            Spreading::Copies(gathered(invocation, read.sequences))
+            Spreading::Copies(gathered(invocation, read.sequences), ploidy)
         }
         _ => unreachable!("only the kinds drawn across a genome are read across one"),
     };
@@ -2973,6 +2987,50 @@ fn gathered<T>(invocation: &Invocation, sequences: Vec<(String, Vec<T>)>) -> Vec
         }
     }
     joined
+}
+
+/// Where a copy number track's balanced state sits: the `--ploidy` it was
+/// given, or else where its file says, which is said on standard error with
+/// the flag that changes it.
+///
+/// A file whose calls are split between two alleles is balanced at one copy
+/// of each, and one of totals at the number of copies most of the genome
+/// carries, which is two for a diploid tumour and one for a haploid genome
+/// alike. A file of log ratios says nothing of it, nor one whose copies none
+/// carries most of, and is refused asking for `--ploidy`.
+fn ploidy_of(
+    spec: &TrackSpec,
+    path: &str,
+    text: &str,
+    files: &mut dyn Files,
+) -> Result<f64, BuildError> {
+    if let Some(ploidy) = spec.ploidy {
+        return Ok(ploidy);
+    }
+    let name = spec.kind.flag();
+    let balanced = wrap(
+        name,
+        path,
+        read::segments::balanced(text, spec.sample.as_deref()),
+    )?;
+    let Some(copies) = balanced.copies() else {
+        return Err(BuildError::MissingPloidy {
+            track: name,
+            path: path.to_string(),
+            ratios: balanced == read::segments::Balanced::Ratios,
+        });
+    };
+    let why = match balanced {
+        read::segments::Balanced::Alleles => {
+            "one of each of the two alleles its calls are split between"
+        }
+        _ => "the number most of the genome carries",
+    };
+    let unit = if copies == 1.0 { "copy" } else { "copies" };
+    files.note(&format!(
+        "{path}: balanced taken as {copies} {unit}, {why}; --ploidy N to change"
+    ));
+    Ok(copies)
 }
 
 /// Refuses a segment table that names no sample where one was asked for, or
@@ -8950,12 +9008,8 @@ fn built(
             Box::new(named(track, label, IdeogramTrack::label))
         }
         Kind::CopyNumber => {
-            // Checked by the parser, so this is reached only from an
-            // Invocation built by hand, whose fields are all public.
-            let Some(ploidy) = spec.ploidy else {
-                return Err(BuildError::MissingPloidy { track: name });
-            };
             one_sample(spec, &path, &text)?;
+            let ploidy = ploidy_of(spec, &path, &text, files)?;
             let found = wrap(
                 name,
                 &path,
@@ -10054,19 +10108,83 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         );
     }
 
+    /// A copy number track given no ploidy takes it from a file of called
+    /// copies, and says so: two for calls split between two alleles, else the
+    /// number of copies most of the genome carries, whatever the number. A
+    /// file of log ratios, or of copies two numbers of which carry as much,
+    /// does not say, and is refused naming `--ploidy`, which is then read as
+    /// written.
     #[test]
-    fn a_copy_number_track_built_by_hand_with_no_ploidy_is_refused() {
-        // The parser refuses it, so this is reached only from an Invocation
-        // built by hand, and defaulting it would draw a confident ladder whose
-        // rule came from nowhere.
-        let mut invocation = invocation("chr1:1-1000 --coverage d.bg");
-        invocation.tracks[0].kind = Kind::CopyNumber;
-        invocation.tracks[0].ploidy = None;
-        let error = build(&invocation, |_| {
-            Ok("chromosome\tstart\tend\tcn\nchr1\t0\t500\t2\n".to_string())
-        })
-        .unwrap_err();
-        assert!(matches!(error, BuildError::MissingPloidy { .. }), "{error}");
+    fn a_copy_number_track_with_no_ploidy_takes_it_from_the_file() {
+        // CNVkit's own columns, as `cnvkit.py call` writes them with a VCF.
+        let cns = "chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2\tdepth\tprobes\tweight\n\
+                   1\t0\t43000000\t-\t0.0000\t2\t1\t1\t60.00\t1720\t1548.0\n\
+                   2\t0\t9000000\t-\t0.5850\t3\t2\t1\t90.00\t360\t324.0\n\
+                   2\t9000000\t36000000\t-\t0.0000\t2\t2\t0\t60.00\t1080\t972.0\n";
+        // Totals alone, most of the genome at three, as a triploid line is.
+        let triploid = "chromosome\tstart\tend\tcn\n\
+                        1\t0\t40000\t3\n1\t40000\t52000\t2\n2\t0\t30000\t3\n2\t30000\t31000\tNA\n";
+        // A haploid genome's single sequence, one stretch lost.
+        let haploid = "chromosome\tstart\tend\tcn\nNC_1\t0\t4000\t1\nNC_1\t4000\t4400\t0\n";
+        let ratios = "ID\tchrom\tloc.start\tloc.end\tnum.mark\tseg.mean\n\
+                      S1\t1\t1\t2000\t9\t0.0\nS1\t1\t2001\t3000\t9\t1.0\n";
+        let tied = "chromosome\tstart\tend\tcn\n1\t0\t500\t2\n1\t500\t1000\t3\n";
+        let held = [
+            ("t.cns", cns),
+            ("triploid.cns", triploid),
+            ("haploid.cns", haploid),
+            ("t.seg", ratios),
+            ("tied.cns", tied),
+        ];
+        let (svg, notes) = drawn_noting("t.cns", &held);
+        assert!(svg.is_ok(), "{svg:?}");
+        let alleles = "t.cns: balanced taken as 2 copies, one of each of the two alleles its \
+                       calls are split between; --ploidy N to change";
+        assert_eq!(notes, [alleles]);
+        // Over a place as across the genome, and read off the whole file.
+        let (svg, notes) = drawn_noting("triploid.cns", &held);
+        let svg = svg.unwrap();
+        let drawn = svg.contains(">loss</text>") && !svg.contains(">gain</text>");
+        assert!(drawn, "triploid drawn at another ploidy");
+        let most = "triploid.cns: balanced taken as 3 copies, the number most of the genome \
+                    carries; --ploidy N to change";
+        assert_eq!(notes, [most]);
+        let (svg, notes) = drawn_noting("1:40,001-52,000 triploid.cns", &held);
+        assert!(
+            svg.unwrap().contains(">loss</text>"),
+            "a window's own mode was taken"
+        );
+        assert!(notes[0].contains("taken as 3 copies"), "{notes:?}");
+        let (svg, notes) = drawn_noting("haploid.cns", &held);
+        assert!(svg.is_ok(), "{svg:?}");
+        assert!(
+            notes[0].contains("taken as 1 copy, the number"),
+            "{notes:?}"
+        );
+        // Nothing in either file says where balanced sits.
+        let said = drawn_from("t.seg", &held).unwrap_err();
+        assert!(
+            matches!(said, BuildError::MissingPloidy { ratios: true, .. }),
+            "{said}"
+        );
+        assert_eq!(
+            said.to_string(),
+            "--copy-number t.seg needs --ploidy: it holds log2 ratios and no copy numbers, so \
+             where balanced sits is not in the file"
+        );
+        let said = drawn_from("tied.cns", &held).unwrap_err().to_string();
+        assert!(
+            said.contains("no one number of copies carries more"),
+            "{said}"
+        );
+        // A ploidy written is taken as written, and nothing is said.
+        let (svg, notes) = drawn_noting("triploid.cns --ploidy 2", &held);
+        assert!(
+            svg.unwrap().contains(">gain</text>"),
+            "--ploidy was not read"
+        );
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(drawn_from("t.seg --ploidy 2", &held).is_ok());
     }
 
     /// A sheet of metadata is a third file, and the join is names.

@@ -8,6 +8,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A copy number track given no `--ploidy` takes where balanced sits from its
+  file, where the file says it, and says so on standard error: `tumour.cns:
+  balanced taken as 2 copies, one of each of the two alleles its calls are
+  split between; --ploidy N to change`. A table whose calls are split between
+  two alleles, CNVkit's `cn1` and `cn2` or ASCAT's `nMajor` and `nMinor`, is
+  balanced at two; one of totals alone at the whole number of copies most of
+  the genome carries, weighed by length, which is one for a haploid genome and
+  three for a triploid line. `karyon tumour.bedgraph tumour.cns` was refused
+  for want of `--ploidy`, though the file wrote whole copies and both alleles.
+  A table of log ratios alone, as a `.seg` is, does not say, and is refused as
+  before, now naming the file; so is one where two numbers of copies carry as
+  much of it. `read::segments::balanced` reads it and `Balanced` says which,
+  `BuildError::MissingPloidy` names the file and why, and
+  `ArgError::MissingPloidy` is gone, since the line alone cannot tell.
+  `CopyNumberTrack::at_ploidy` takes the number it is handed, as before. No
+  committed figure moves: each names its `--ploidy`.
 - Bold and semibold text is measured at least as wide as Helvetica-Bold draws
   it, which is the face Arial sets a bold label in and the one a PDF sets it
   in. Nine characters, `& ? B K L ^ i j l`, were measured at Inter's narrower

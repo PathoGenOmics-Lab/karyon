@@ -75,7 +75,7 @@ Four rules cover every command:
 | `.nwk`, `.newick`, `.tree`, `.treefile` | a phylogeny (`--tree`) |
 | `.paf` | synteny (`--synteny`) |
 | `.assoc`, `.glm.linear`, `.regenie` | an association scan (`--manhattan`) |
-| `.cns`, `.seg` | copy number (`--copy-number`), from CNVkit, or the table IGV and GISTIC2 read; `--ploidy` is still required |
+| `.cns`, `.seg` | copy number (`--copy-number`), from CNVkit, or the table IGV and GISTIC2 read; a `.seg` of log ratios needs `--ploidy` |
 | `.ld`, `.bedpe` | pairs of positions (`--pairs`) |
 | `.hic` | a contact map (`--pairs`), read through its index at one resolution |
 | `.slow5` | a read's signal (`--squiggle`) |
@@ -302,7 +302,7 @@ takes.
 | `--analysis <NAME>` | `Pfam`, `PANTHER` or another member database | `--domains` | the one analysis in the file; refused when it holds several |
 | `--read <NAME>` | a read the SLOW5 file names | `--squiggle` | the first read, and the command says how many the file holds |
 | `--resolution <BASES>` | a size of bin the `.hic` holds, in bases, as `10000` | `--pairs`, after a `.hic` | the finest that cuts the window into 250 bins or fewer, and a note says so where the file holds finer |
-| `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | required |
+| `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | where the file's calls say, and the command says so: 2 for calls split between two alleles, else the copies most of the genome carries; refused for a file of log ratios alone |
 | `--sample <NAME[,N]>` | a sample the table names; after `--genotypes`, samples of the VCF, comma separated, in the order to draw them | `--copy-number`, `--genotypes` | the one sample, refused when the table holds several; every sample of the VCF, in the order of its header |
 | `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--genotypes`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
@@ -440,9 +440,13 @@ rather than one of several, as `--sample S07,S01,S12`. A name the VCF does not
 hold is refused with the first five it does. A methylation, bisulfite or
 domain band is named after what it shows unless `--label` names it.
 
-`--copy-number` also needs `--ploidy`, the copy number that counts as balanced.
-The segment file does not say it, and a rule in the wrong place turns every gain
-into a loss.
+`--copy-number` reads where balanced sits from `--ploidy`, the copy number that
+counts as balanced. Left out, it is taken from the file's calls where they say
+it, and the command says so: two where each call is split between two alleles,
+one copy of each, as CNVkit's `cn1` and `cn2` and ASCAT's `nMajor` and `nMinor`
+are, and else the number of copies most of the genome carries. A file of log2
+ratios alone does not say it, and is refused asking for `--ploidy`: a rule in
+the wrong place turns every gain into a loss.
 
 ### How deep a stack of rows goes
 
@@ -1243,9 +1247,6 @@ karyon: --aggregate means nothing to a features track; it is an option of depth.
 
 $ karyon NC_000962.3:761,000-763,000 genes.gff3 --genotypes cohort.vcf.gz --color '#8b0000'
 karyon: --color means nothing to a genotypes track
-
-$ karyon chr8:1-1000 --copy-number segments.cns
-karyon: --copy-number needs --ploidy, since where balanced sits is not in the file
 ```
 
 Then the files, in the order the tracks are stacked. Every message names the
@@ -1265,6 +1266,9 @@ karyon: --variants calls.vcf: no variants in 1:1-5000, though the file holds 12 
 
 $ karyon aln:1-9 --msa aln.fa
 karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns
+
+$ karyon chr8:1-1000 --copy-number segments.seg
+karyon: --copy-number segments.seg needs --ploidy: it holds log2 ratios and no copy numbers, so where balanced sits is not in the file
 ```
 
 A file that parsed and held nothing for the window is an error too, because an

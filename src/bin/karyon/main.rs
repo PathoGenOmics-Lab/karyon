@@ -553,7 +553,10 @@ TRACKS
     --coverage <FILE>    per-base signal: bedGraph, bigWig, samtools depth,
                          values, or the depth of a BAM's reads
     --copy-number <FILE> segmented copy number, a caller's segment table;
-                         the ploidy is a track option and is required
+                         balanced sits at the copies the ploidy option gives,
+                         or where the file's calls say: two for calls split
+                         between two alleles, else the copies most of the
+                         genome carries
     --dynseq <FILE>      per-base model attribution, bedGraph or bigWig, drawn
                          as the bases themselves; takes --with-sequence
     --junctions <FILE>   splice junctions as arcs weighted by the reads that
@@ -683,7 +686,8 @@ TRACK OPTIONS, each describing the track before it, once
                          drawn, with no normalisation, and a cell it does not
                          list, a count of nought, is left blank
     --ploidy <COPIES>    where balanced sits on a copy number ladder, as in 2;
-                         required, since it is not in the file
+                         left out, the file's calls say where, and a file of
+                         log ratios alone is refused, since it does not
     --sample <NAME[,N]>  which sample of a segment table holding several; after
                          --genotypes, which samples of the VCF to draw and in
                          what order, comma separated
