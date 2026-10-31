@@ -55,6 +55,9 @@
 //! shows, 1,748 circles, is 3.7 times its SVG.
 
 mod color;
+// Read and cut, and not yet written into a page.
+#[allow(dead_code)]
+mod font;
 mod metrics;
 mod paint;
 mod path;
