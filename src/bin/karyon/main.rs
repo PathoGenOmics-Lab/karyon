@@ -47,11 +47,11 @@ USAGE
 
 The place comes first: a region as chr1:10,000-20,000, a gene the annotation
 names, or a whole sequence; several places draw a panel each. Trees need none,
-and --windows, --copy-number, --manhattan and a bedGraph or bigWig of --coverage
-alone span the genome. Each file is the track its name says, BAM, VCF, GFF3,
-GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, .gz or not, its options after
-it. A BAM is its depth over a place; a track flag chooses another, as --pileup
-reads.bam. SVG goes to standard output unless -o names a file; PDF to x.pdf.
+and --windows, --copy-number, --manhattan, --heatmap and a bedGraph or bigWig
+of --coverage alone span the genome. A file is the track its name says, BAM,
+VCF, GFF3, GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, .gz or not, its
+options after it. A BAM is its depth over a place; --pileup reads.bam draws
+its reads. SVG goes to standard output unless -o names a file; x.pdf is PDF.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -538,16 +538,16 @@ window it is not drawn in, and a figure made only of --tree, --tanglegram and
 the sites of a gene, and a read's signal are their own place: named nowhere,
 the figure is laid over all of it, and its ruler counts columns, weeks, sites
 or samples rather than bases. With no place, --manhattan, --coverage,
---windows and --copy-number tracks are drawn across the whole genome: every
-sequence they name, end to end, in the order chromosomes are counted, each as
-long as the furthest any file reaches on it, or as long as a bigWig says, and
-named underneath. A sequence a file names no row on is a gap in its track, not
-a depth of nought, and a BAM, whose depth there is every read it holds, needs
-a place. Several places, as karyon rpoB katG inhA reads.bam genes.gff3, draw
-one panel each, one under the other or side by side with --panel-columns, the
-same tracks over each and the key once after them; a track with nothing in one
-of them says so there rather than refusing the figure. Any track file may be -
-for standard input, and one track may take it.
+--windows, --copy-number and --heatmap tracks are drawn across the whole
+genome: every sequence they name, end to end, in the order chromosomes are
+counted, each as long as the furthest any file reaches on it, or as long as a
+bigWig says, and named underneath. A sequence a file names no row on is a gap
+in its track, not a depth of nought, and a BAM, whose depth there is every
+read it holds, needs a place. Several places, as karyon rpoB katG inhA
+reads.bam genes.gff3, draw one panel each, one under the other or side by side
+with --panel-columns, the same tracks over each and the key once after them; a
+track with nothing in one of them says so there rather than refusing the
+figure. Any track file may be - for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, bigWig, samtools depth,
@@ -588,8 +588,8 @@ TRACKS
                          depth, a copy number or a methylation level, as
                          bedtools unionbedg writes it, a sequence, a start and
                          an end, then a column per sample under a header that
-                         names them. Drawn over a place, as chr1 for the whole
-                         of a sequence, and not across a genome with none
+                         names them. With no place, across the whole genome,
+                         every sequence the table names end to end
     --pileup <FILE>      aligned reads, a BAM or SAM text; takes
                          --with-sequence, and colours what disagrees with it
     --synteny <FILE>     alignment ribbons between two sequences, PAF from
@@ -1368,10 +1368,13 @@ mod tests {
             assert!(parsed(line).is_err(), "{line}");
         }
         // And a heatmap, whose table has a bedGraph's first three columns,
-        // says in its own help that it is not one of them.
-        assert!(!spread.contains(&"--heatmap"));
+        // is one of them, and says so in its own help.
+        assert!(spread.contains(&"--heatmap"));
         let heatmap = help_on("heatmap").unwrap();
-        assert!(heatmap.contains("Drawn over a place"), "{heatmap}");
+        assert!(
+            heatmap.contains("With no place, across the whole"),
+            "{heatmap}"
+        );
     }
 
     /// A PDF names Helvetica and Courier and embeds neither, which a

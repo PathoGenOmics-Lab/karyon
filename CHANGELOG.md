@@ -24,6 +24,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ArgError::MissingPloidy` is gone, since the line alone cannot tell.
   `CopyNumberTrack::at_ploidy` takes the number it is handed, as before. No
   committed figure moves: each names its `--ploidy`.
+- A heatmap's table of windows named with no place is drawn across the whole
+  genome, as a bedGraph is: every sequence it names end to end, in the order
+  chromosomes are counted, with `--relative`, `--max`, its sheet's strips and
+  key and its tree as over a place. `karyon --heatmap depths.tsv --max 150`
+  was refused asking for a place, and the refusal's list of the tracks drawn
+  with none left `--heatmap` out, though its table has a bedGraph's first
+  three columns. A table of one sequence draws it as that sequence written
+  for the place does, to its last window, which is its end where it is cut
+  short of the others. `read::table::genome_windows` reads every window of
+  every sequence, wide or long, into a `GenomeWindows`. No committed figure
+  moves.
 - Bold and semibold text is measured at least as wide as Helvetica-Bold draws
   it, which is the face Arial sets a bold label in and the one a PDF sets it
   in. Nine characters, `& ? B K L ^ i j l`, were measured at Inter's narrower

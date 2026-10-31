@@ -2505,22 +2505,24 @@ fn build_genome(
     let mut plot = Plot::over(genome.region())
         .remove_region_label()
         .remove_axis()
-        .theme(theme);
+        .theme(theme.clone());
     if let Some(title) = &invocation.title {
         plot = plot.title(title);
     }
     if let Some(width) = invocation.width {
         plot = plot.width(width);
     }
+    let mut legend = crate::track::legend::Legend::new();
     for track in spread {
-        plot = plot.add_boxed(track.laid(&genome, width)?);
+        plot =
+            plot.add_boxed(track.laid(&genome, width, invocation, &theme, &mut legend, files)?);
     }
     let mut figure = plot.add_genome(genome.clone()).into_figure();
     figure = shaded_genome(figure, invocation, &genome, files)?;
     if invocation.same_scale {
         figure = figure.same_scale();
     }
-    let legend = figure.key();
+    gather(&mut legend, &figure.key());
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
     }
@@ -2564,6 +2566,12 @@ enum Spreading {
     /// The segments called on each sequence, and the ploidy they were read
     /// at, which balanced sits at.
     Copies(Vec<(String, Vec<crate::CopyNumberSegment>)>, f64),
+    /// A heatmap's windows on each sequence, each with every sample's value
+    /// there, and the samples, in the order of those values.
+    Heatmap {
+        samples: Vec<String>,
+        sequences: Vec<(String, read::table::WindowValues)>,
+    },
 }
 
 impl Spread {
@@ -2599,6 +2607,13 @@ impl Spread {
                     )
                 })
                 .collect(),
+            Spreading::Heatmap { sequences, .. } => sequences
+                .iter()
+                .map(|(name, windows)| {
+                    let end = windows.iter().map(|((_, end), _)| *end).max();
+                    (name.clone(), end.unwrap_or(1))
+                })
+                .collect(),
             Spreading::Copies(sequences, _) => sequences
                 .iter()
                 .map(|(name, segments)| {
@@ -2615,8 +2630,17 @@ impl Spread {
         }
     }
 
-    /// The track, laid over `genome`, in a figure `width` pixels wide.
-    fn laid(self, genome: &crate::Genome, width: f64) -> Result<Box<dyn Track>, BuildError> {
+    /// The track, laid over `genome`, in a figure `width` pixels wide, with
+    /// the key to any sheet of samples beside it put in `legend`.
+    fn laid(
+        self,
+        genome: &crate::Genome,
+        width: f64,
+        invocation: &Invocation,
+        theme: &Theme,
+        legend: &mut crate::track::legend::Legend,
+        files: &mut dyn Files,
+    ) -> Result<Box<dyn Track>, BuildError> {
         let Spread { spec, path, held } = self;
         let spec = &spec;
         let name = spec.kind.flag();
@@ -2780,6 +2804,42 @@ impl Spread {
                     WindowTrack::label,
                 ))
             }
+            Spreading::Heatmap { samples, sequences } => {
+                // In the order the genome lays its sequences out, which need
+                // not be the order of the file.
+                let mut laid: Vec<&(String, read::table::WindowValues)> =
+                    sequences.iter().collect();
+                laid.sort_by_key(|(sequence, _)| offset(sequence));
+                let mut windows = Vec::new();
+                let mut values: Vec<Vec<f64>> = vec![Vec::new(); samples.len()];
+                for (sequence, cells) in laid {
+                    let offset = offset(sequence);
+                    for ((start, end), cells) in cells {
+                        windows.push((offset.saturating_add(*start), offset.saturating_add(*end)));
+                        for (row, value) in values.iter_mut().zip(cells) {
+                            row.push(*value);
+                        }
+                    }
+                }
+                let rows = samples
+                    .into_iter()
+                    .zip(values)
+                    .map(|(name, cells)| crate::MatrixRow::new(name, cells))
+                    .collect();
+                let sheet = sheet(spec, files)?;
+                let track = heatmap(
+                    windows,
+                    rows,
+                    spec,
+                    sheet.as_ref(),
+                    &invocation.colors,
+                    theme,
+                    legend,
+                    files,
+                    &mut |_, _| None,
+                )?;
+                Box::new(named(track, label, MatrixTrack::label))
+            }
             Spreading::Copies(sequences, ploidy) => {
                 let segments: Vec<crate::CopyNumberSegment> = sequences
                     .iter()
@@ -2935,6 +2995,20 @@ fn spread_of(
                 });
             }
             Spreading::Windows(gathered(invocation, read))
+        }
+        Kind::Heatmap => {
+            let read = wrap(name, &path, read::table::genome_windows(&text))?;
+            if read.samples.is_empty() || read.sequences.iter().all(|(_, at)| at.is_empty()) {
+                return Err(BuildError::Empty {
+                    track: name,
+                    path,
+                    wanted: "windows",
+                });
+            }
+            Spreading::Heatmap {
+                samples: read.samples,
+                sequences: gathered(invocation, read.sequences),
+            }
         }
         Kind::CopyNumber => {
             one_sample(&spec, &path, &text)?;
@@ -9145,66 +9219,21 @@ fn built(
             Box::new(named(track, label, PairTrack::label))
         }
         Kind::Heatmap => {
-            let (windows, mut rows) = wrap(name, &path, read::table::windows(&text, region))?;
+            let (windows, rows) = wrap(name, &path, read::table::windows(&text, region))?;
             if rows.is_empty() || windows.is_empty() {
                 return Err(empty("windows"));
             }
-            // Each sample against its own usual value, so a sample sequenced
-            // deeper is not a darker row from end to end and what stands out
-            // is what changed along it. Its median over the windows drawn, as
-            // the stretches it lost do not move a median the way they move a
-            // mean; a sample with no usual value above nought keeps its own.
-            if spec.relative {
-                for row in &mut rows {
-                    let mut drawn: Vec<f64> = row
-                        .values
-                        .iter()
-                        .copied()
-                        .filter(|v| v.is_finite())
-                        .collect();
-                    drawn.sort_by(f64::total_cmp);
-                    let median = match drawn.len() {
-                        0 => continue,
-                        n if n % 2 == 1 => drawn[n / 2],
-                        n => (drawn[n / 2 - 1] + drawn[n / 2]) / 2.0,
-                    };
-                    if median > 0.0 {
-                        row.values.iter_mut().for_each(|value| *value /= median);
-                    }
-                }
-            }
-            let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
-            let mut track = MatrixTrack::windows(windows, rows);
-            if spec.relative {
-                track = track.unit("×");
-            }
-            // A depth read against its sample's usual one is read either side
-            // of one: a loss in one hue and a gain in the other, and the usual
-            // depth pale, where one hue made a deletion as pale as the page.
-            if let Some(center) = spec.center.or(spec.relative.then_some(1.0)) {
-                track = track.scale(crate::CellScale::Diverging {
-                    center,
-                    spread: None,
-                });
-            }
-            // The end of the ramp, or of its gain where it is read either
-            // side of a centre; the parser has seen to it being above that.
-            if let Some(max) = spec.max {
-                track = track.max(max);
-            }
-            if let Some(px) = spec.row_height {
-                track = track.row_height(px);
-            }
-            if spec.no_names {
-                track = track.show_row_names(false);
-            }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
-                gather(legend, &traits.legend(theme));
-                track = track.traits(traits);
-            }
-            if let Some(tree) = row_tree(spec, &names, files, parsed)? {
-                track = track.tree(tree);
-            }
+            let track = heatmap(
+                windows,
+                rows,
+                spec,
+                sheet.as_ref(),
+                context.colors,
+                theme,
+                legend,
+                files,
+                parsed,
+            )?;
             Box::new(named(track, label, MatrixTrack::label))
         }
         Kind::Pileup => {
@@ -9461,6 +9490,83 @@ fn named<T>(track: T, label: Option<String>, set: fn(T, String) -> T) -> T {
         Some(label) => set(track, label),
         None => track,
     }
+}
+
+/// A heatmap of `rows` over `windows`, drawn as its track's options say:
+/// each sample against its own median with `--relative`, either side of
+/// `--center`, its ramp ending at `--max`, its rows `--row-height` tall and
+/// named unless `--no-names`, with the strips of a `--traits` sheet, whose
+/// key goes in `legend`, and in the order of a `--with-tree`. Over a window
+/// and across a whole genome alike.
+#[allow(clippy::too_many_arguments)]
+fn heatmap(
+    windows: Vec<(u64, u64)>,
+    mut rows: Vec<crate::MatrixRow>,
+    spec: &TrackSpec,
+    sheet: Option<&(read::sheet::Sheet, String)>,
+    colors: &[(String, Vec<(String, String)>)],
+    theme: &Theme,
+    legend: &mut crate::track::legend::Legend,
+    files: &mut dyn Files,
+    parsed: &mut dyn FnMut(&str, &str) -> Option<Tree>,
+) -> Result<MatrixTrack, BuildError> {
+    // Each sample against its own usual value, so a sample sequenced
+    // deeper is not a darker row from end to end and what stands out
+    // is what changed along it. Its median over the windows drawn, as
+    // the stretches it lost do not move a median the way they move a
+    // mean; a sample with no usual value above nought keeps its own.
+    if spec.relative {
+        for row in &mut rows {
+            let mut drawn: Vec<f64> = row
+                .values
+                .iter()
+                .copied()
+                .filter(|v| v.is_finite())
+                .collect();
+            drawn.sort_by(f64::total_cmp);
+            let median = match drawn.len() {
+                0 => continue,
+                n if n % 2 == 1 => drawn[n / 2],
+                n => (drawn[n / 2 - 1] + drawn[n / 2]) / 2.0,
+            };
+            if median > 0.0 {
+                row.values.iter_mut().for_each(|value| *value /= median);
+            }
+        }
+    }
+    let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
+    let mut track = MatrixTrack::windows(windows, rows);
+    if spec.relative {
+        track = track.unit("×");
+    }
+    // A depth read against its sample's usual one is read either side
+    // of one: a loss in one hue and a gain in the other, and the usual
+    // depth pale, where one hue made a deletion as pale as the page.
+    if let Some(center) = spec.center.or(spec.relative.then_some(1.0)) {
+        track = track.scale(crate::CellScale::Diverging {
+            center,
+            spread: None,
+        });
+    }
+    // The end of the ramp, or of its gain where it is read either
+    // side of a centre; the parser has seen to it being above that.
+    if let Some(max) = spec.max {
+        track = track.max(max);
+    }
+    if let Some(px) = spec.row_height {
+        track = track.row_height(px);
+    }
+    if spec.no_names {
+        track = track.show_row_names(false);
+    }
+    if let Some(traits) = strip(spec, sheet, &names, colors)? {
+        gather(legend, &traits.legend(theme));
+        track = track.traits(traits);
+    }
+    if let Some(tree) = row_tree(spec, &names, files, parsed)? {
+        track = track.tree(tree);
+    }
+    Ok(track)
 }
 
 /// Turns parsed records into alignment rows, refusing an empty file.
@@ -13259,6 +13365,56 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
                 Some((name.to_string(), length.to_string()))
             })
             .collect()
+    }
+
+    /// A heatmap's table of windows with no place is drawn across every
+    /// sequence it names, end to end in the order chromosomes are counted,
+    /// with each sample's row whole and the strips and key of its sheet. It
+    /// was refused for having no place, as a bedGraph of the same first three
+    /// columns was not. A table of one sequence draws it as the sequence
+    /// named for the place does, and its short last window is its end.
+    #[test]
+    fn a_heatmap_with_no_place_is_drawn_across_the_genome() {
+        let table = "chrom\tstart\tend\tS1\tS2\n\
+                     2\t0\t100\t30\t31\n2\t100\t150\t29\t0\n\
+                     1\t0\t100\t28\t.\n1\t100\t200\t27\t33\n";
+        let sheet = "sample\tgroup\nS1\tx\nS2\ty\n";
+        let held = [("w.tsv", table), ("s.tsv", sheet)];
+        let (svg, notes) = drawn_noting("--heatmap w.tsv --relative --traits s.tsv", &held);
+        let svg = svg.unwrap();
+        assert_eq!(
+            sequences_under(&svg),
+            [
+                ("1".to_string(), "200".to_string()),
+                ("2".to_string(), "150".to_string()),
+            ]
+        );
+        assert!(
+            svg.contains("<title>S1, 4 of 4 windows called</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>S2, 3 of 4 windows called</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains(">group: y</text>"), "the sheet's key: {svg}");
+        assert!(svg.contains("1×"), "--relative was not read: {svg}");
+        assert!(notes.is_empty(), "{notes:?}");
+        // Beside a depth across the same genome, on the same sequences.
+        let depth = "1\t0\t200\t5\n2\t0\t150\t6\n";
+        let held = [("w.tsv", table), ("d.bedgraph", depth)];
+        let both = drawn_from("d.bedgraph --heatmap w.tsv", &held).unwrap();
+        assert_eq!(sequences_under(&both).len(), 2, "{both}");
+
+        let one = "chrom\tstart\tend\tS1\n\
+                   NC_1\t0\t100\t5\nNC_1\t100\t200\t6\nNC_1\t200\t300\t6\nNC_1\t300\t337\t7\n";
+        let held = [("one.tsv", one)];
+        let (alone, notes) = drawn_noting("--heatmap one.tsv --max 10", &held);
+        let (placed, _) = drawn_noting("NC_1 --heatmap one.tsv --max 10", &held);
+        let alone = alone.unwrap();
+        assert_eq!(locus_of(&alone), "NC_1:1-337");
+        assert_eq!(alone, placed.unwrap());
+        assert!(notes.is_empty(), "{notes:?}");
     }
 
     /// A bedGraph with no place is drawn across every sequence it names,

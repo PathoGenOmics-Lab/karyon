@@ -1374,14 +1374,14 @@ impl Kind {
     }
 
     /// Whether a track of this kind is drawn across a whole genome where the
-    /// command line writes no place: a scan, a signal, windows and a segment
-    /// table, each on the sequences its rows name, laid end to end. What a
-    /// particular track of the kind reads may still need a place, which
-    /// [`TrackSpec::genome_wide`] says.
+    /// command line writes no place: a scan, a signal, windows, a segment
+    /// table and a heatmap's table of windows, each on the sequences its rows
+    /// name, laid end to end. What a particular track of the kind reads may
+    /// still need a place, which [`TrackSpec::genome_wide`] says.
     pub fn genome_wide(self) -> bool {
         matches!(
             self,
-            Kind::Coverage | Kind::CopyNumber | Kind::Windows | Kind::Manhattan
+            Kind::Coverage | Kind::CopyNumber | Kind::Windows | Kind::Manhattan | Kind::Heatmap
         )
     }
 
@@ -2003,15 +2003,16 @@ impl TrackSpec {
     /// which are read over one stretch of one sequence. A signal, unless it
     /// is a BAM's or a CRAM's depth, which across a genome is every read the
     /// file holds, or a bare column of values, which names no sequence to lay
-    /// its values on. Windows and a segment table. And a `.bed` named on its
-    /// own, which may be mosdepth's depth in windows, a bedGraph by another
-    /// name, as is told once it is read: one that holds features is refused
-    /// then, as a figure of features with no place always was.
+    /// its values on. Windows, a segment table, and a heatmap's table of
+    /// windows, whose first three columns are a bedGraph's. And a `.bed`
+    /// named on its own, which may be mosdepth's depth in windows, a bedGraph
+    /// by another name, as is told once it is read: one that holds features
+    /// is refused then, as a figure of features with no place always was.
     pub fn genome_wide(&self) -> bool {
         match self.kind {
             Kind::Manhattan => self.second.is_none() && self.recombination.is_none(),
             Kind::Coverage => !self.reads_alignments() && self.format != Some(Format::Values),
-            Kind::Windows | Kind::CopyNumber => true,
+            Kind::Windows | Kind::CopyNumber | Kind::Heatmap => true,
             Kind::Features => self.guessed && named_as(self.source.as_ref(), &[".bed"]),
             _ => false,
         }
@@ -2276,8 +2277,8 @@ impl Invocation {
 
     /// Whether the figure is drawn across a whole genome: no place written,
     /// and every track one [`TrackSpec::genome_wide`] says is, a scan, a
-    /// signal, windows or a segment table, which are then laid over every
-    /// sequence their files name, end to end.
+    /// signal, windows, a segment table or a heatmap's table of windows,
+    /// which are then laid over every sequence their files name, end to end.
     pub fn genome_wide(&self) -> bool {
         self.region.is_none()
             && self.named.is_none()
@@ -4258,8 +4259,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     // holds a single track that is drawn in one needs it: a tree beside a
     // coverage track is still measured against the coverage's window. A place
     // named by a word is a window too, found once the files are read.
-    // A scan, a signal, windows or a segment table read on their own are a
-    // place too: every sequence they name.
+    // A scan, a signal, windows, a segment table or a heatmap's table of
+    // windows read on their own are a place too: every sequence they name.
     let genome_wide = !tracks.is_empty() && tracks.iter().all(TrackSpec::genome_wide);
     if region.is_none()
         && named.is_none()
@@ -4769,10 +4770,8 @@ mod tests {
         ] {
             assert!(draw(&format!("{flag} t.tsv")).region.is_none(), "{flag}");
         }
-        assert!(
-            parse(&args("--heatmap d.tsv")).is_err(),
-            "a heatmap is drawn over a place"
-        );
+        // A heatmap's table of windows is drawn across the genome.
+        assert!(draw("--heatmap d.tsv").genome_wide());
         // Styles are a track's own words.
         assert_eq!(
             draw("--frequencies f.tsv --style line").tracks[0].style,
@@ -5498,6 +5497,9 @@ mod tests {
             "t.seg --ploidy 2 --sample S1",
             "sample.regions.bed.gz",
             "gwas.assoc d.bg --windows w.bg t.cns --ploidy 2",
+            "--heatmap depths.tsv --max 150",
+            "--heatmap depths.tsv --relative --traits s.tsv --with-tree t.nwk",
+            "t.cns --heatmap depths.tsv",
         ] {
             assert!(draw(line).genome_wide(), "{line}");
         }
@@ -5515,8 +5517,8 @@ mod tests {
                 "--msa",
                 "--frequencies",
                 "--squiggle",
-                "--coverage, --copy-number, --windows and --manhattan tracks alone are drawn \
-                 across the whole genome",
+                "--coverage, --copy-number, --windows, --manhattan and --heatmap tracks alone \
+                 are drawn across the whole genome",
             ] {
                 assert!(said.contains(alone), "{alone} not in: {said}");
             }
@@ -5548,9 +5550,9 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "--features genes.gff3 is drawn over a place, and with none a figure is drawn \
-             across the whole genome, which --coverage, --copy-number, --windows and \
-             --manhattan tracks alone are: write the place first, as chr1 for a sequence \
-             drawn whole or chr1:1-2,000,000 for a stretch of it"
+             across the whole genome, which --coverage, --copy-number, --windows, \
+             --manhattan and --heatmap tracks alone are: write the place first, as chr1 for \
+             a sequence drawn whole or chr1:1-2,000,000 for a stretch of it"
         );
     }
 

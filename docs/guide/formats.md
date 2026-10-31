@@ -786,7 +786,7 @@ NC_000962.3  100000  200000  70.4   98.7   0.0
 
 | | |
 |:--|:--|
-| Read by | `--heatmap`; `read::table::windows` |
+| Read by | `--heatmap`; `read::table::windows`, and `read::table::genome_windows` for every sequence, as a heatmap with no place is drawn across the whole genome |
 | Columns | a sequence, a start and an end, then one value per sample; the header names the samples |
 | Coordinates | 0-based, half-open, as BED; passed through |
 | With an index | read a window at a time, through the `.tbi` that `tabix -s1 -b2 -e3 -0 -S1 windows.tsv.gz` writes for a table with its header on the first line; a long table is read whole, since it names its samples on its rows |

@@ -25,21 +25,21 @@ Four rules cover every command:
     A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
     place, since none of them is drawn in a window, and neither does a figure
     across the whole genome: with no place, `--manhattan`, `--coverage`,
-    `--windows` and `--copy-number` files are drawn over every sequence they
-    name end to end, in the order chromosomes are counted, each as long as the
-    furthest any file reaches on it, or as a bigWig says, and named under the
-    tracks, as `karyon tumour.bedgraph tumour.cns --ploidy 2`. A sequence a
-    coverage file names no row on is a gap in its track, not a depth of nought,
-    and files that name one sequence draw it as though it were the place
-    written. Anything else needs a place, and one beside them is refused by
-    name: a FASTA, an annotation, calls, a `--heatmap` table of windows. So
-    does a scan read with `--ld` or `--with-recombination`, or a signal with
-    `--format values`, and the option is what is named. A BAM or a CRAM, whose
-    depth across a genome is every read it holds, is refused with the
-    `mosdepth --by` that counts it in windows instead. A sequence drawn to the
-    end of a file's rows, because no file says how long it is, is said to stop
-    there, unless the rows are windows whose last is cut short of the others,
-    which a table of windows does only at a sequence's end.
+    `--windows`, `--copy-number` and `--heatmap` files are drawn over every
+    sequence they name end to end, in the order chromosomes are counted, each
+    as long as the furthest any file reaches on it, or as a bigWig says, and
+    named under the tracks, as `karyon tumour.bedgraph tumour.cns --ploidy 2`.
+    A sequence a coverage file names no row on is a gap in its track, not a
+    depth of nought, and files that name one sequence draw it as though it were
+    the place written. Anything else needs a place, and one beside them is
+    refused by name: a FASTA, an annotation, calls. So does a scan read with
+    `--ld` or `--with-recombination`, or a signal with `--format values`, and
+    the option is what is named. A BAM or a CRAM, whose depth across a genome
+    is every read it holds, is refused with the `mosdepth --by` that counts it
+    in windows instead. A sequence drawn to the end of a file's rows, because
+    no file says how long it is, is said to stop there, unless the rows are
+    windows whose last is cut short of the others, which a table of windows
+    does only at a sequence's end.
 
     Several places draw one panel each, one under the other, with the same
     tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3
@@ -1207,10 +1207,10 @@ The command line is checked before any file is opened:
 
 ```text
 $ karyon --features genes.gff3
-karyon: the first argument is the place, as in NC_000962.3:761,000-763,000, or a gene or a sequence drawn whole; --coverage, --copy-number, --windows and --manhattan tracks alone are drawn across the whole genome, and a figure of --tree, --msa, --snps, --logo, --tanglegram, --frequencies, --phylodynamics, --selection or --squiggle tracks goes without one
+karyon: the first argument is the place, as in NC_000962.3:761,000-763,000, or a gene or a sequence drawn whole; --coverage, --copy-number, --windows, --manhattan and --heatmap tracks alone are drawn across the whole genome, and a figure of --tree, --msa, --snps, --logo, --tanglegram, --frequencies, --phylodynamics, --selection or --squiggle tracks goes without one
 
 $ karyon trait.assoc genes.gff3
-karyon: --features genes.gff3 is drawn over a place, and with none a figure is drawn across the whole genome, which --coverage, --copy-number, --windows and --manhattan tracks alone are: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
+karyon: --features genes.gff3 is drawn over a place, and with none a figure is drawn across the whole genome, which --coverage, --copy-number, --windows, --manhattan and --heatmap tracks alone are: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
 
 $ karyon trait.assoc gwas.assoc --ld lead.ld
 karyon: --manhattan gwas.assoc is drawn over a place with --ld, since the linkage to a lead is read over one stretch of one sequence: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
