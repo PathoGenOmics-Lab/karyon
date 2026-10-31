@@ -919,7 +919,7 @@ an arc on an outer ring has more pixels than the same arc further in.
 | Ring | Draws | Builder methods, with defaults |
 |:--|:--|:--|
 | `AxisRing::new()` | a ruler of positions | `thickness` (22), `ticks` (10), `show_labels` (`true`) |
-| `FeatureRing::new(features)` | annotation as arcs, forward strand outside and reverse inside, each feature in its own `color` where it has one | `thickness` (16), `colors(forward, reverse)`, `split_strands` (`true`), `show_names` (`false`), `min_degrees` (0.12) |
+| `FeatureRing::new(features)` | annotation as arcs, forward strand outside and reverse inside, each feature in its own `color` where it has one; a gene wider than three degrees ends in a point at its 3' end, and a feature whose `kind` is not a gene's (`Feature::is_genic`) is an arc with no point in the muted ink | `thickness` (16), `colors(forward, reverse)`, `split_strands` (`true`), `show_names` (`false`), `min_degrees` (0.12) |
 | `SignalRing::new(windows)`, `SignalRing::from_spans(length, spans, bins, aggregate)` | a quantity in windows, either side of a baseline circle; `from_spans` cuts a per-base signal, as a depth file states it, into `bins` equal arcs, each the `Aggregate` of the bases under it | `thickness` (40), `baseline` (0), `baseline_at_median()`, `colors(above, below)`, `extent`, `show_baseline` (`true`) |
 | `MarkerRing::new(positions)`, `MarkerRing::categorised(pairs)` | points as radial ticks; `categorised` takes `(position, category)` pairs and gives each category a palette colour | `thickness` (10), `width` (1.2), `colors` to replace the palette |
 

@@ -166,6 +166,68 @@ impl Polar {
         self.wedge(from, to, inner, outer)
     }
 
+    /// The same sector with its 3' end drawn to a point, as a feature track
+    /// draws a gene: `head` radians of it narrowing to the middle of the
+    /// ring at the end its strand reads to, the end of the span on the
+    /// forward strand and the start on the reverse.
+    ///
+    /// One closed shape even across the origin, carried past twelve o'clock
+    /// as an angle beyond the sweep, so the head is never cut from its body.
+    /// A head longer than a third of the span is a third of it, so a short
+    /// gene stays a bar with a point rather than a triangle, and a strand
+    /// that is neither gives the sector with no head.
+    pub fn arrow(
+        &self,
+        (from, to): (u64, u64),
+        (inner, outer): (f64, f64),
+        head: f64,
+        strand: Strand,
+    ) -> String {
+        let (a0, a1) = if to < from {
+            let a0 = self.angle(from);
+            (a0, (self.angle(to) + 2.0 * PI).max(a0 + 1e-4))
+        } else {
+            self.span(from, to)
+        };
+        let (inner, outer) = (inner.min(outer).max(0.0), inner.max(outer));
+        let head = head.clamp(0.0, (a1 - a0) / 3.0);
+        let middle = (inner + outer) / 2.0;
+        let point = |angle: f64, radius: f64| {
+            let (x, y) = self.at(angle, radius);
+            format!("{} {}", num(x), num(y))
+        };
+        let large = |from: f64, to: f64| usize::from(to - from > PI);
+        match strand {
+            Strand::Forward => {
+                let (body, tip) = (a1 - head, a1);
+                let (x1, y1) = self.at(body, outer);
+                let (x3, y3) = self.at(a0, inner);
+                format!(
+                    "M{}{}L{}L{}{}Z",
+                    point(a0, outer),
+                    arc(outer, large(a0, body), 1, x1, y1),
+                    point(tip, middle),
+                    point(body, inner),
+                    arc(inner, large(a0, body), 0, x3, y3),
+                )
+            }
+            Strand::Reverse => {
+                let (tip, body) = (a0, a0 + head);
+                let (x1, y1) = self.at(a1, outer);
+                let (x3, y3) = self.at(body, inner);
+                format!(
+                    "M{}{}L{}{}L{}Z",
+                    point(body, outer),
+                    arc(outer, large(body, a1), 1, x1, y1),
+                    point(a1, inner),
+                    arc(inner, large(body, a1), 0, x3, y3),
+                    point(tip, middle),
+                )
+            }
+            Strand::Unknown => self.sector(from, to, inner, outer),
+        }
+    }
+
     /// One annular sector, start before end.
     fn wedge(&self, from: u64, to: u64, inner: f64, outer: f64) -> String {
         let (a0, a1) = self.span(from, to);
@@ -1055,6 +1117,17 @@ impl Ring for AxisRing {
 }
 
 /// Annotation drawn as arcs, forward strand outside and reverse inside.
+///
+/// A gene, or a feature of no stated kind, is an arc in its strand's colour
+/// that ends in a point at its 3' end, as a feature track draws it, where
+/// the arc is wide enough to hold one: more than three degrees. The point
+/// narrows from the full width of its half of the ring to its middle over
+/// one and three quarter times that width, and never more than a third of
+/// the arc, so it reads as an arrow at the size a ring is drawn. One the
+/// annotation calls something else, an origin, a repeat, a mobile element,
+/// is an arc with no point in the muted ink, since it is transcribed into
+/// nothing and its strand says nothing a reader looks for; see
+/// [`Feature::is_genic`].
 #[derive(Debug, Clone)]
 pub struct FeatureRing {
     features: Vec<Feature>,
@@ -1163,6 +1236,7 @@ impl Ring for FeatureRing {
         let mut centre_labels: Vec<(f64, f64)> = Vec::new();
 
         for feature in &self.features {
+            let genic = feature.is_genic();
             let (lane_inner, lane_outer) = match (self.split_strands, feature.strand) {
                 (true, Strand::Reverse) => (ctx.inner, middle - 0.5),
                 (true, _) => (middle + 0.5, ctx.outer),
@@ -1170,9 +1244,11 @@ impl Ring for FeatureRing {
             };
             // A feature's own colour first, then the ring's, then the
             // strand's: the order a band of features takes them in, so one
-            // annotation is painted alike drawn either way.
+            // annotation is painted alike drawn either way. What is not a
+            // gene takes the muted ink, whatever its strand.
             let color = match &feature.color {
                 Some(own) => own,
+                None if !genic => &ctx.theme.muted,
                 None if feature.strand == Strand::Reverse => &reverse,
                 None => &forward,
             };
@@ -1195,21 +1271,32 @@ impl Ring for FeatureRing {
                 end - feature.start
             };
             let pixels = span as f64 / ctx.polar.bp_per_px(lane);
-            let title = if pixels >= 1.0 {
-                feature_title(feature)
-            } else {
-                String::new()
+            let title = match (pixels >= 1.0, &feature.kind) {
+                (true, Some(kind)) if !genic => format!("{}, {kind}", feature_title(feature)),
+                (true, _) => feature_title(feature),
+                (false, _) => String::new(),
             };
             let named = !title.is_empty();
             if named {
                 ctx.svg.begin_titled(&title);
             }
 
-            ctx.svg.path(
-                &ctx.polar.sector(feature.start, end, lane_inner, lane_outer),
-                color,
-                1.0,
-            );
+            // The point is `HEAD` times the lane's width long at its middle,
+            // taken as an angle there, on an arc wide enough to hold one.
+            // The arrowhead of a band, eight pixels on a lane of seven and a
+            // half, was a point so blunt it read as the end cut on a slant.
+            let degrees = span as f64 / ctx.polar.length() as f64 * 360.0;
+            let shape = if genic && degrees > HEADED {
+                ctx.polar.arrow(
+                    (feature.start, end),
+                    (lane_inner, lane_outer),
+                    HEAD * (lane_outer - lane_inner) / lane.max(1.0),
+                    feature.strand,
+                )
+            } else {
+                ctx.polar.sector(feature.start, end, lane_inner, lane_outer)
+            };
+            ctx.svg.path(&shape, color, 1.0);
 
             if self.show_names {
                 if let Some(name) = &feature.name {
@@ -1267,6 +1354,16 @@ impl Ring for FeatureRing {
         }
     }
 }
+
+/// The widest an arc of a gene is drawn without a point at its 3' end, in
+/// degrees. Narrower, a point of the arrowhead's length would be most of the
+/// arc, and a gene of a few hundred bases on a chromosome is a hairline that
+/// no point makes clearer.
+const HEADED: f64 = 3.0;
+
+/// How long the point at a gene's 3' end is, in widths of the half of the
+/// ring the gene is drawn in, along the middle of it.
+const HEAD: f64 = 1.75;
 
 /// A quantity in windows, drawn as a ring either side of a baseline circle.
 #[derive(Debug, Clone)]
@@ -1824,6 +1921,131 @@ mod tests {
         }
         assert!(plot.inner_radius() > 0.0);
         assert!(!plot.to_svg().contains("NaN"));
+    }
+
+    /// A gene ends in a point at its 3' end, the end of its span on the
+    /// forward strand and the start on the reverse, a point at the middle of
+    /// the ring; one that wraps through the origin is still one shape.
+    #[test]
+    fn an_arrow_points_at_the_end_its_strand_reads_to() {
+        let polar = Polar::new(6_000, 0.0, 0.0, 0.0);
+        let tip = |angle: f64| {
+            let (x, y) = polar.at(angle, 95.0);
+            format!("L{} {}", num(x), num(y))
+        };
+        let forward = polar.arrow((300, 1_300), (90.0, 100.0), 0.05, Strand::Forward);
+        assert!(forward.contains(&tip(polar.angle(1_300))), "{forward}");
+        assert_eq!(forward.matches('L').count(), 2, "{forward}");
+        let reverse = polar.arrow((300, 1_300), (90.0, 100.0), 0.05, Strand::Reverse);
+        assert!(reverse.contains(&tip(polar.angle(300))), "{reverse}");
+        // Of no strand, the sector, with no point.
+        assert_eq!(
+            polar.arrow((300, 1_300), (90.0, 100.0), 0.05, Strand::Unknown),
+            polar.sector(300, 1_300, 90.0, 100.0)
+        );
+        // Across the origin one shape, its point past twelve o'clock.
+        let wrapped = polar.arrow((5_800, 400), (90.0, 100.0), 0.05, Strand::Forward);
+        assert_eq!(wrapped.matches('M').count(), 1, "{wrapped}");
+        assert!(
+            wrapped.contains(&tip(polar.angle(400) + 2.0 * PI)),
+            "{wrapped}"
+        );
+        // A head longer than a third of a short span is a third of it.
+        let short = polar.arrow((300, 330), (90.0, 100.0), 1.0, Strand::Forward);
+        let third = polar.angle(330) - (polar.angle(330) - polar.angle(300)) / 3.0;
+        let (x, y) = polar.at(third, 100.0);
+        assert!(short.contains(&format!("{} {}", num(x), num(y))), "{short}");
+    }
+
+    /// A gene wide enough is an arrow and a narrow one a plain arc, and what
+    /// the annotation calls something other than a gene is an arc with no
+    /// point in the muted ink, its kind in its tooltip. Each was drawn as a
+    /// gene, an origin of transfer among them, and the strand only by colour.
+    #[test]
+    fn a_ring_draws_genes_as_arrows_and_what_is_not_a_gene_apart() {
+        let theme = Theme::light();
+        let features = vec![
+            Feature::new(300, 1_260)
+                .name("repA")
+                .strand(Strand::Forward)
+                .kind("gene"),
+            Feature::new(1_700, 2_560)
+                .name("bla")
+                .strand(Strand::Reverse)
+                .kind("gene"),
+            Feature::new(3_000, 3_020)
+                .name("short")
+                .strand(Strand::Forward)
+                .kind("gene"),
+            Feature::new(5_600, 5_720)
+                .name("oriT")
+                .strand(Strand::Forward)
+                .kind("origin_of_transfer"),
+        ];
+        let svg = Rings::new(6_200).push(FeatureRing::new(features)).to_svg();
+        let drawn = |title: &str| -> (usize, String) {
+            let at = svg
+                .find(&format!("<title>{title}"))
+                .unwrap_or_else(|| panic!("no {title}: {svg}"));
+            let path = &svg[at..];
+            let d = path.split(" d=\"").nth(1).unwrap();
+            let d = &d[..d.find('"').unwrap()];
+            let fill = path.split(" fill=\"").nth(1).unwrap();
+            (
+                d.matches('L').count(),
+                fill[..fill.find('"').unwrap()].to_string(),
+            )
+        };
+        assert_eq!(drawn("repA, ").0, 2, "a point");
+        assert_eq!(drawn("bla, ").0, 2, "a point");
+        assert_eq!(drawn("short, ").0, 1, "an arc of 1.2 degrees has none");
+        let (lines, fill) = drawn("oriT, 5,601 to 5,720, forward, origin_of_transfer");
+        assert_eq!((lines, fill), (1, theme.muted.clone()));
+        assert_eq!(
+            drawn("repA, ").1,
+            crate::track::feature::strand_color(Strand::Forward, &theme)
+        );
+        // The point is as long as one and three quarter widths of its half
+        // of the ring, with its tip midway across it: an arrowhead of a band
+        // was half as long, and read as the end cut on a slant.
+        for gene in ["repA, ", "bla, "] {
+            let at = svg.find(&format!("<title>{gene}")).unwrap();
+            let d = svg[at..].split(" d=\"").nth(1).unwrap();
+            let d = &d[..d.find('"').unwrap()];
+            let numbers: Vec<f64> = d
+                .split(|c: char| c.is_ascii_alphabetic() || c == ' ')
+                .filter_map(|word| word.parse().ok())
+                .collect();
+            // M x y, A R R 0 l s x y, L x y, L x y or A.., in path order.
+            let point = |at: usize| (numbers[at], numbers[at + 1]);
+            let distance =
+                |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+            // Forward: M, A to the body's outer end, L to the tip, L to the
+            // body's inner end, A. Reverse: M at the body's outer end, A, L,
+            // A to the body's inner end, L to the tip.
+            let (inner, corner_out, tip, corner_in) = if gene == "repA, " {
+                (numbers[13], point(7), point(9), point(11))
+            } else {
+                (numbers[11], point(0), point(18), point(16))
+            };
+            let width = numbers[2] - inner;
+            let middle = (
+                (corner_out.0 + corner_in.0) / 2.0,
+                (corner_out.1 + corner_in.1) / 2.0,
+            );
+            let long = distance(middle, tip);
+            assert!(
+                (long / width - HEAD).abs() < 0.05,
+                "{gene}{long} on {width}: {d}"
+            );
+            let sides = (distance(corner_out, tip), distance(corner_in, tip));
+            // Its two sides alike, but for the outer being a hair the longer,
+            // as the outer edge of a ring is.
+            assert!(
+                (sides.0 / sides.1 - 1.0).abs() < 0.02,
+                "{gene}{sides:?}: {d}"
+            );
+        }
     }
 
     #[test]

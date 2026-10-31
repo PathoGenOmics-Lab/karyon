@@ -749,7 +749,7 @@ karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz \
 
 | Track | Its ring |
 |:--|:--|
-| `--features` | an arc a feature, the forward strand on the outer half and the reverse on the inner, as a band of features paints them; named where the ring holds at most 20 named features, and `--no-names` leaves them off |
+| `--features` | an arc a feature, the forward strand on the outer half and the reverse on the inner, as a band of features paints them, a gene wider than three degrees ending in a point at its 3' end; what the annotation calls something other than a gene, as an `origin_of_transfer` or a `repeat_region`, an arc with no point in the muted ink, keyed by its kind; named where the ring holds at most 20 named features, and `--no-names` leaves them off |
 | `--coverage` | the depth cut into 1,000 arcs, each the `--aggregate` of its bases (`max` unless written), read either side of its median: a stretch lost dips inside the line, one carried twice stands outside it |
 | `--windows` | the windows cut into the same arcs, each the mean of the windows under it, read either side of 0 as the band is |
 | `--variants` | a tick a call, coloured by consequence from the most damaging down, as a band of calls deals them |
@@ -768,8 +768,11 @@ karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz \
   the files' headers and indexes alone, and any other span is part of one.
   Several places are left for a command each.
 - **Named in the key and on hover.** Each ring is called after its file, or
-  its `--label`. The ring's name is its tooltip, and the key under the circle
-  gives a line to each ring, outside in, with what its colours mean.
+  its `--label`, and a ring of annotation after what it holds: `genes`, or the
+  one kind it holds, as `repeat_region`, where the annotation says; a BED,
+  which says nothing of what its rows are, after its file. The ring's name is
+  its tooltip, and the key under the circle gives a line to each ring, outside
+  in, with what its colours mean.
 - **What a ring takes.** `--label`, `--height` for its thickness where the
   track takes one, `--aggregate` on a depth, `--color` on a depth or features,
   `--format`, and `--no-names` on features and structural calls.

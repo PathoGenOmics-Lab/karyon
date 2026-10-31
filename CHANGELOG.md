@@ -8,6 +8,23 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A gene on a ring of `FeatureRing` wider than three degrees ends in a point
+  at its 3' end, the end of its span on the forward strand and its start on
+  the reverse, as a band of features draws its arrows: the point narrows to
+  the middle of the gene's half of the ring over one and three quarter times
+  that half's width, never more than a third of the arc, and across the
+  origin the gene is one shape. A gene showed its strand only by its colour and a few pixels
+  of radius. What the annotation calls something other than a gene, an
+  origin of replication or of transfer, a repeat, a mobile element, is an arc
+  with no point in the muted ink, with its kind in its tooltip, and the
+  command line keys it by that kind and keys the strands by the genes alone:
+  an `origin_of_transfer` was drawn and keyed as a forward gene. From the
+  command line a ring of annotation is named for what it holds, `genes`, or
+  the one kind it holds, rather than after its file, so a plasmid's GFF3
+  named after the plasmid no longer keys its ring as the sequence named in
+  the middle of the circle; a BED keeps its file's name, and `--label` says
+  what it says. A circle of no annotation, or of genes too short for a
+  point, as a chromosome's, is drawn as it was.
 - A scan coloured by its linkage with a lead, `--ld` or
   `ManhattanTrack::linkage`, is drawn in LocusZoom's five bins of r² and its
   colours, under 0.2 navy, to 0.4 light blue, to 0.6 green, to 0.8 orange
@@ -486,6 +503,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `Feature::kind` holds what an annotation calls a feature, as GFF3 and GTF
+  write it in their third column, which the readers now keep, and
+  `Feature::is_genic` says whether it is a gene, a transcript or a part of
+  one, or of no stated kind. `Polar::arrow` gives a ring's sector with its
+  3' end drawn to a point.
 - `LinkageColors`, how a scan coloured by linkage paints an r²: LocusZoom's
   five bins, the default, or one ramp. `Legend::steps` and
   `LegendItem::Steps` key a scale cut into steps under one name, each step a
