@@ -631,8 +631,10 @@ TRACKS
     --phylodynamics <FILE>
                          an estimate over time with its interval, as a
                          skyline, a population size or a reproductive number:
-                         a table headed time, estimate (or mean, median) and
-                         lower and upper where there is an interval
+                         a table headed time, estimate (or mean, median, or
+                         the quantity, Ne, R, Rt) and lower and upper where
+                         there is an interval; its axis and key are named
+                         from those headers
     --selection <FILE>   a test of selection at each site of a gene, HyPhy's
                          FEL or MEME as CSV, or a table of site, alpha and beta
                          (or dS and dN, or omega) and a p-value or a posterior

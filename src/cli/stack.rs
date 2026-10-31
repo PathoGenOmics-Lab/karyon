@@ -9292,7 +9292,18 @@ fn built(
                 &path,
                 read::series::estimates(&text, context.decimals),
             )?;
-            let mut track = PhylodynamicTrack::new(points).time_decimals(context.decimals);
+            // The track is named after its file, and its axis and key after
+            // what the file's header says they hold: `R` under EpiEstim's
+            // `Mean(R)`, or the column's own word, `mean`, where it says no
+            // more, and never a quantity the file did not name.
+            let held = wrap(name, &path, read::series::estimate_names(&text))?;
+            let mut track = PhylodynamicTrack::new(points)
+                .time_decimals(context.decimals)
+                .axis_title(held.quantity)
+                .estimate_name(held.estimate);
+            if let Some(interval) = held.interval {
+                track = track.interval_name(interval);
+            }
             if spec.log {
                 track = track.scale(PhylodynamicScale::Log10);
             }
@@ -12500,6 +12511,39 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let held = [("f.tsv", COUNTS), ("d.bg", "chr1\t0\t10\t5\n")];
         let (mixed, _) = drawn_noting("chr1:1-10 --coverage d.bg --frequencies f.tsv", &held);
         assert!(!mixed.unwrap().contains(">week</text>"));
+    }
+
+    /// An estimate's axis and key name what its header says it holds, under
+    /// the file's name: the quantity EpiEstim names inside `Mean(R)`, or the
+    /// estimate's own word where nothing names one, and its interval by its
+    /// columns. A count's axis says it counts.
+    #[test]
+    fn an_estimate_is_titled_and_keyed_as_its_header_names_it() {
+        let epiestim = "t_start\tt_end\tMean(R)\tStd(R)\tQuantile.0.025(R)\tMedian(R)\t\
+                        Quantile.0.975(R)\n2\t8\t1.3\t0.1\t1.1\t1.3\t1.5\n\
+                        3\t9\t1.1\t0.1\t0.9\t1.1\t1.3\n";
+        let mean = "week\tmean\tlower\tupper\n3\t1.06\t0.80\t1.38\n4\t1.19\t0.95\t1.49\n";
+        let held = [
+            ("rt.tsv", epiestim),
+            ("reproduction.tsv", mean),
+            ("f.tsv", COUNTS),
+        ];
+        let svg = drawn_from("--phylodynamics rt.tsv", &held).unwrap();
+        assert!(svg.contains(">rt</text>"), "the file's name: {svg}");
+        assert!(svg.contains(">R</text>"), "the quantity: {svg}");
+        assert!(svg.contains(">2.5% to 97.5%</text>"), "{svg}");
+        let svg = drawn_from("--phylodynamics reproduction.tsv", &held).unwrap();
+        assert!(svg.contains(">reproduction</text>"), "{svg}");
+        assert!(svg.contains(">mean</text>"), "{svg}");
+        assert!(svg.contains(">lower to upper</text>"), "{svg}");
+        assert!(
+            !svg.contains(">R</text>"),
+            "a quantity the file never named: {svg}"
+        );
+        let svg = drawn_from("--frequencies f.tsv --counts", &held).unwrap();
+        assert!(svg.contains(">count</text>"), "{svg}");
+        let svg = drawn_from("--frequencies f.tsv", &held).unwrap();
+        assert!(!svg.contains(">count</text>"), "{svg}");
     }
 
     /// A table of its own place read from a pipe is drawn over its own extent,

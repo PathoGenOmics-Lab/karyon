@@ -1035,14 +1035,21 @@ week  mean   lower  upper
 
 | | |
 |:--|:--|
-| Read by | `--phylodynamics`; `read::series::estimates` |
-| Columns | found by name in any case: a time, as for counts; an estimate (`estimate`, `mean`, `median`, `Mean(R)`); and, where there is an interval, its ends (`lower` and `upper`, `hpd_lower` and `hpd_upper`, EpiEstim's `Quantile.0.025(R)` and `Quantile.0.975(R)`) |
+| Read by | `--phylodynamics`; `read::series::estimates`, and `read::series::estimate_names` for what the columns hold |
+| Columns | found by name in any case: a time, as for counts; an estimate (`estimate`, `mean`, `median`, `Mean(R)`, or the quantity itself, `Ne`, `R`, `Rt`, `Re`); and, where there is an interval, its ends (`lower` and `upper`, `hpd_lower` and `hpd_upper`, EpiEstim's `Quantile.0.025(R)` and `Quantile.0.975(R)`) |
 | Coordinates | whole units, drawn as written; with fractions, a continuous time to a thousandth |
 | Refused | a missing time or estimate; a time as for counts |
 
 EpiEstim's table is read as R's `write.csv` writes it, drawn at the end of each
 window, `t_end`. An interval with an empty end, or `NA`, is not drawn, and the
 estimate is.
+
+The axis is titled with what is estimated where the header names it, `R`
+inside `Mean(R)` or a column called `Ne`, and with the estimate's own header
+where it names only a statistic: the table above says `mean`, and not of what.
+The key names the line by that statistic and the ribbon by its columns:
+`lower to upper` here, `95% HPD` where they say so, `2.5% to 97.5%` for
+EpiEstim's quantiles.
 
 ## Sequences and trees
 

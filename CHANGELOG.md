@@ -45,6 +45,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   share is off, `-` for `CA>C`, the most damaging is read, which is what the
   first of snpEff's sorted `ANN` is; consequences joined with `&` are kept
   whole, as they are from `ANN`. No committed figure moves.
+- An estimate over time names what it draws on its axis and in its key, as its
+  table's header names it, under the track's name, which stays its file's:
+  `R` for EpiEstim's `Mean(R)`, `Ne` or `Rt` for a column so called, and the
+  estimate's own header, `mean`, where it names only a statistic, since the
+  table then does not say a mean of what and a quantity put there would be a
+  guess. The key names the line by its statistic and the ribbon by its
+  columns, `lower to upper`, `95% HPD` or `2.5% to 97.5%`, where it said
+  `estimate` and `interval`, which did not say which interval. `karyon
+  --phylodynamics reproduction.tsv` was titled only with its file's name.
+  `PhylodynamicTrack::axis_title`, `estimate_name` and `interval_name` are
+  new, and `read::series::estimate_names` reads the names; a column called
+  `Rt` or `Re` is read as an estimate. A surveillance track drawing counts
+  titles its axis `count`, where its ticks were bare numbers under its file's
+  name; a frequency's ticks say `50%`. A selection scan's axis already says
+  `-log10 p`, a recombination rate's `cM/Mb`, and a bedGraph of windows does
+  not say what it holds. `time.svg` and `time-dark.svg` on the site change.
 - Bold and semibold text is measured at least as wide as Helvetica-Bold draws
   it, which is the face Arial sets a bold label in and the one a PDF sets it
   in. Nine characters, `& ? B K L ^ i j l`, were measured at Inter's narrower
