@@ -2308,6 +2308,11 @@ fn build_one(
     for note in figure.notes() {
         files.note(&note);
     }
+    // And what the figure writes under a track, which goes into the paper
+    // with it, said here as well.
+    for note in figure.footnotes() {
+        files.note(&note);
+    }
     // And where a read is drawn whole with bases too narrow for their
     // letters, how wide a figure letters every one, which the window the
     // note names cannot: it letters the bases inside it.
@@ -16341,6 +16346,27 @@ chr1\t100\trs1\tC\tT\t.\t.\t.\tGT\t0/1\t1/1\t0/0\t./.
 chr1\t400\t.\tA\tG\t.\t.\t.\tGT\t0/0\t0/1\t0/0\t1/1
 chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
 ";
+
+    /// A cohort whose calls at two sites five bases apart differ is drawn a
+    /// stripe a site where the two share a pixel, and the line under the
+    /// track that counts such cells and names a window drawing them apart is
+    /// said on the terminal too, word for word.
+    #[test]
+    fn cells_pooling_calls_that_differ_are_said_under_the_track_and_on_the_terminal() {
+        let cohort = "##fileformat=VCFv4.2\n\
+            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\tS3\n\
+            chr1\t763290\t.\tG\tC\t.\t.\t.\tGT\t1\t0\t0\n\
+            chr1\t763295\t.\tG\tT\t.\t.\t.\tGT\t0\t1\t0\n";
+        let held = [("cohort.vcf", cohort)];
+        let (svg, notes) = drawn_noting("chr1:1-1,000,000 --genotypes cohort.vcf", &held);
+        let svg = svg.unwrap();
+        let said = "2 cells pool calls that differ from more than one site, drawn a stripe a \
+                    site with the first on top; chr1:762,701-763,700 draws them apart";
+        assert_eq!(notes, [said]);
+        assert!(svg.contains("2 cells pool calls that differ"), "{svg}");
+        let (_, apart) = drawn_noting("chr1:762,701-763,700 --genotypes cohort.vcf", &held);
+        assert!(apart.is_empty(), "{apart:?}");
+    }
 
     /// Named on its own, a VCF is its calls, and a cohort's says the samples
     /// can be drawn a row each. One sample's would be a row repeating its

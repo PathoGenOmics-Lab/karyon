@@ -1547,6 +1547,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A genotype pixel whose sites a sample was called differently at is cut
+  into thin stripes stacked down the row, a stripe a site with the first on
+  top, each in the colour of that sample's call there, as long as the row
+  has a pixel of its height for each; more sites than that keep their shade.
+  In a cohort of one copy a sample, an alternate call at 763,290 and a
+  reference call at 763,295 were one mid-grey cell, which on paper is a
+  mixed call, and nothing on the page said which site carried the
+  alternate. The key then names the calls' states rather than a ramp. The
+  figure says under the track how many cells pool calls that differ and
+  names a window that draws them apart, as `7 cells pool calls that differ
+  from more than one site, drawn a stripe a site with the first on top;
+  NC_000962.3:762,701-763,700 draws them apart`, and the command line prints
+  it too. Every pooled run of eight sites or fewer is named in a tooltip,
+  whatever it carries: a no call pooled with a reference call beside it was
+  a pale cell with nothing to say which site it was. The line is written by
+  `Track::footnotes`, new, which the figure reserves room for under a band
+  and writes broken to the width of the plot, outside the band, with a
+  shade's edges stopping above it; `Figure::footnotes` gathers them for a
+  caller who also says them. A tree's warnings are broken and set by the
+  same code, in its own band as before. `genotypes.svg` and
+  `genotypes-dark.svg` on the site move, striped where they pooled and
+  counted under the rows.
 - A coverage track draws a pixel that holds more than one value as the
   spread between them, as a genome browser draws whiskers, wherever no
   `--aggregate` is written: the profile, its line and the fill under it or
