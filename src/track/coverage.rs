@@ -129,6 +129,8 @@ pub struct CoverageTrack {
     show_max: bool,
     axis: QuantitativeAxis,
     title: Option<String>,
+    /// What the figure writes under the band.
+    footnotes: Vec<String>,
 }
 
 impl CoverageTrack {
@@ -159,6 +161,7 @@ impl CoverageTrack {
             show_max: true,
             axis: QuantitativeAxis::new(),
             title: None,
+            footnotes: Vec::new(),
         }
     }
 
@@ -378,6 +381,15 @@ impl CoverageTrack {
     /// as `cM/Mb` for a recombination rate.
     pub fn axis_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    /// Adds a sentence the figure writes under the band, for what a reader
+    /// of the figure has to know to read the profile right: a recombination
+    /// rate drawn flat because the whole window lies inside one interval of
+    /// its map. See [`Track::footnotes`].
+    pub fn footnote(mut self, sentence: impl Into<String>) -> Self {
+        self.footnotes.push(sentence.into());
         self
     }
 
@@ -761,6 +773,10 @@ impl Track for CoverageTrack {
 
     fn axis_title(&self) -> Option<&str> {
         self.show_max.then_some(self.title.as_deref()).flatten()
+    }
+
+    fn footnotes(&self, _region: &Region, _px_per_bp: f64, _theme: &Theme) -> Vec<String> {
+        self.footnotes.clone()
     }
 
     fn height(&self, _scale: &Scale) -> f64 {

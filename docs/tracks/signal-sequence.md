@@ -54,6 +54,7 @@ A quantity with one value per base, drawn up from the floor of its band: read de
 | `.aggregate(Aggregate::Min)` | Draws one value for a pixel column covering many bases: `Max`, `Mean` or `Min` (`--aggregate`) | the spread: the profile along the lowest value, a pale wash up to the highest |
 | `.style(CoverageStyle::Line)` | `Area`, `Line` or `Bars` (`--style area`, `line` or `bars`) | `Area` |
 | `.axis_title("cM/Mb")` | What the value axis measures, under the track's name | none; `cM/Mb` from `--recombination` |
+| `.footnote("...")` | A sentence the figure writes under the band, as the command line says of a rate drawn flat because the window lies inside one interval of its map; `ManhattanTrack::footnote` is the same under a scan | none |
 | `.max(120.0)` | Pins the top of the axis, taken literally (`--max`); where the profile in view runs past it, the top label reads `120+` and the columns cut short are struck along the top in the alert colour | the largest value on screen, plus six per cent |
 | `.log_scale(true)` | Plots `log10(1 + value)`, still labelled in the original units (`--log`) | off |
 | `.color("#0072b2")` | Colour of the profile (`--color`) | theme accent |

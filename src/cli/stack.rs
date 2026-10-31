@@ -3970,30 +3970,27 @@ fn ends_short(kind: Kind, text: &str, aliases: &[&str]) -> bool {
     })
 }
 
-/// Says so where one interval of a genetic map holds the whole window: its
-/// one rate is then a flat line from edge to edge, which reads as a rate
+/// What to say where one interval of a genetic map holds the whole window:
+/// its one rate is then a flat line from edge to edge, which reads as a rate
 /// measured flat across the window rather than the map having nothing finer
 /// to say there. A map of another sequence read under a `--rename` drew such
-/// a line over a window of a genome it was never measured on, and said
-/// nothing.
-fn note_one_interval(
-    files: &mut dyn Files,
-    path: &str,
-    rates: &[(u64, u64, f64)],
-    region: &Region,
-) {
-    if let [(start, end, rate)] = rates {
-        if *start <= region.start() && *end >= region.end() {
-            use crate::track::axis::group_thousands;
-            files.note(&format!(
-                "{path}: the window lies inside one interval of the map, {} to {}, so its one \
-                 rate, {} cM/Mb, is drawn flat across it",
-                group_thousands(start.saturating_add(1)),
-                group_thousands(*end),
-                crate::svg::text_rounded(*rate, 2)
-            ));
-        }
-    }
+/// a line over a window of a genome it was never measured on, and said so on
+/// the terminal alone, so the figure was handed in as it was: the track that
+/// draws the rate writes this under its band, and the terminal says it too.
+fn one_interval(path: &str, rates: &[(u64, u64, f64)], region: &Region) -> Option<String> {
+    let [(start, end, rate)] = rates else {
+        return None;
+    };
+    (*start <= region.start() && *end >= region.end()).then(|| {
+        use crate::track::axis::group_thousands;
+        format!(
+            "{path}: the window lies inside one interval of the map, {} to {}, so its one \
+             rate, {} cM/Mb, is drawn flat across it",
+            group_thousands(start.saturating_add(1)),
+            group_thousands(*end),
+            crate::svg::text_rounded(*rate, 2)
+        )
+    })
 }
 
 /// The largest file of calls, as it is on disk, compressed, read to its
@@ -8322,7 +8319,9 @@ fn built(
                         wanted: "recombination rates",
                     });
                 }
-                note_one_interval(files, &map_path, &rates, region);
+                if let Some(said) = one_interval(&map_path, &rates, region) {
+                    track = track.footnote(said);
+                }
                 track = track.recombination(rates);
             }
             // Drawn as -log10, and the axis says so, since the file said p.
@@ -9152,7 +9151,7 @@ fn built(
             if rates.is_empty() {
                 return Err(empty("rates"));
             }
-            note_one_interval(files, &path, &rates, region);
+            let flat = one_interval(&path, &rates, region);
             // A line, since a rate is read for where it rises rather than for
             // the area under it, and the highest rate in a pixel, so a hotspot
             // narrower than a pixel is still drawn.
@@ -9160,6 +9159,9 @@ fn built(
                 .aggregate(Aggregate::Max)
                 .style(crate::CoverageStyle::Line)
                 .axis_title("cM/Mb");
+            if let Some(said) = flat {
+                track = track.footnote(said);
+            }
             if let Some(max) = spec.max {
                 track = track.max(max);
             }
@@ -13923,7 +13925,9 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
 
     /// A window inside one interval of a genetic map draws its one rate flat
     /// from edge to edge, and says so, as a track of its own and under a
-    /// scan; a window across two intervals says nothing.
+    /// scan, on the figure under the band as well as on the terminal: said
+    /// on the terminal alone, the figure was handed in as it was. A window
+    /// across two intervals says nothing.
     #[test]
     fn a_window_inside_one_map_interval_says_its_rate_is_flat() {
         let map = "Chromosome\tPosition(bp)\tRate(cM/Mb)\tMap(cM)\n\
@@ -13937,8 +13941,29 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             "1:2,001-4,000 gwas.assoc --with-recombination map.txt",
         ] {
             let (svg, notes) = drawn_noting(line, &held);
-            svg.unwrap();
+            let svg = svg.unwrap();
             assert_eq!(notes, [said], "{line}");
+            // Written under the band, a line or two of small print, which
+            // read together are the sentence.
+            let written: Vec<&str> = svg
+                .split("<text")
+                .filter_map(|text| text.split_once('>'))
+                .filter_map(|(_, rest)| rest.split_once("</text>"))
+                .map(|(line, _)| line)
+                .collect();
+            let start = written
+                .iter()
+                .position(|line| line.starts_with("map.txt: the window"))
+                .unwrap_or_else(|| panic!("{line}: not on the figure: {svg}"));
+            let mut joined = written[start].to_string();
+            for next in &written[start + 1..] {
+                if joined.len() >= said.len() {
+                    break;
+                }
+                joined.push(' ');
+                joined.push_str(next);
+            }
+            assert_eq!(joined, said, "{line}");
         }
         // Nor does a window one interval holds only part of, the map saying
         // nothing of the rest.
@@ -13947,8 +13972,9 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             "1:1-4,000 --recombination map.txt",
         ] {
             let (svg, notes) = drawn_noting(line, &held);
-            svg.unwrap();
+            let svg = svg.unwrap();
             assert!(notes.is_empty(), "{line}: {notes:?}");
+            assert!(!svg.contains("one interval"), "{line}: {svg}");
         }
         // Over a window of another genome's sequence the map is refused
         // where its rows lie, with no --rename to lay a chromosome 1 there.

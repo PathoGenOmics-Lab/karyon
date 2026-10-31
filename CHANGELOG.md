@@ -1547,6 +1547,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A recombination rate drawn flat because the whole window lies inside one
+  interval of its map says so under its track, on the figure, as well as on
+  the terminal: `genetic_map.txt: the window lies inside one interval of the
+  map, 759,401 to 764,400, so its one rate, 0.41 cM/Mb, is drawn flat across
+  it`. Said on the terminal alone, a figure of a map laid over a window of
+  another genome under a `--rename` was handed in with a flat line nothing
+  on it explained. A scan with `--with-recombination` writes it under the
+  scan. `CoverageTrack::footnote` and `ManhattanTrack::footnote` are new, and
+  write a sentence under the band through `Track::footnotes`, as the cells a
+  genotype track pools are counted. No committed figure moves.
 - A call's tooltip says the change it is after where it is, `variant,
   761,139 C>T, missense_variant, AF 0.62`, where it said `variant, 761,139,
   missense_variant, AF 0.62` and the bases were only in the file.
