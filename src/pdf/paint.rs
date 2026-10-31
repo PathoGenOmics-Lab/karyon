@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 
 use super::color::{self, Color};
+use super::font::Subset;
 use super::path::{self, Matrix, Scanner, Shape};
 use super::text::{self, Face};
 use super::xml::{self, Attributes, Token};
@@ -532,8 +533,9 @@ pub(crate) struct Fade {
 /// What the content stream names and the page has to define.
 #[derive(Debug, Default)]
 pub(crate) struct Resources {
-    /// Fonts, `/F1` onwards, in order of first use.
-    pub(crate) fonts: Vec<Face>,
+    /// Faces, `/F1` onwards, in order of first use, each with the glyphs
+    /// the page draws in it.
+    pub(crate) fonts: Vec<Subset>,
     /// Constant alphas for fill and stroke, `/G1` onwards.
     pub(crate) alphas: Vec<(f64, f64)>,
     /// Fades, `/I1` onwards.
@@ -702,7 +704,7 @@ impl<'a, 'w> Painter<'a, 'w> {
                 .map(|c| format!("{c} (U+{:04X})", u32::from(*c)))
                 .collect();
             self.notes.add(format!(
-                "{} {} in no font every PDF reader has, and {} drawn as a question mark",
+                "{} {} in none of the faces the PDF embeds, and {} drawn as a question mark",
                 named.join(", "),
                 if named.len() == 1 { "is" } else { "are" },
                 if named.len() == 1 { "is" } else { "each is" },
@@ -1135,9 +1137,12 @@ impl<'a, 'w> Painter<'a, 'w> {
         if content.is_empty() || style.size <= 0.0 || style.size.is_nan() {
             return;
         }
-        let face = Face::choose(&xml::unescape(style.family), style.weight.trim());
+        let (face, substitute) = Face::choose(&xml::unescape(style.family), style.weight.trim());
+        if let Some(note) = substitute {
+            self.notes.add(note.to_string());
+        }
         let runs = text::runs(&content, face, &mut self.missing);
-        let count = runs.iter().map(|run| run.bytes.len()).sum::<usize>() as f64;
+        let count = runs.iter().map(|run| run.glyphs.len()).sum::<usize>() as f64;
         if count == 0.0 {
             return;
         }
@@ -1220,7 +1225,7 @@ impl<'a, 'w> Painter<'a, 'w> {
         path::push_numbers(self.out, &[x + shift, y]);
         self.out.extend_from_slice(b"Tm\n");
         for run in &runs {
-            let font = self.font(run.face);
+            let font = self.font(run);
             let current = self.state().font;
             if current != Some((font, style.size)) {
                 self.out.extend_from_slice(
@@ -1228,7 +1233,7 @@ impl<'a, 'w> Painter<'a, 'w> {
                 );
                 self.state_mut().font = Some((font, style.size));
             }
-            text::write_string(self.out, &run.bytes);
+            text::write_glyphs(self.out, &run.glyphs);
             self.out.extend_from_slice(b" Tj\n");
         }
         self.out.extend_from_slice(b"ET\n");
@@ -1237,14 +1242,21 @@ impl<'a, 'w> Painter<'a, 'w> {
         }
     }
 
-    fn font(&mut self, face: Face) -> usize {
-        match self.resources.fonts.iter().position(|known| *known == face) {
+    /// The index of the face `run` is set in, made the first time it is
+    /// asked for, with the run's glyphs added to the ones it embeds.
+    fn font(&mut self, run: &text::Run) -> usize {
+        let fonts = &mut self.resources.fonts;
+        let at = match fonts.iter().position(|known| known.face == run.face) {
             Some(at) => at,
             None => {
-                self.resources.fonts.push(face);
-                self.resources.fonts.len() - 1
+                fonts.push(Subset::new(run.face));
+                fonts.len() - 1
             }
+        };
+        for (glyph, c) in &run.glyphs {
+            fonts[at].glyphs.entry(*glyph).or_insert(*c);
         }
+        at
     }
 
     fn state(&self) -> &State {

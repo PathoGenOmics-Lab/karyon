@@ -1,4 +1,14 @@
-//! Advance widths of the fonts every PDF reader carries, from Adobe's metrics.
+//! Advance widths of Helvetica and Helvetica-Bold, from Adobe's metrics, which
+//! the faces a PDF embeds are held to.
+//!
+//! The layout measures text with [`text_width`](crate::svg::text_width) and
+//! [`text_width_strong`](crate::svg::text_width_strong), whose tables were
+//! made never to be narrower than these. Liberation Sans is drawn to the same
+//! widths, and Liberation Mono to Courier's 600 thousandths of an em for every
+//! glyph, which is what lets a PDF set its text in them without moving
+//! anything; a test reads each face's own advances and compares them with
+//! these, character by character. Nothing outside the tests reads them, since
+//! the PDF anchors each label with the widths of the face that draws it.
 //!
 //! The numbers are the `WX` entries of the Adobe Font Metrics files for the
 //! standard fourteen fonts, which carry this notice:
@@ -9,18 +19,11 @@
 //! They were read from the copy of those files that matplotlib ships, in
 //! `mpl-data/fonts/pdfcorefonts`, and indexed by byte through the glyph names
 //! of the Adobe Glyph List: each table runs from the space, byte 32, to byte
-//! 255 of WinAnsiEncoding, the encoding every Latin face here is written in.
-//! The six bytes WinAnsi leaves undefined are nought, and nothing writes them.
-//! Courier needs no table, because every one of its glyphs is 600 thousandths
-//! of an em, which is also the advance [`mono_width`](crate::svg::mono_width)
-//! measures the monospaced stack with.
+//! 255 of WinAnsiEncoding, the encoding a PDF sets those faces in. The six
+//! bytes WinAnsi leaves undefined are nought.
 //!
-//! The Symbol table goes the other way, from a character to the byte that
-//! draws it in Symbol's own encoding and the width it draws at, because Symbol
-//! is reached for one character at a time: a Greek letter or a relation such
-//! as less than or equal, which WinAnsi does not have. Characters WinAnsi has
-//! and Symbol duplicates are left out, so the table answers only for what the
-//! Latin faces cannot set.
+//! Five characters karyon writes are not in WinAnsi, and a PDF set them in
+//! Symbol before it embedded its faces, at the widths in [`SYMBOL`].
 
 /// Helvetica, by WinAnsi byte from 32.
 pub(crate) const HELVETICA: [u16; 224] = [
@@ -86,191 +89,54 @@ pub(crate) const HELVETICA_BOLD: [u16; 224] = [
     556, // 0xf0 to 0xff
 ];
 
-/// Times-Roman, by WinAnsi byte from 32.
-pub(crate) const TIMES_ROMAN: [u16; 224] = [
-    250, 333, 408, 500, 500, 833, 778, 180, 333, 333, 500, 564, 250, 333, 250,
-    278, // 0x20 to 0x2f
-    500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 278, 278, 564, 564, 564,
-    444, // 0x30 to 0x3f
-    921, 722, 667, 667, 722, 611, 556, 722, 722, 333, 389, 722, 611, 889, 722,
-    722, // 0x40 to 0x4f
-    556, 722, 667, 556, 611, 722, 722, 944, 722, 722, 611, 333, 278, 333, 469,
-    500, // 0x50 to 0x5f
-    333, 444, 500, 444, 500, 444, 333, 500, 500, 278, 278, 500, 278, 778, 500,
-    500, // 0x60 to 0x6f
-    500, 500, 333, 389, 278, 500, 500, 722, 500, 500, 444, 480, 200, 480, 541,
-    0, // 0x70 to 0x7f
-    500, 0, 333, 500, 444, 1000, 500, 500, 333, 1000, 556, 333, 889, 0, 611,
-    0, // 0x80 to 0x8f
-    0, 333, 333, 444, 444, 350, 500, 1000, 333, 980, 389, 333, 722, 0, 444,
-    722, // 0x90 to 0x9f
-    250, 333, 500, 500, 500, 500, 200, 500, 333, 760, 276, 500, 564, 333, 760,
-    333, // 0xa0 to 0xaf
-    400, 564, 300, 300, 333, 500, 453, 250, 333, 300, 310, 500, 750, 750, 750,
-    444, // 0xb0 to 0xbf
-    722, 722, 722, 722, 722, 722, 889, 667, 611, 611, 611, 611, 333, 333, 333,
-    333, // 0xc0 to 0xcf
-    722, 722, 722, 722, 722, 722, 722, 564, 722, 722, 722, 722, 722, 722, 556,
-    500, // 0xd0 to 0xdf
-    444, 444, 444, 444, 444, 444, 667, 444, 444, 444, 444, 444, 278, 278, 278,
-    278, // 0xe0 to 0xef
-    500, 500, 500, 500, 500, 500, 500, 564, 500, 500, 500, 500, 500, 500, 500,
-    500, // 0xf0 to 0xff
+/// Symbol's widths for the five characters karyon writes beyond WinAnsi.
+pub(crate) const SYMBOL: [(char, u16); 5] = [
+    ('\u{03c9}', 686), // omega
+    ('\u{2192}', 987), // arrowright
+    ('\u{2248}', 549), // approxequal
+    ('\u{2264}', 549), // lessequal
+    ('\u{2265}', 549), // greaterequal
 ];
 
-/// Times-Bold, by WinAnsi byte from 32.
-pub(crate) const TIMES_BOLD: [u16; 224] = [
-    250, 333, 555, 500, 500, 1000, 833, 278, 333, 333, 500, 570, 250, 333, 250,
-    278, // 0x20 to 0x2f
-    500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 333, 333, 570, 570, 570,
-    500, // 0x30 to 0x3f
-    930, 722, 667, 722, 722, 667, 611, 778, 778, 389, 500, 778, 667, 944, 722,
-    778, // 0x40 to 0x4f
-    611, 778, 722, 556, 667, 722, 722, 1000, 722, 722, 667, 333, 278, 333, 581,
-    500, // 0x50 to 0x5f
-    333, 500, 556, 444, 556, 444, 333, 500, 556, 278, 333, 556, 278, 833, 556,
-    500, // 0x60 to 0x6f
-    556, 556, 444, 389, 333, 556, 500, 722, 500, 500, 444, 394, 220, 394, 520,
-    0, // 0x70 to 0x7f
-    500, 0, 333, 500, 500, 1000, 500, 500, 333, 1000, 556, 333, 1000, 0, 667,
-    0, // 0x80 to 0x8f
-    0, 333, 333, 500, 500, 350, 500, 1000, 333, 1000, 389, 333, 722, 0, 444,
-    722, // 0x90 to 0x9f
-    250, 333, 500, 500, 500, 500, 220, 500, 333, 747, 300, 500, 570, 333, 747,
-    333, // 0xa0 to 0xaf
-    400, 570, 300, 300, 333, 556, 540, 250, 333, 300, 330, 500, 750, 750, 750,
-    500, // 0xb0 to 0xbf
-    722, 722, 722, 722, 722, 722, 1000, 722, 667, 667, 667, 667, 389, 389, 389,
-    389, // 0xc0 to 0xcf
-    722, 722, 778, 778, 778, 778, 778, 570, 778, 722, 722, 722, 722, 722, 611,
-    556, // 0xd0 to 0xdf
-    500, 500, 500, 500, 500, 500, 722, 444, 444, 444, 444, 444, 278, 278, 278,
-    278, // 0xe0 to 0xef
-    500, 556, 500, 500, 500, 500, 500, 570, 500, 556, 556, 556, 556, 500, 556,
-    500, // 0xf0 to 0xff
-];
-
-/// Symbol: a character, the byte that draws it, and its width, sorted by
-/// character for a binary search.
-pub(crate) const SYMBOL: [(char, u8, u16); 120] = [
-    ('\u{0391}', 0x41, 722),  // Alpha
-    ('\u{0392}', 0x42, 667),  // Beta
-    ('\u{0393}', 0x47, 603),  // Gamma
-    ('\u{0394}', 0x44, 612),  // Delta
-    ('\u{0395}', 0x45, 611),  // Epsilon
-    ('\u{0396}', 0x5A, 611),  // Zeta
-    ('\u{0397}', 0x48, 722),  // Eta
-    ('\u{0398}', 0x51, 741),  // Theta
-    ('\u{0399}', 0x49, 333),  // Iota
-    ('\u{039a}', 0x4B, 722),  // Kappa
-    ('\u{039b}', 0x4C, 686),  // Lambda
-    ('\u{039c}', 0x4D, 889),  // Mu
-    ('\u{039d}', 0x4E, 722),  // Nu
-    ('\u{039e}', 0x58, 645),  // Xi
-    ('\u{039f}', 0x4F, 722),  // Omicron
-    ('\u{03a0}', 0x50, 768),  // Pi
-    ('\u{03a1}', 0x52, 556),  // Rho
-    ('\u{03a3}', 0x53, 592),  // Sigma
-    ('\u{03a4}', 0x54, 611),  // Tau
-    ('\u{03a5}', 0x55, 690),  // Upsilon
-    ('\u{03a6}', 0x46, 763),  // Phi
-    ('\u{03a7}', 0x43, 722),  // Chi
-    ('\u{03a8}', 0x59, 795),  // Psi
-    ('\u{03a9}', 0x57, 768),  // Omega
-    ('\u{03b1}', 0x61, 631),  // alpha
-    ('\u{03b2}', 0x62, 549),  // beta
-    ('\u{03b3}', 0x67, 411),  // gamma
-    ('\u{03b4}', 0x64, 494),  // delta
-    ('\u{03b5}', 0x65, 439),  // epsilon
-    ('\u{03b6}', 0x7A, 494),  // zeta
-    ('\u{03b7}', 0x68, 603),  // eta
-    ('\u{03b8}', 0x71, 521),  // theta
-    ('\u{03b9}', 0x69, 329),  // iota
-    ('\u{03ba}', 0x6B, 549),  // kappa
-    ('\u{03bb}', 0x6C, 549),  // lambda
-    ('\u{03bc}', 0x6D, 576),  // mu
-    ('\u{03bd}', 0x6E, 521),  // nu
-    ('\u{03be}', 0x78, 493),  // xi
-    ('\u{03bf}', 0x6F, 549),  // omicron
-    ('\u{03c0}', 0x70, 549),  // pi
-    ('\u{03c1}', 0x72, 549),  // rho
-    ('\u{03c2}', 0x56, 439),  // sigma1
-    ('\u{03c3}', 0x73, 603),  // sigma
-    ('\u{03c4}', 0x74, 439),  // tau
-    ('\u{03c5}', 0x75, 576),  // upsilon
-    ('\u{03c6}', 0x66, 521),  // phi
-    ('\u{03c7}', 0x63, 549),  // chi
-    ('\u{03c8}', 0x79, 686),  // psi
-    ('\u{03c9}', 0x77, 686),  // omega
-    ('\u{03d1}', 0x4A, 631),  // theta1
-    ('\u{03d2}', 0xA1, 620),  // Upsilon1
-    ('\u{03d5}', 0x6A, 603),  // phi1
-    ('\u{03d6}', 0x76, 713),  // omega1
-    ('\u{2032}', 0xA2, 247),  // minute
-    ('\u{2033}', 0xB2, 411),  // second
-    ('\u{2044}', 0xA4, 167),  // fraction
-    ('\u{2111}', 0xC1, 686),  // Ifraktur
-    ('\u{2118}', 0xC3, 987),  // weierstrass
-    ('\u{211c}', 0xC2, 795),  // Rfraktur
-    ('\u{2126}', 0x57, 768),  // Omega (alias)
-    ('\u{2135}', 0xC0, 823),  // aleph
-    ('\u{2190}', 0xAC, 987),  // arrowleft
-    ('\u{2191}', 0xAD, 603),  // arrowup
-    ('\u{2192}', 0xAE, 987),  // arrowright
-    ('\u{2193}', 0xAF, 603),  // arrowdown
-    ('\u{2194}', 0xAB, 1042), // arrowboth
-    ('\u{21b5}', 0xBF, 658),  // carriagereturn
-    ('\u{21d0}', 0xDC, 987),  // arrowdblleft
-    ('\u{21d1}', 0xDD, 603),  // arrowdblup
-    ('\u{21d2}', 0xDE, 987),  // arrowdblright
-    ('\u{21d3}', 0xDF, 603),  // arrowdbldown
-    ('\u{21d4}', 0xDB, 1042), // arrowdblboth
-    ('\u{2200}', 0x22, 713),  // universal
-    ('\u{2202}', 0xB6, 494),  // partialdiff
-    ('\u{2203}', 0x24, 549),  // existential
-    ('\u{2205}', 0xC6, 823),  // emptyset
-    ('\u{2206}', 0x44, 612),  // Delta (alias)
-    ('\u{2207}', 0xD1, 713),  // gradient
-    ('\u{2208}', 0xCE, 713),  // element
-    ('\u{2209}', 0xCF, 713),  // notelement
-    ('\u{220b}', 0x27, 439),  // suchthat
-    ('\u{220f}', 0xD5, 823),  // product
-    ('\u{2211}', 0xE5, 713),  // summation
-    ('\u{2212}', 0x2D, 549),  // minus
-    ('\u{2217}', 0x2A, 500),  // asteriskmath
-    ('\u{221a}', 0xD6, 549),  // radical
-    ('\u{221d}', 0xB5, 713),  // proportional
-    ('\u{221e}', 0xA5, 713),  // infinity
-    ('\u{2220}', 0xD0, 768),  // angle
-    ('\u{2227}', 0xD9, 603),  // logicaland
-    ('\u{2228}', 0xDA, 603),  // logicalor
-    ('\u{2229}', 0xC7, 768),  // intersection
-    ('\u{222a}', 0xC8, 768),  // union
-    ('\u{222b}', 0xF2, 274),  // integral
-    ('\u{2234}', 0x5C, 863),  // therefore
-    ('\u{223c}', 0x7E, 549),  // similar
-    ('\u{2245}', 0x40, 549),  // congruent
-    ('\u{2248}', 0xBB, 549),  // approxequal
-    ('\u{2260}', 0xB9, 549),  // notequal
-    ('\u{2261}', 0xBA, 549),  // equivalence
-    ('\u{2264}', 0xA3, 549),  // lessequal
-    ('\u{2265}', 0xB3, 549),  // greaterequal
-    ('\u{2282}', 0xCC, 713),  // propersubset
-    ('\u{2283}', 0xC9, 713),  // propersuperset
-    ('\u{2284}', 0xCB, 713),  // notsubset
-    ('\u{2286}', 0xCD, 713),  // reflexsubset
-    ('\u{2287}', 0xCA, 713),  // reflexsuperset
-    ('\u{2295}', 0xC5, 768),  // circleplus
-    ('\u{2297}', 0xC4, 768),  // circlemultiply
-    ('\u{22a5}', 0x5E, 658),  // perpendicular
-    ('\u{22c5}', 0xD7, 250),  // dotmath
-    ('\u{2320}', 0xF3, 686),  // integraltp
-    ('\u{2321}', 0xF5, 686),  // integralbt
-    ('\u{2329}', 0xE1, 329),  // angleleft
-    ('\u{232a}', 0xF1, 329),  // angleright
-    ('\u{25ca}', 0xE0, 494),  // lozenge
-    ('\u{2660}', 0xAA, 753),  // spade
-    ('\u{2663}', 0xA7, 753),  // club
-    ('\u{2665}', 0xA9, 753),  // heart
-    ('\u{2666}', 0xA8, 753),  // diamond
-];
+/// The WinAnsi byte for `c`, if WinAnsi has one.
+pub(crate) fn winansi(c: char) -> Option<u8> {
+    let code = c as u32;
+    if (0x20..0x7f).contains(&code) || (0xa0..=0xff).contains(&code) {
+        // ASCII and Latin-1 are where Unicode put them.
+        return u8::try_from(code).ok();
+    }
+    // The rest of Windows-1252, which puts typographic punctuation and a few
+    // letters where Latin-1 has its second block of controls.
+    const HIGH: [(char, u8); 27] = [
+        ('\u{20ac}', 0x80),
+        ('\u{201a}', 0x82),
+        ('\u{0192}', 0x83),
+        ('\u{201e}', 0x84),
+        ('\u{2026}', 0x85),
+        ('\u{2020}', 0x86),
+        ('\u{2021}', 0x87),
+        ('\u{02c6}', 0x88),
+        ('\u{2030}', 0x89),
+        ('\u{0160}', 0x8a),
+        ('\u{2039}', 0x8b),
+        ('\u{0152}', 0x8c),
+        ('\u{017d}', 0x8e),
+        ('\u{2018}', 0x91),
+        ('\u{2019}', 0x92),
+        ('\u{201c}', 0x93),
+        ('\u{201d}', 0x94),
+        ('\u{2022}', 0x95),
+        ('\u{2013}', 0x96),
+        ('\u{2014}', 0x97),
+        ('\u{02dc}', 0x98),
+        ('\u{2122}', 0x99),
+        ('\u{0161}', 0x9a),
+        ('\u{203a}', 0x9b),
+        ('\u{0153}', 0x9c),
+        ('\u{017e}', 0x9e),
+        ('\u{0178}', 0x9f),
+    ];
+    HIGH.iter()
+        .find(|(known, _)| *known == c)
+        .map(|(_, code)| *code)
+}

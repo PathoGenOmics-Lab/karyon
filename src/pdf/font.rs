@@ -18,8 +18,10 @@
 //! font and a layout engine that shapes text with it, and is left behind:
 //! kerning, ligatures, glyph names and the full character map.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use super::object;
+use super::text::Face;
 use crate::svg::num;
 
 /// A TrueType face, read from the bytes of its file.
@@ -394,6 +396,167 @@ impl Font {
     }
 }
 
+/// The glyphs of one face a page uses, each with the character it was asked
+/// for, which is what copying the text gives back.
+#[derive(Debug)]
+pub(crate) struct Subset {
+    pub(crate) face: Face,
+    pub(crate) glyphs: BTreeMap<u16, char>,
+}
+
+impl Subset {
+    /// How many objects [`write`](Subset::write) writes.
+    pub(crate) const OBJECTS: usize = 5;
+
+    pub(crate) fn new(face: Face) -> Subset {
+        Subset {
+            face,
+            glyphs: BTreeMap::new(),
+        }
+    }
+
+    /// The name of the subset: six capitals and a plus before the face's
+    /// own, as every subset is named so a reader never takes it for the whole
+    /// face. The capitals are worked out from the face and the glyphs rather
+    /// than drawn at random, so the same figure writes the same bytes.
+    pub(crate) fn name(&self) -> String {
+        let font = self.face.font();
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let glyphs = self.glyphs.keys().flat_map(|glyph| glyph.to_be_bytes());
+        for byte in font.name.bytes().chain(glyphs) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        let mut tag = String::with_capacity(7 + font.name.len());
+        for _ in 0..6 {
+            tag.push(char::from(b'A' + (hash % 26) as u8));
+            hash /= 26;
+        }
+        tag.push('+');
+        tag.push_str(&font.name);
+        tag
+    }
+
+    /// Writes the face as objects `first` onwards: the composite font the
+    /// page names, the one font it is made of, which reads two bytes as a
+    /// glyph number, its descriptor, the subset itself, and the map back from
+    /// glyphs to text.
+    pub(crate) fn write(&self, out: &mut Vec<u8>, offsets: &mut Vec<(usize, usize)>, first: usize) {
+        let font = self.face.font();
+        let name = self.name();
+        let (descendant, descriptor, file, unicode) = (first + 1, first + 2, first + 3, first + 4);
+        object(
+            out,
+            offsets,
+            first,
+            &format!(
+                "<< /Type /Font /Subtype /Type0 /BaseFont /{name} /Encoding /Identity-H \
+                 /DescendantFonts [{descendant} 0 R] /ToUnicode {unicode} 0 R >>"
+            ),
+        );
+        // Each run of consecutive glyphs is one array of widths, so the
+        // widths a page uses are listed and no others.
+        let mut widths = String::new();
+        let mut previous: Option<u16> = None;
+        for glyph in self.glyphs.keys() {
+            if previous.is_some_and(|previous| previous + 1 == *glyph) {
+                widths.push(' ');
+            } else {
+                if previous.is_some() {
+                    widths.push_str("] ");
+                }
+                widths.push_str(&format!("{glyph} ["));
+            }
+            widths.push_str(&font.width(*glyph).to_string());
+            previous = Some(*glyph);
+        }
+        if previous.is_some() {
+            widths.push(']');
+        }
+        object(
+            out,
+            offsets,
+            descendant,
+            &format!(
+                "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /{name} \
+                 /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> \
+                 /FontDescriptor {descriptor} 0 R /W [{widths}] /CIDToGIDMap /Identity >>"
+            ),
+        );
+        object(
+            out,
+            offsets,
+            descriptor,
+            &format!(
+                "<< /Type /FontDescriptor /FontName /{name} {} /FontFile2 {file} 0 R >>",
+                font.descriptor()
+            ),
+        );
+        let used: BTreeSet<u16> = self.glyphs.keys().copied().collect();
+        let subset = font.subset(&used);
+        stream(
+            out,
+            offsets,
+            file,
+            &format!("/Length1 {}", subset.len()),
+            &subset,
+        );
+        stream(out, offsets, unicode, "", self.unicode().as_bytes());
+    }
+
+    /// The CMap that turns each glyph back into its character, which is what
+    /// a reader copies, searches and reads aloud.
+    fn unicode(&self) -> String {
+        let mut map = String::from(
+            "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n\
+             /CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n\
+             /CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n\
+             1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
+        );
+        let glyphs: Vec<(&u16, &char)> = self.glyphs.iter().collect();
+        // A block holds a hundred at most.
+        for block in glyphs.chunks(100) {
+            map.push_str(&format!("{} beginbfchar\n", block.len()));
+            for (glyph, c) in block {
+                map.push_str(&format!("<{glyph:04X}> <"));
+                for unit in c.encode_utf16(&mut [0; 2]) {
+                    map.push_str(&format!("{unit:04X}"));
+                }
+                map.push_str(">\n");
+            }
+            map.push_str("endbfchar\n");
+        }
+        map.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend");
+        map
+    }
+}
+
+/// Writes object `number` as a stream of `bytes`, with `entries` in its
+/// dictionary beside its length.
+fn stream(
+    out: &mut Vec<u8>,
+    offsets: &mut Vec<(usize, usize)>,
+    number: usize,
+    entries: &str,
+    bytes: &[u8],
+) {
+    offsets.push((number, out.len()));
+    let entries = if entries.is_empty() {
+        String::new()
+    } else {
+        format!("{entries} ")
+    };
+    out.extend_from_slice(
+        format!(
+            "{number} 0 obj\n<< {entries}/Length {} >>\nstream\n",
+            bytes.len()
+        )
+        .as_bytes(),
+    );
+    out.extend_from_slice(bytes);
+    out.extend_from_slice(b"\nendstream\nendobj\n");
+}
+
 /// A TrueType file of `tables`, each on a four-byte boundary and listed in
 /// the order of its tag, with the checksums every table and the file carry.
 fn sfnt(mut tables: Vec<([u8; 4], Vec<u8>)>) -> Vec<u8> {
@@ -459,24 +622,14 @@ fn u32_at(data: &[u8], at: usize) -> u32 {
 mod tests {
     use super::*;
 
-    /// The three faces in `fonts/`.
-    fn faces() -> [Font; 3] {
-        [
-            include_bytes!("../../fonts/LiberationSans-Regular.ttf").as_slice(),
-            include_bytes!("../../fonts/LiberationSans-Bold.ttf"),
-            include_bytes!("../../fonts/LiberationMono-Regular.ttf"),
-        ]
-        .map(|data| Font::read(data).expect("TrueType"))
-    }
-
     #[test]
     fn each_face_reads_with_its_name_and_its_letters() {
-        let [sans, bold, mono] = faces();
-        for (font, name, fixed) in [
-            (&sans, "LiberationSans", false),
-            (&bold, "LiberationSans-Bold", false),
-            (&mono, "LiberationMono", true),
+        for (face, name, fixed) in [
+            (Face::Sans, "LiberationSans", false),
+            (Face::SansBold, "LiberationSans-Bold", false),
+            (Face::Mono, "LiberationMono", true),
         ] {
+            let font = face.font();
             assert_eq!(font.name, name);
             assert_eq!(font.units_per_em, 2048);
             assert_eq!(font.glyph('A'), Some(36));
@@ -491,7 +644,7 @@ mod tests {
         // Liberation Sans: the box every glyph fits in, the line's ascent and
         // descent, a capital's height and, from the weight, a stem.
         assert_eq!(
-            sans.descriptor(),
+            Face::Sans.font().descriptor(),
             "/Flags 4 /FontBBox [-544 -303 1302 980] /ItalicAngle 0 /Ascent 905 \
              /Descent -212 /CapHeight 688 /StemV 96"
         );
@@ -502,7 +655,7 @@ mod tests {
     /// checksum, and the whole file summing to the number TrueType fixes.
     #[test]
     fn a_subset_is_a_sound_truetype_file() {
-        let [font, _, _] = faces();
+        let font = Face::Sans.font();
         let used: BTreeSet<u16> = "rpoB caf\u{e9} \u{3c9}"
             .chars()
             .filter_map(|c| font.glyph(c))
@@ -554,5 +707,20 @@ mod tests {
         let acute = font.glyph('\u{e9}').unwrap();
         assert_eq!(font.components(acute), [font.glyph('e').unwrap(), 118]);
         assert!(kept.contains(&118));
+    }
+
+    #[test]
+    fn the_subset_name_follows_the_glyphs_and_nothing_else() {
+        let mut one = Subset::new(Face::Sans);
+        one.glyphs.extend([(36, 'A'), (37, 'B')]);
+        let mut two = Subset::new(Face::Sans);
+        two.glyphs.extend([(37, 'B'), (36, 'A')]);
+        assert_eq!(one.name(), two.name());
+        assert!(one.name().ends_with("+LiberationSans"));
+        two.glyphs.insert(38, 'C');
+        assert_ne!(one.name(), two.name());
+        let mut bold = Subset::new(Face::SansBold);
+        bold.glyphs.extend([(36, 'A'), (37, 'B')]);
+        assert_ne!(one.name()[..6], bold.name()[..6]);
     }
 }

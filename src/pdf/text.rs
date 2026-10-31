@@ -1,80 +1,76 @@
-//! Text: which of the base fonts sets a label, which bytes stand for its
+//! Text: which of the embedded faces sets a label, which glyphs draw its
 //! characters, and how wide it comes out.
 //!
-//! No font is embedded. A face is 300 to 400 kilobytes here, and embedding one
-//! means reading TrueType, cutting a subset and writing a composite font with a
-//! map back to Unicode, which is most of a PDF library for a figure that is
-//! mostly rectangles. Every PDF reader carries Helvetica, Times, Courier and
-//! Symbol, or a face drawn to their exact widths, so a label is set in one of
-//! those and stays text: it can be searched, copied and read aloud.
-//!
-//! What that costs is the SVG's own faces, Inter and JetBrains Mono, and
-//! Helvetica is what a reader sees instead. The layout survives it.
+//! A PDF carries its own faces, Liberation Sans, Liberation Sans Bold and
+//! Liberation Mono, each as a subset of the glyphs the page uses, so every
+//! reader draws the same letters and a journal's preflight finds every font
+//! embedded. The SVG's own faces, Inter and JetBrains Mono, are what it gives
+//! up. The layout survives it, because Liberation is drawn to the widths of
+//! Helvetica and Arial, and Liberation Mono to Courier's:
 //! [`text_width`](crate::svg::text_width) measures every printable ASCII
 //! character, and every character beyond it that karyon writes, at least as
-//! wide as Helvetica or Symbol draws it,
+//! wide as Liberation Sans draws it,
 //! [`text_width_strong`](crate::svg::text_width_strong) at least as wide as
-//! Helvetica-Bold, and [`mono_width`](crate::svg::mono_width) is Courier's
-//! 600 exactly, so a label the SVG fitted in its room fits in the same room
-//! here. Each label is anchored with Adobe's own widths whatever it was
-//! measured with, so a label anchored at its end ends exactly where the SVG
-//! ended it. A character karyon does not write itself, such as an accented
-//! letter in a sample name, is measured at a flat 600 thousandths, and
-//! Helvetica draws an accented capital wider than that, so such a label can
-//! still run over at the end it was not anchored by.
+//! Liberation Sans Bold, and [`mono_width`](crate::svg::mono_width) is
+//! Liberation Mono's 600 exactly, so a label the SVG fitted in its room fits
+//! in the same room here. Each label is anchored with the widths of the face
+//! that draws it, the same ones the font's `/W` gives, so a label anchored at
+//! its end ends exactly where the SVG ended it. A character karyon does not
+//! write itself, such as an accented letter in a sample name, is measured at
+//! a flat 600 thousandths, and Liberation Sans draws an accented capital
+//! wider than that, so such a label can still run over at the end it was not
+//! anchored by.
 
-use super::metrics;
+use std::sync::OnceLock;
 
-/// One of the fonts every PDF reader has.
+use super::font::Font;
+
+/// One of the faces a PDF embeds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Face {
-    Helvetica,
-    HelveticaBold,
-    Times,
-    TimesBold,
-    Courier,
-    CourierBold,
-    Symbol,
+    Sans,
+    SansBold,
+    Mono,
 }
 
 impl Face {
-    /// The name a PDF gives the font.
-    pub(crate) fn base_font(self) -> &'static str {
-        match self {
-            Face::Helvetica => "Helvetica",
-            Face::HelveticaBold => "Helvetica-Bold",
-            Face::Times => "Times-Roman",
-            Face::TimesBold => "Times-Bold",
-            Face::Courier => "Courier",
-            Face::CourierBold => "Courier-Bold",
-            Face::Symbol => "Symbol",
-        }
+    /// The face, read once from the copy the crate carries in `fonts/`.
+    pub(crate) fn font(self) -> &'static Font {
+        static SANS: OnceLock<Font> = OnceLock::new();
+        static SANS_BOLD: OnceLock<Font> = OnceLock::new();
+        static MONO: OnceLock<Font> = OnceLock::new();
+        let (cell, data): (&OnceLock<Font>, &'static [u8]) = match self {
+            Face::Sans => (
+                &SANS,
+                include_bytes!("../../fonts/LiberationSans-Regular.ttf"),
+            ),
+            Face::SansBold => (
+                &SANS_BOLD,
+                include_bytes!("../../fonts/LiberationSans-Bold.ttf"),
+            ),
+            Face::Mono => (
+                &MONO,
+                include_bytes!("../../fonts/LiberationMono-Regular.ttf"),
+            ),
+        };
+        cell.get_or_init(|| Font::read(data).expect("the faces in fonts/ are TrueType"))
     }
 
-    /// The advance of WinAnsi byte `code`, in thousandths of an em.
-    fn width(self, code: u8) -> u16 {
-        let index = usize::from(code.saturating_sub(32));
-        match self {
-            Face::Helvetica => metrics::HELVETICA[index],
-            Face::HelveticaBold => metrics::HELVETICA_BOLD[index],
-            Face::Times => metrics::TIMES_ROMAN[index],
-            Face::TimesBold => metrics::TIMES_BOLD[index],
-            Face::Courier | Face::CourierBold => 600,
-            Face::Symbol => symbol_width(code),
-        }
-    }
-
-    /// The face a font stack and a weight ask for.
+    /// The face a font stack and a weight ask for, and what the page says
+    /// when it is not the face they asked for.
     ///
-    /// The stack decides by kind rather than by name, since no name in it is
-    /// one a PDF reader has: a stack that names a monospaced face anywhere, or
-    /// ends in `monospace`, is Courier; one that opens with a serif face, or
-    /// ends in `serif`, is Times; anything else is Helvetica, which is what the
-    /// default stack, Inter then Liberation Sans, Arial and Helvetica, is
-    /// drawn to match. Bold is `bold`, `bolder`, or a weight of 600 or more,
-    /// which is where CSS rounds a semibold to the bold face of a family that
-    /// has only the two.
-    pub(crate) fn choose(family: &str, weight: &str) -> Face {
+    /// The stack decides by kind rather than by name, since a PDF carries
+    /// only the faces it embeds: a stack that names a monospaced face
+    /// anywhere, or ends in `monospace`, is Liberation Mono, and anything
+    /// else Liberation Sans, which is what the default stack, Inter then
+    /// Liberation Sans, Arial and Helvetica, is drawn to match. Bold is
+    /// `bold`, `bolder`, or a weight of 600 or more, which is where CSS
+    /// rounds a semibold to the bold face of a family that has only the two.
+    /// A serif stack, one that opens with a serif face or ends in `serif`,
+    /// and a bold monospaced one ask for a face the PDF does not carry, and
+    /// karyon writes neither, so each is set in the nearest it does carry
+    /// and named in the notes.
+    pub(crate) fn choose(family: &str, weight: &str) -> (Face, Option<&'static str>) {
         let weight = weight.trim();
         let bold = matches!(weight, "bold" | "bolder")
             || weight.parse::<f64>().is_ok_and(|value| value >= 600.0);
@@ -101,13 +97,21 @@ impl Face {
         };
         let serif = families.first().is_some_and(|name| serif(name))
             || families.iter().any(|name| name == "serif");
+        let sans = if bold { Face::SansBold } else { Face::Sans };
         match (mono, serif, bold) {
-            (true, _, false) => Face::Courier,
-            (true, _, true) => Face::CourierBold,
-            (false, true, false) => Face::Times,
-            (false, true, true) => Face::TimesBold,
-            (false, false, false) => Face::Helvetica,
-            (false, false, true) => Face::HelveticaBold,
+            (true, _, false) => (Face::Mono, None),
+            (true, _, true) => (
+                Face::Mono,
+                Some(
+                    "bold monospaced text is set in Liberation Mono, whose one weight the PDF \
+                     embeds is regular",
+                ),
+            ),
+            (false, true, _) => (
+                sans,
+                Some("a serif face is set in Liberation Sans, since the PDF embeds no serif face"),
+            ),
+            (false, false, _) => (sans, None),
         }
     }
 }
@@ -116,41 +120,42 @@ impl Face {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Run {
     pub(crate) face: Face,
-    /// The bytes that draw it, in the face's encoding.
-    pub(crate) bytes: Vec<u8>,
+    /// The glyphs that draw it, each with the character it stands for.
+    pub(crate) glyphs: Vec<(u16, char)>,
     /// Its advance, in thousandths of an em.
     pub(crate) width: f64,
 }
 
 /// `text` cut into runs by the face that can set each character.
 ///
-/// A character goes to `base` when WinAnsi has it, to Symbol when Symbol has
-/// it, and is otherwise drawn as a question mark in `base` and added to
-/// `missing`, once. A question mark is a visible stand-in rather than a gap,
-/// so the label keeps its length and a reader can see something was there;
-/// the document's title and alt text keep the exact text either way.
+/// A character goes to `base` when it has it, and otherwise to Liberation
+/// Sans, which has every glyph the bold and the monospaced face have and a
+/// few more. One neither has is drawn as a question mark in `base` and added
+/// to `missing`, once. A question mark is a visible stand-in rather than a
+/// gap, so the label keeps its length and a reader can see something was
+/// there; the document's title and alt text keep the exact text either way.
 pub(crate) fn runs(text: &str, base: Face, missing: &mut Vec<char>) -> Vec<Run> {
     let mut runs: Vec<Run> = Vec::new();
     for c in text.chars().filter(|c| !invisible(*c)) {
-        let (face, code) = if let Some(code) = winansi(c) {
-            (base, code)
-        } else if let Some(code) = symbol(c) {
-            (Face::Symbol, code)
+        let (face, glyph, c) = if let Some(glyph) = base.font().glyph(c) {
+            (base, glyph, c)
+        } else if let Some(glyph) = Face::Sans.font().glyph(c) {
+            (Face::Sans, glyph, c)
         } else {
             if !missing.contains(&c) {
                 missing.push(c);
             }
-            (base, b'?')
+            (base, base.font().glyph('?').unwrap_or(0), '?')
         };
-        let width = f64::from(face.width(code));
+        let width = f64::from(face.font().width(glyph));
         match runs.last_mut() {
             Some(run) if run.face == face => {
-                run.bytes.push(code);
+                run.glyphs.push((glyph, c));
                 run.width += width;
             }
             _ => runs.push(Run {
                 face,
-                bytes: vec![code],
+                glyphs: vec![(glyph, c)],
                 width,
             }),
         }
@@ -176,64 +181,6 @@ fn invisible(c: char) -> bool {
     )
 }
 
-/// The WinAnsi byte for `c`, if WinAnsi has one.
-pub(crate) fn winansi(c: char) -> Option<u8> {
-    let code = c as u32;
-    if (0x20..0x7f).contains(&code) || (0xa0..=0xff).contains(&code) {
-        // ASCII and Latin-1 are where Unicode put them.
-        return u8::try_from(code).ok();
-    }
-    // The rest of Windows-1252, which puts typographic punctuation and a few
-    // letters where Latin-1 has its second block of controls.
-    const HIGH: [(char, u8); 27] = [
-        ('\u{20ac}', 0x80),
-        ('\u{201a}', 0x82),
-        ('\u{0192}', 0x83),
-        ('\u{201e}', 0x84),
-        ('\u{2026}', 0x85),
-        ('\u{2020}', 0x86),
-        ('\u{2021}', 0x87),
-        ('\u{02c6}', 0x88),
-        ('\u{2030}', 0x89),
-        ('\u{0160}', 0x8a),
-        ('\u{2039}', 0x8b),
-        ('\u{0152}', 0x8c),
-        ('\u{017d}', 0x8e),
-        ('\u{2018}', 0x91),
-        ('\u{2019}', 0x92),
-        ('\u{201c}', 0x93),
-        ('\u{201d}', 0x94),
-        ('\u{2022}', 0x95),
-        ('\u{2013}', 0x96),
-        ('\u{2014}', 0x97),
-        ('\u{02dc}', 0x98),
-        ('\u{2122}', 0x99),
-        ('\u{0161}', 0x9a),
-        ('\u{203a}', 0x9b),
-        ('\u{0153}', 0x9c),
-        ('\u{017e}', 0x9e),
-        ('\u{0178}', 0x9f),
-    ];
-    HIGH.iter()
-        .find(|(known, _)| *known == c)
-        .map(|(_, code)| *code)
-}
-
-/// The Symbol byte for `c`, if Symbol has it and WinAnsi does not.
-pub(crate) fn symbol(c: char) -> Option<u8> {
-    metrics::SYMBOL
-        .binary_search_by(|(known, _, _)| known.cmp(&c))
-        .ok()
-        .map(|at| metrics::SYMBOL[at].1)
-}
-
-fn symbol_width(code: u8) -> u16 {
-    metrics::SYMBOL
-        .iter()
-        .find(|(_, known, _)| *known == code)
-        .map_or(0, |(_, _, width)| *width)
-}
-
 /// Whitespace collapsed as a browser collapses it under `white-space:
 /// normal`: every run of spaces, tabs and line breaks is one space, and none
 /// is kept at either end.
@@ -251,22 +198,14 @@ pub(crate) fn collapse(text: &str) -> String {
     out
 }
 
-/// Writes `bytes` as a PDF literal string that stays seven-bit: the three
-/// characters a string has to escape are escaped, and every byte from 128 up
-/// is an octal escape, so a content stream can be read and diffed as text.
-pub(crate) fn write_string(out: &mut Vec<u8>, bytes: &[u8]) {
-    out.push(b'(');
-    for &byte in bytes {
-        match byte {
-            b'(' | b')' | b'\\' => {
-                out.push(b'\\');
-                out.push(byte);
-            }
-            0x20..=0x7e => out.push(byte),
-            _ => out.extend_from_slice(format!("\\{byte:03o}").as_bytes()),
-        }
+/// Writes `glyphs` as the string a composite font reads them from: two bytes
+/// each, the glyph's number, in hexadecimal.
+pub(crate) fn write_glyphs(out: &mut Vec<u8>, glyphs: &[(u16, char)]) {
+    out.push(b'<');
+    for (glyph, _) in glyphs {
+        out.extend_from_slice(format!("{glyph:04X}").as_bytes());
     }
-    out.push(b')');
+    out.push(b'>');
 }
 
 #[cfg(test)]
@@ -274,72 +213,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_default_stacks_are_set_in_helvetica_and_courier() {
+    fn the_default_stacks_are_set_in_liberation_sans_and_mono() {
         let sans = "Inter, Liberation Sans, Arial, Helvetica, sans-serif";
         let mono = "JetBrains Mono, Liberation Mono, Menlo, Consolas, monospace";
-        assert_eq!(Face::choose(sans, "normal"), Face::Helvetica);
-        assert_eq!(Face::choose(sans, "bold"), Face::HelveticaBold);
-        assert_eq!(Face::choose(sans, "600"), Face::HelveticaBold);
-        assert_eq!(Face::choose(sans, "500"), Face::Helvetica);
-        assert_eq!(Face::choose(mono, "normal"), Face::Courier);
-        assert_eq!(
-            Face::choose("Fira Code, monospace", "bold"),
-            Face::CourierBold
-        );
-        assert_eq!(Face::choose("Georgia, serif", "normal"), Face::Times);
-        assert_eq!(
-            Face::choose("'Source Serif 4', serif", "700"),
-            Face::TimesBold
-        );
+        assert_eq!(Face::choose(sans, "normal"), (Face::Sans, None));
+        assert_eq!(Face::choose(sans, "bold"), (Face::SansBold, None));
+        assert_eq!(Face::choose(sans, "600"), (Face::SansBold, None));
+        assert_eq!(Face::choose(sans, "500"), (Face::Sans, None));
+        assert_eq!(Face::choose(mono, "normal"), (Face::Mono, None));
         assert_eq!(
             Face::choose("Fira Sans, sans-serif", "normal"),
-            Face::Helvetica
+            (Face::Sans, None)
         );
-    }
-
-    #[test]
-    fn omega_and_less_or_equal_are_set_in_symbol_and_the_rest_in_winansi() {
-        let mut missing = Vec::new();
-        let set = runs("\u{3c9} \u{2264} 0.05", Face::Helvetica, &mut missing);
-        let faces: Vec<Face> = set.iter().map(|run| run.face).collect();
-        assert_eq!(
-            faces,
-            [Face::Symbol, Face::Helvetica, Face::Symbol, Face::Helvetica]
-        );
-        assert_eq!(set[0].bytes, [0x77]);
-        assert_eq!(set[2].bytes, [0xa3]);
-        assert!(missing.is_empty());
-        // Omega is 686 thousandths in Symbol, and a space 278 in Helvetica.
-        assert_eq!(set[0].width, 686.0);
-        assert_eq!(set[1].width, 278.0);
-        // An ellipsis, a times sign, an en dash, a superscript two and a
-        // middle dot are WinAnsi's.
-        for (c, code) in [
-            ('\u{2026}', 0x85),
-            ('\u{d7}', 0xd7),
-            ('\u{2013}', 0x96),
-            ('\u{b2}', 0xb2),
-            ('\u{b7}', 0xb7),
+        // The faces the PDF does not carry are set in the nearest it does,
+        // and said.
+        let (face, note) = Face::choose("Fira Code, monospace", "bold");
+        assert_eq!(face, Face::Mono);
+        assert!(note.is_some_and(|note| note.contains("Liberation Mono")));
+        for (stack, weight, face) in [
+            ("Georgia, serif", "normal", Face::Sans),
+            ("'Source Serif 4', serif", "700", Face::SansBold),
         ] {
-            assert_eq!(winansi(c), Some(code), "{c}");
-        }
-        for (c, code) in [('\u{2265}', 0xb3), ('\u{2248}', 0xbb), ('\u{2192}', 0xae)] {
-            assert_eq!(winansi(c), None, "{c}");
-            assert_eq!(symbol(c), Some(code), "{c}");
+            let (chosen, note) = Face::choose(stack, weight);
+            assert_eq!(chosen, face, "{stack}");
+            assert!(note.is_some_and(|note| note.contains("serif")), "{stack}");
         }
     }
 
     #[test]
-    fn a_character_no_builtin_font_has_is_a_question_mark_and_said_once() {
+    fn omega_the_relations_and_the_ellipsis_are_set_in_the_label_s_own_face() {
         let mut missing = Vec::new();
-        let set = runs("a\u{4e2d}b\u{4e2d}", Face::Helvetica, &mut missing);
+        let set = runs("\u{3c9} \u{2264} 0.05\u{2026}", Face::Sans, &mut missing);
         assert_eq!(set.len(), 1);
-        assert_eq!(set[0].bytes, b"a?b?");
+        assert_eq!(set[0].face, Face::Sans);
+        assert!(missing.is_empty());
+        let text: String = set[0].glyphs.iter().map(|(_, c)| *c).collect();
+        assert_eq!(text, "\u{3c9} \u{2264} 0.05\u{2026}");
+        // Omega is 781 thousandths in Liberation Sans, a space 278, less
+        // than or equal 549, the digits of 0.05 556 each and its full stop
+        // 278, and the ellipsis an em.
+        assert_eq!(
+            set[0].width,
+            781.0 + 278.0 + 549.0 + 278.0 + 1946.0 + 1000.0
+        );
+        let mono = runs("\u{3c9}\u{2192}", Face::Mono, &mut missing);
+        assert_eq!(mono.len(), 1);
+        assert_eq!(mono[0].width, 1200.0);
+    }
+
+    #[test]
+    fn a_character_no_embedded_face_has_is_a_question_mark_and_said_once() {
+        let mut missing = Vec::new();
+        let set = runs("a\u{4e2d}b\u{4e2d}", Face::Sans, &mut missing);
+        assert_eq!(set.len(), 1);
+        let text: String = set[0].glyphs.iter().map(|(_, c)| *c).collect();
+        assert_eq!(text, "a?b?");
         assert_eq!(missing, ['\u{4e2d}']);
+        // An element-of sign was set in Symbol before the faces were
+        // embedded, and Liberation has none.
+        let mut missing = Vec::new();
+        runs("x \u{2208} S", Face::SansBold, &mut missing);
+        assert_eq!(missing, ['\u{2208}']);
         // What a browser draws as nothing is left out rather than marked.
         let mut missing = Vec::new();
-        let set = runs("rpoB\u{200f}\u{ad}", Face::Helvetica, &mut missing);
-        assert_eq!(set[0].bytes, b"rpoB");
+        let set = runs("rpoB\u{200f}\u{ad}", Face::Sans, &mut missing);
+        let text: String = set[0].glyphs.iter().map(|(_, c)| *c).collect();
+        assert_eq!(text, "rpoB");
         assert!(missing.is_empty());
     }
 
@@ -352,9 +291,9 @@ mod tests {
     }
 
     #[test]
-    fn a_string_stays_seven_bit_with_its_delimiters_escaped() {
+    fn glyphs_are_written_two_bytes_each_in_hexadecimal() {
         let mut out = Vec::new();
-        write_string(&mut out, b"f(x) \\ \x85\xd7");
-        assert_eq!(out, b"(f\\(x\\) \\\\ \\205\\327)");
+        write_glyphs(&mut out, &[(36, 'A'), (0x0b1c, '\u{3c9}'), (3, ' ')]);
+        assert_eq!(out, b"<00240B1C0003>");
     }
 }

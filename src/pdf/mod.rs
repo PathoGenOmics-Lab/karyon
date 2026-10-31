@@ -30,18 +30,23 @@
 //! two hundred inches, is the most a PDF page can be, and a wider figure is
 //! drawn smaller with a `/UserUnit` that brings it back to size.
 //!
-//! # What the base fonts cost
+//! # The faces are in the file
 //!
-//! Text is set in the fonts every reader has, Helvetica, Courier and Symbol,
-//! rather than in the SVG's Inter and JetBrains Mono, and none is embedded. A
-//! face is 300 to 400 kilobytes, and embedding one means reading TrueType and
-//! cutting a subset of it, which is most of a PDF library; the base fonts cost
-//! nothing and the text stays text, to be searched and read aloud. The layout
-//! survives the change because [`text_width`](crate::svg::text_width) is never
-//! narrower than Helvetica, nor the strong measure than Helvetica-Bold, for
-//! printable ASCII and the characters beyond it karyon writes, and each label
-//! is anchored with Adobe's own widths. Characters outside what those
-//! fonts encode are drawn as question marks and named in [`Pdf::notes`].
+//! Text is set in Liberation Sans, Liberation Sans Bold and Liberation Mono,
+//! rather than in the SVG's Inter and JetBrains Mono, and each face a page
+//! uses is embedded in it as a subset of the glyphs the page draws: a
+//! composite font over one TrueType font, with its widths and a map from
+//! each glyph back to its character, so every reader draws the same letters,
+//! a journal's preflight finds every font embedded, and the text stays text,
+//! to be searched, copied and read aloud. The faces are the ones the crate
+//! carries in `fonts/`, under the SIL Open Font License. Liberation is drawn
+//! to the widths of Helvetica and Arial, and of Courier, which the layout was
+//! made against: [`text_width`](crate::svg::text_width) is never narrower
+//! than Liberation Sans, nor the strong measure than Liberation Sans Bold,
+//! for printable ASCII and the characters beyond it karyon writes, and each
+//! label is anchored with the widths of the face that draws it. Characters
+//! none of the faces has are drawn as question marks and named in
+//! [`Pdf::notes`].
 //!
 //! # What does not carry over
 //!
@@ -50,14 +55,13 @@
 //! kept, as the PDF's title and subject and as the alternative text of the one
 //! tagged figure on the page, which is where a screen reader looks for them.
 //! The file is not compressed. Most figures come out about the size of their
-//! SVG, and one of many dots up to four times it, since a circle is four
-//! curves where the SVG writes one element: the association scan the guide
-//! shows, 1,748 circles, is 3.7 times its SVG.
+//! SVG, with 5 to 30 kilobytes for each face, and one of many dots up to four
+//! times it, since a circle is four curves where the SVG writes one element:
+//! the association scan the guide shows, 1,748 circles, is 3.9 times its SVG.
 
 mod color;
-// Read and cut, and not yet written into a page.
-#[allow(dead_code)]
 mod font;
+#[cfg(test)]
 mod metrics;
 mod paint;
 mod path;
@@ -90,11 +94,12 @@ pub struct Pdf {
     /// The document, from `%PDF` to `%%EOF`.
     pub bytes: Vec<u8>,
     /// Each way the PDF differs from the SVG it came from, once each, for a
-    /// person to read: a character no base font has, a colour or a transform
-    /// that could not be read, an element or an attribute that is not drawn.
+    /// person to read: a character none of the embedded faces has, a face
+    /// asked for that the PDF does not carry, a colour or a transform that
+    /// could not be read, an element or an attribute that is not drawn.
     /// Empty for everything this crate draws, unless a label holds a
-    /// character outside what the base fonts encode, as a sample name in
-    /// Cyrillic or Chinese does.
+    /// character Liberation does not draw, as a sample name in Chinese or
+    /// Arabic does.
     pub notes: Vec<String>,
 }
 
@@ -162,7 +167,7 @@ impl Pdf {
         // Then everything that names an object by number, now the numbers
         // are known.
         let first_font = 7;
-        let first_alpha = first_font + resources.fonts.len();
+        let first_alpha = first_font + font::Subset::OBJECTS * resources.fonts.len();
         let first_fade = first_alpha + resources.alphas.len();
         let info = first_fade + 2 * resources.fades.len();
         let (tree, figure, parents) = (info + 1, info + 2, info + 3);
@@ -213,7 +218,12 @@ impl Pdf {
         };
         if !resources.fonts.is_empty() {
             dictionary.push_str(" /Font <<");
-            dictionary.push_str(&named("F", first_font, resources.fonts.len(), 1));
+            dictionary.push_str(&named(
+                "F",
+                first_font,
+                resources.fonts.len(),
+                font::Subset::OBJECTS,
+            ));
             dictionary.push_str(" >>");
         }
         if !resources.alphas.is_empty() {
@@ -229,22 +239,11 @@ impl Pdf {
         dictionary.push_str(" >>");
         object(&mut out, &mut offsets, 6, &dictionary);
 
-        for (at, face) in resources.fonts.iter().enumerate() {
-            // Symbol carries its own encoding; the Latin faces are told to
-            // read WinAnsi, which is what their strings are written in.
-            let encoding = if *face == text::Face::Symbol {
-                ""
-            } else {
-                " /Encoding /WinAnsiEncoding"
-            };
-            object(
+        for (at, subset) in resources.fonts.iter().enumerate() {
+            subset.write(
                 &mut out,
                 &mut offsets,
-                first_font + at,
-                &format!(
-                    "<< /Type /Font /Subtype /Type1 /BaseFont /{}{encoding} >>",
-                    face.base_font()
-                ),
+                first_font + at * font::Subset::OBJECTS,
             );
         }
         for (at, (fill, stroke)) in resources.alphas.iter().enumerate() {
