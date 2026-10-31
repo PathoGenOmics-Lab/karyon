@@ -1555,7 +1555,9 @@ mod tests {
         let track = GenotypeTrack::new(names(2), sites);
         let region = Region::new("chr1", 1_000, 3_000).unwrap();
         let label = |item: &LegendItem| match item {
-            LegendItem::Key { label, .. } | LegendItem::Ramp { label, .. } => label.clone(),
+            LegendItem::Key { label, .. }
+            | LegendItem::Ramp { label, .. }
+            | LegendItem::Steps { label, .. } => label.clone(),
         };
         let key = track.key(&region, 0.35, &theme).unwrap();
         let labels: Vec<String> = key.items().iter().map(label).collect();
@@ -1644,7 +1646,7 @@ mod tests {
             .iter()
             .filter_map(|item| match item {
                 LegendItem::Key { label, .. } => Some(label.clone()),
-                LegendItem::Ramp { .. } => None,
+                LegendItem::Ramp { .. } | LegendItem::Steps { .. } => None,
             })
             .collect();
         assert_eq!(labels, ["reference call", "alternate call"]);
@@ -1668,7 +1670,9 @@ mod tests {
             key.items()
                 .iter()
                 .map(|item| match item {
-                    LegendItem::Key { label, .. } | LegendItem::Ramp { label, .. } => label.clone(),
+                    LegendItem::Key { label, .. }
+                    | LegendItem::Ramp { label, .. }
+                    | LegendItem::Steps { label, .. } => label.clone(),
                 })
                 .collect()
         };

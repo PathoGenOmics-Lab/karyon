@@ -8,6 +8,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A scan coloured by its linkage with a lead, `--ld` or
+  `ManhattanTrack::linkage`, is drawn in LocusZoom's five bins of r² and its
+  colours, under 0.2 navy, to 0.4 light blue, to 0.6 green, to 0.8 orange
+  and from 0.8 red, keyed as five swatches titled `r² with` the lead's name;
+  the lead is LocusZoom's purple diamond with its name over it in the ink of
+  the text, and a variant with no r² a neutral grey, keyed `no r²` with its
+  count. One ramp from grey to the accent put an r² of 0.6 and one of 0.91 a
+  shade apart, where a reader of a regional plot looks for orange and red.
+  The five stand at 4:1 or more against the dark page as they are, so
+  neither theme changes them; on the white page the light blue, the green
+  and the orange stand at 2.1 to 2.5, as they do in LocusZoom.
+  `ManhattanTrack::linkage_colors(LinkageColors::Ramp)` keeps the ramp, its
+  open rings and its lead in the palette's second colour.
 - The branches, the strips and the tips one figure colours by its sheet are
   dealt the palette in that order, each after the first from the colours the
   ones before it left, where its values fit in them, from where its own
@@ -473,6 +486,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `LinkageColors`, how a scan coloured by linkage paints an r²: LocusZoom's
+  five bins, the default, or one ramp. `Legend::steps` and
+  `LegendItem::Steps` key a scale cut into steps under one name, each step a
+  swatch and the values it holds, its colour in its tooltip.
 - `--tip-color-by KEY` colours each tip of a phylogeny, a point at the end of
   its branch and its name, by a column of its `--traits` sheet or an
   annotation the file carries, through `TreeTrack::tip_color_by`. A value is

@@ -659,10 +659,11 @@ TRACK OPTIONS, each describing the track before it, once
     --with-tree <FILE>   the phylogeny a clade track paints onto, Newick
     --ld <FILE>          the linkage of each variant of a scan with its lead, a
                          PLINK .ld table of the lead against its neighbours:
-                         each point is coloured by its r² with the lead, and
-                         the lead is a diamond with its name over it, from
-                         the scan or the table, or its position, as in
-                         LocusZoom
+                         each point is coloured by its r² with the lead in
+                         LocusZoom's five bins, from navy under 0.2 to red at
+                         0.8 and over, and the lead is a purple diamond with
+                         its name over it, from the scan or the table, or its
+                         position
     --with-recombination <FILE>
                          a genetic map whose rate is laid over a scan as a
                          line, read off a scale on the right in cM/Mb, as

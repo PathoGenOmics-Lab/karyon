@@ -84,7 +84,7 @@ pub use junction::{Junction, JunctionTrack, Motif};
 pub use legend::{Legend, LegendItem, LegendTrack, Marker};
 pub use locus::{GeneShape, Homology, Locus, LocusTrack};
 pub use logo::{Centering, LogoColumn, LogoScore, LogoStack, LogoTrack, StackOrder};
-pub use manhattan::{Association, ManhattanTrack};
+pub use manhattan::{Association, LinkageColors, ManhattanTrack};
 pub use matrix::{CellScale, MatrixRow, MatrixTrack};
 pub use methylation::{MethylSite, MethylationTrack};
 pub use msa::{MsaColoring, MsaDisplay, MsaSequence, MsaTrack, ResidueClass};

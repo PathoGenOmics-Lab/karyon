@@ -18826,7 +18826,9 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
             .iter()
             .map(|item| match item {
                 crate::LegendItem::Key { label, .. } => label.as_str(),
-                crate::LegendItem::Ramp { label, .. } => label.as_str(),
+                crate::LegendItem::Ramp { label, .. } | crate::LegendItem::Steps { label, .. } => {
+                    label.as_str()
+                }
             })
             .collect();
         assert_eq!(said, ["above 0", "below 0"]);
@@ -18857,7 +18859,8 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
                 .iter()
                 .map(|item| match item {
                     crate::LegendItem::Key { label, color, .. } => (label.clone(), color.clone()),
-                    crate::LegendItem::Ramp { label, .. } => (label.clone(), String::new()),
+                    crate::LegendItem::Ramp { label, .. }
+                    | crate::LegendItem::Steps { label, .. } => (label.clone(), String::new()),
                 })
                 .collect()
         };

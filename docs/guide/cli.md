@@ -358,7 +358,7 @@ second with an option, spelled by what the file is:
 | `--loci` | the genes of each genome | `--links`, the homologies between neighbouring rows |
 | `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
 | `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against, the figure's `--sequence` when not given |
-| `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points as LocusZoom does; `--with-recombination`, optional: a genetic map laid over it, read off a scale on the right |
+| `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points in LocusZoom's five bins of r²; `--with-recombination`, optional: a genetic map laid over it, read off a scale on the right |
 | `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--domains` | the rows | `--with-tree`, optional: the tree the rows are ordered by and drawn beside |
 | `--squiggle` | the read's current | `--with-moves`, optional: the basecaller's record of the read, whose move table puts each base over its stretch of current |
 
