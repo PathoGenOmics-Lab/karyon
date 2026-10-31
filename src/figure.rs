@@ -2218,6 +2218,65 @@ mod tests {
         );
     }
 
+    /// The edges of a shade come down to a ruler's ticks and stop there,
+    /// short of its numbers: an edge through `761.0 kb` hid half of the `kb`.
+    #[test]
+    fn an_edge_reaches_a_ruler_s_ticks_and_leaves_its_numbers_whole() {
+        // One base at the tick for 2,000, so the single edge runs down the
+        // middle of its number.
+        let figure = stack().width(900.0).shade(Shade::new(1_999, 2_000));
+        let layout = figure.layout();
+        let svg = figure.to_svg();
+        let (top, bottom) = (
+            layout.track_tops[2],
+            layout.track_tops[2] + layout.track_heights[2],
+        );
+        let theme = Theme::light();
+        // Each number on the ruler, as left, right, top and bottom.
+        let numbers: Vec<(f64, f64, f64, f64)> = svg
+            .split("<text")
+            .skip(1)
+            .filter(|text| text.contains(&theme.mono_family))
+            .filter_map(|text| {
+                let y = attribute(text, "y");
+                if y < top || y > bottom {
+                    return None;
+                }
+                let said = text.split('>').nth(1)?.split('<').next()?;
+                let width = crate::svg::mono_width(said, theme.font_size);
+                let x = attribute(text, "x");
+                let left = if text.contains(r#"text-anchor="end""#) {
+                    x - width
+                } else if text.contains(r#"text-anchor="middle""#) {
+                    x - width / 2.0
+                } else {
+                    x
+                };
+                Some((
+                    left,
+                    left + width,
+                    y - theme.font_size,
+                    y + 0.3 * theme.font_size,
+                ))
+            })
+            .collect();
+        assert!(!numbers.is_empty(), "{svg}");
+        let drawn = edges(&svg);
+        assert!(
+            drawn.iter().any(|(_, _, to)| *to > top),
+            "the edge stops short of the ruler: {drawn:?} against {top}"
+        );
+        for (x, from, to) in &drawn {
+            for (left, right, above, below) in &numbers {
+                assert!(
+                    x < left || x > right || to <= above || from >= below,
+                    "an edge at {x} from {from} to {to} crosses a number \
+                     from {left} to {right}, {above} to {below}"
+                );
+            }
+        }
+    }
+
     /// Every value of one attribute of every `tag` element in `svg`.
     fn attributes<'a>(svg: &'a str, tag: &str, name: &str) -> Vec<&'a str> {
         let key = format!(" {name}=\"");

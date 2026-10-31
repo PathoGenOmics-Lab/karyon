@@ -646,7 +646,7 @@ the plotting area's left edge at most, so never into the gutter or an axis
 strip. Its edges are drawn after every track, and leave out what a track
 asked `SvgWriter::keep_clear` to keep clear: the key a band writes at its
 top, a legend of categories, the names a selection scan writes over its
-sites. A shade under 2 pixels wide is widened to 2, and one under 6 has a
+sites, the numbers under a ruler's ticks. A shade under 2 pixels wide is widened to 2, and one under 6 has a
 single edge down its middle.
 
 Every length in that list is multiplied by the visual scale, and the track

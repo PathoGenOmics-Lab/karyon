@@ -1126,9 +1126,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `NC_000962.3`, on their length. A file is read by the figure's name first
   and by a renamed one only where that finds nothing. A figure on a name a file
   does not use says which `--rename` would draw it, where one plainly would:
-  the one sequence the file names, or the figure's own with a `chr` more or
-  less. One name renamed two ways is refused. All three simulated users had to
-  find out by reading the file that PLINK named the chromosome `1`.
+  the figure's own with a `chr` more or less, or the one sequence the file
+  names where neither name is a chromosome's number. One name renamed two
+  ways is refused. All three simulated users had to find out by reading the
+  file that PLINK named the chromosome `1`.
 - A sequence drawn whole to where its rows reach, because no file gives its
   length, says so on standard error: all three simulated users saw that the
   figure stopped at the last tested position only from the corner label. The
@@ -1546,6 +1547,104 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A squiggle's note on bases too narrow for their letters says how many of
+  the read's bases the window it names holds, and the command line adds how
+  wide a figure of the whole read letters every one: `sample:1-304 letters
+  the 14 of the read's 114 bases in it`, then `read_1: --width 6200 letters
+  every one of its 114 bases`. `sample:1-304 letters every base` was read as
+  lettering the whole read, and nothing said how to letter it. The width is
+  named only where the read is drawn whole, and only up to the 100,000
+  pixels `--width` takes; drawn at it, every base is lettered and nothing more
+  is said. No committed figure moves.
+- `karyon help` given a format's name, as `hic`, `.bcf` or `bigwig`, or a
+  file's, as `genes.gtf.gz`, prints the help on the track a file of that
+  format is named on its own, after a line on standard error naming that
+  track and the others that read one: `a .hic named on its own is a --pairs
+  track`. `karyon help hic` was refused as `no track is called hic`, and the
+  `--resolution` and `--log` a `.hic` takes were found by searching `karyon
+  help all`. The format is the one `Kind::for_file` places a file by, and the
+  other tracks are the ones `Kind::could_read` says read it, so the line says
+  what the parser does. A track's own name is its help as before, though
+  `msa` and `tree` are extensions too, and what a format prints is its
+  track's help line for line, the pointer going to standard error, so no help
+  grows longer. `karyon --help` says so in the line that names `karyon help
+  <track>`. No committed figure moves.
+- A flag that takes a file, written after its file, says so, as
+  `ArgError::FileAfter`: `cohort.bcf --genotypes -o task3.svg` read `-o` as
+  the file and was refused as `--genotypes -o: No such file or directory`,
+  which blamed `-o`. It reads `--genotypes takes its file after it, as
+  --genotypes cohort.bcf; cohort.bcf came before it and -o after`. The file
+  before the flag is named where the flag reads its format, as `--genotypes`
+  reads a BCF and `--with-moves` a SAM. Every flag that takes a file, a
+  track's or a second file's as `--with-tree` does, is refused this way where
+  another flag stands in its file's place; one with nothing after it and no
+  file before it still needs a value. No committed figure moves.
+- `-o` and `--output` followed by another flag are refused as a track's flag
+  is, `-o takes its file after it; --title came next`. `karyon
+  chr17:1,000,000-1,070,000 h3k4me3.bw -o --title` wrote the figure to a
+  file called `--title` and exited 0, saying nothing. No committed figure
+  moves.
+- The reference's letters grow with the room each base has: the widest
+  letter in view, measured bold, takes 85% of its base, up to the figure's
+  own text and to 80% of the band, so every letter stays inside its base.
+  They were seven tenths of a base, and `chr17:1,100,250-1,100,350
+  chr17.2bit` over 900 pixels set them at 5.8 pixels, half the figure's
+  11.5; they are 8.8. `example-zoom.svg` and its copy on the site move, its
+  sixty letters from 9.3 pixels to the figure's 11.5.
+- The key of pairs drawn with `--log` says what the scale is,
+  `contacts, log(1 + x)`, and writes the value half way along its ramp,
+  between two halves of the strip, as `Legend::diverging` writes a centre,
+  in the colour a pair of that value is painted. `contacts.hic --resolution
+  10000 --log` keyed `contacts, log scale` from `0` to `302.64`: a log key
+  starting at nought was read as a mistake, and a colour half way along it,
+  which is 16.43 and not 151, could not be read back to a count. It reads
+  `0`, `16.43` and `302.64`. A middle that rounds to nought or to the top is
+  not written, and nor is one the plot has no room for: in a figure 300
+  pixels wide the key keeps its two ends, which fit, where the middle carried
+  `302.64` past the edge. No committed figure moves, since none draws pairs
+  on a log scale.
+- A selection track's row of p-values is titled `-log10 p` under the
+  track's name, as a scan is, by `Track::axis_title`, and its top tick is the
+  number alone. `--selection fel.csv` wrote `-log10 p 2.4` at the top of the
+  row, one string in which a name with a space in it ran into its number. A
+  row of posteriors keeps `PP 1`, one word and a number, as `p 0.05` and
+  `ω 8` are. The key says in words after its three dots, where the band has
+  room, that a deeper mark is further from 1: `deeper = further from 1`. The
+  300 sites of that scan were drawn in 150 shades of blue and pink, and the
+  key showed one of each. `example-selection-atlas.svg` and
+  `example-evolutionary-surveillance.svg`, and their copies on the site, move,
+  each panel of p-values titled and its key longer by the words, and so do
+  `selection.svg` and `selection-dark.svg` on the site, whose label gutter
+  widens to the title.
+- A stretch with no copies at all is painted along the foot of a copy-number
+  track, and keyed `no copies`, in the ink of the text, dark on a light page
+  and light on a dark one. It was painted in the ink of a loss, and
+  `tumour.bedgraph tumour.cns --ploidy 2` keyed `loss` and `no copies` both
+  `#1634c2`, so a homozygous deletion could not be told from the loss of one
+  copy. `example-copy-number.svg` and its copy on the site move, its one block
+  of no copies along the foot, and so do `genome-copies.svg` and
+  `genome-copies-dark.svg` on the site, their block on 12 and their key.
+- A ruler crowded out of some of its numbers leaves them out evenly, every
+  other tick or every third counting from the first, the shortest stride at
+  which none meet. It left out one wherever two met, and a 101 bp window read
+  `1,100,250`, a bare tick at 260, 270 to 330, a bare tick at 340 and
+  `1,100,350`, the two bare ticks reading as marking something; it reads 250,
+  270, 290, 310, 330 and 350. The last tick is numbered where the stride
+  lands on it or where its number has room beside the last one on the
+  stride, and the stride is never lengthened to reach it: every third tick
+  of 0.2 kb is 761.0, 761.6 and 762.2 kb, which read worse than one bare
+  tick. `example.svg` and `example-dark.svg`, and their copies on the site,
+  move: their ruler read `761.0 kb`, a bare tick, then every tick to
+  `762.8 kb`, and reads `761.0`, `761.4`, `761.8`, `762.2`, `762.6` and
+  `762.8 kb`, the last beside the stride, where it has room.
+- The dashed edges of a `--shade` come down to a ruler's ticks and stop
+  there, short of its numbers, which `AxisTrack` now asks
+  `SvgWriter::keep_clear` to keep clear across its width. They ran on to the
+  foot of the ruler's band, and over `rpoB` an edge of
+  `--shade NC_000962.3:761,082-761,162=RRDR` went through `761.0 kb` and hid
+  half of its `kb`. The wash still reaches behind the numbers, where it tints
+  and hides nothing, so the stretch is still read off the ruler. No committed
+  figure moves, since none is shaded.
 - Where the guide and the page on the PDF writer describe `-o fig.pdf`, they
   say plainly that its text is in the standard Helvetica and Courier, named
   and not embedded, and what that means for a paper: `pdffonts` lists each
@@ -1589,13 +1688,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   its one rate is drawn flat across it, and over which interval: following
   the `--rename 1=NC_000962.3` a refusal offers, a chromosome 1 map laid over
   a window of another genome drew a flat 0.41 cM/Mb line and said nothing.
-  The rename is still offered, as the one sequence a file names is the
-  documented case of a PLINK table beside a FASTA. No committed figure moves.
+  The refusal no longer offers that rename, as the next entry says. No
+  committed figure moves.
+- A window a file holds nothing in is refused offering the one sequence the
+  file names as a `--rename` only where neither name is a chromosome's
+  number, and saying where on that sequence the rows lie, from the first
+  start to the last end, as the file writes them: a BED row from 700,000 to
+  900,000 is said to run that far, and a point, as a call or a line of
+  `samtools depth`, lies at its position. `NC_000962.3:759,900-763,100
+  genetic_map.txt` offered `if 1 is NC_000962.3, add --rename
+  1=NC_000962.3`, and followed, it drew another genome's chromosome 1 flat
+  across the window and exited 0; it reads `though the file holds 60 on 1,
+  from 604,401 to 899,401`. A number, `1`, `12`, `chr1` or `X`, says nothing
+  of whose chromosome it is, so it is offered for its own spelling with a
+  `chr` more or less and never for an accession, a word or another number,
+  nor any of those for it: a VCF's `chr1` is no longer offered for a window
+  on `chr2`. The mitochondrion's `M` and `MT` are one spelling, so `chrM` is
+  offered for `MT`. A word is still offered for an accession, as
+  `Chromosome` for `NC_000962.3`, and one accession for another. No
+  committed figure moves.
 - A figure placed on a gene's name whose annotation draws the gene once for
   several transcripts says so on standard error, once, naming the flag:
   `NOVA1: 3 transcripts drawn as one model; --isoforms after genes.gtf.gz
   draws a row each`. Three isoforms were merged into one model with nothing
-  printed, and `--isoforms` was found only in `karyon help features`. No
+  printed, and `--isoforms` was found only in `karyon help features`. It is
+  said where the annotation is what the figure is about, with nothing drawn
+  over the gene but the annotation, its reference and rulers: `NOVA1 KAPPA3
+  h3k4me3.bw genes.gtf.gz --panel-columns 2`, two genes with a signal over
+  each, printed it for a figure that never asked about transcripts. No
   committed figure moves.
 - A sequence drawn as far as a table of windows reaches is not said to stop
   short of its end where the table's last window is cut short of the others,
@@ -1690,13 +1810,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `genotypes.svg` names its pooled marks.
 - `SquiggleTrack` holds the place of a base too narrow for its letter with a
   dot in the row of letters, where some bases beside it are lettered, and
-  its `notes` say how many and the window that letters every base, which the
-  command line prints as `read_1: 1 of 18 bases are too narrow for their
+  its `notes` say how many and a window that letters every base in it, which
+  the command line prints as `read_1: 1 of 18 bases are too narrow for their
   letters at this width, each a dot where its letter would be;
-  sample:221-524 letters every base`. The letter was left out with no mark,
-  so over the first 400 samples of a read whose basecall starts
-  GGATCACAGTCTACACT a C of five samples went missing and the row read one
-  base short.
+  sample:221-524 letters the 13 of the read's 114 bases in it`. The letter
+  was left out with no mark, so over the first 400 samples of a read whose
+  basecall starts GGATCACAGTCTACACT a C of five samples went missing and the
+  row read one base short.
 - `--variants`, as a band and as a ring, deals its colours from the most
   damaging consequence down rather than by which call comes first in the
   window. Across the whole of rpoB, whose first call is synonymous, missense

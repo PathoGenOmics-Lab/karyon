@@ -29,7 +29,7 @@
 
 use crate::region::Region;
 use crate::scale::Scale;
-use crate::svg::{finite_within, Anchor};
+use crate::svg::{finite_within, text_width_strong, Anchor};
 use crate::theme::Theme;
 use crate::track::legend::Legend;
 use crate::track::{DrawContext, Track};
@@ -37,6 +37,18 @@ use crate::track::{DrawContext, Track};
 /// How many pixels a base needs before its letter is drawn, in the reference
 /// and in a pileup's mismatches alike.
 pub(crate) const LETTER_PX: f64 = 7.0;
+
+/// How much of its base the widest letter in view may take, leaving the rest
+/// as the gap between it and its neighbours: 1.2 pixels at 8 pixels a base,
+/// before the room either side of a bold letter's ink.
+const LETTER_FILL: f64 = 0.85;
+
+/// How wide a base's letter is set bold, at one pixel of type.
+fn letter_width(base: u8) -> f64 {
+    let mut buffer = [0u8; 4];
+    let letter = char::from(base).to_ascii_uppercase();
+    text_width_strong(letter.encode_utf8(&mut buffer), 1.0)
+}
 
 /// Nucleotides drawn as coloured blocks, with letters once there is room.
 ///
@@ -180,7 +192,25 @@ impl Track for SequenceTrack {
         }
 
         let draw_letters = px_per_bp >= self.letter_threshold;
-        let font_size = (px_per_bp * 0.72).min(band.h * 0.8);
+        // A letter is as large as its base leaves room for, measured on the
+        // widest letter in view set bold, up to the figure's own text and to
+        // the band. Sized at seven tenths of a base, the letters of a 101 bp
+        // window over 900 pixels were 5.8 pixels, half the figure's 11.5.
+        // One size for the whole window, so no letter reads as louder.
+        let font_size = if draw_letters {
+            let widest = (first..last)
+                .filter_map(|pos| self.base_at(pos))
+                .map(letter_width)
+                .fold(0.0, f64::max);
+            let fits = if widest > 0.0 {
+                px_per_bp * LETTER_FILL / widest
+            } else {
+                ctx.theme.font_size
+            };
+            fits.min(ctx.theme.font_size).min(band.h * 0.8)
+        } else {
+            0.0
+        };
         let baseline = band.mid_y() + font_size * 0.35;
 
         for pos in first..last {
@@ -290,6 +320,62 @@ mod tests {
             .push(SequenceTrack::new(0, b"ACGT"))
             .to_svg();
         assert_eq!(svg.matches("</text>").count(), 4);
+    }
+
+    /// A letter grows with the room its base has, up to the size of the
+    /// figure's text and the height of its band, and stays inside its base:
+    /// at 101 bp over 900 pixels the letters were 5.8 pixels, half the
+    /// figure's 11.5.
+    #[test]
+    fn a_letter_grows_with_its_base_up_to_the_figure_s_text_and_stays_inside_it() {
+        use crate::svg::text_width_strong;
+        let theme = Theme::light();
+        // Each letter drawn, as what it says, its x and its size.
+        let drawn = |bases: u64, height: f64, seq: &[u8]| -> Vec<(String, f64, f64)> {
+            let region = Region::new("chr17", 0, bases).unwrap();
+            Figure::new(region)
+                .width(900.0)
+                .show_region_label(false)
+                .push(SequenceTrack::new(0, seq.repeat(bases as usize)).height(height))
+                .to_svg()
+                .split("<text")
+                .skip(1)
+                .map(|text| {
+                    let attr = |key: &str| -> f64 {
+                        text.split(&format!(" {key}=\""))
+                            .nth(1)
+                            .unwrap()
+                            .split('"')
+                            .next()
+                            .unwrap()
+                            .parse()
+                            .unwrap()
+                    };
+                    let said = text.split('>').nth(1).unwrap().split('<').next().unwrap();
+                    (said.to_string(), attr("x"), attr("font-size"))
+                })
+                .collect()
+        };
+        for seq in [&b"ACGT"[..], b"ACGW"] {
+            let letters = drawn(101, 18.0, seq);
+            let base = letters[1].1 - letters[0].1;
+            for (letter, _, size) in &letters {
+                assert!(
+                    text_width_strong(letter, *size) <= base,
+                    "{letter} at {size} is wider than its base of {base}"
+                );
+            }
+        }
+        // Grown well past the old seven tenths of a base.
+        let letters = drawn(101, 18.0, b"ACGT");
+        let base = letters[1].1 - letters[0].1;
+        assert!(letters[0].2 >= base * 0.72 * 1.25, "{letters:?}");
+        // Twenty bases are 43 pixels each, and their letters the figure's text.
+        let letters = drawn(20, 18.0, b"ACGT");
+        assert!(letters.iter().all(|(_, _, size)| *size == theme.font_size));
+        // A band 8 pixels tall holds letters under 6.4.
+        let letters = drawn(20, 8.0, b"ACGT");
+        assert!(letters.iter().all(|(_, _, size)| *size <= 6.4 + 1e-9));
     }
 
     #[test]

@@ -28,7 +28,11 @@ too, as picoamperes already.
 
 The bases the basecaller called come from its SAM or BAM, as Dorado writes it
 with `--emit-moves`: its move table puts each base over the stretch of
-current it was called from.
+current it was called from. A base too narrow for its letter at the figure's
+width is a dot, and the command says how many are, which window of samples
+letters every base in it and how many of the read's bases that is, as
+`sample:1-304 letters the 14 of the read's 114 bases in it`, and how wide a
+figure of the whole read letters every one, as `--width 6200`.
 
 ## Change it
 

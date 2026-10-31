@@ -102,7 +102,9 @@ pub enum LegendItem {
         high: String,
         /// A colour the scale passes through on its way, and the number
         /// written there, for a scale with a middle: two hues either side of
-        /// a centre that is neither. `None` for a scale of one hue.
+        /// a centre that is neither, or one hue on a scale that is not
+        /// straight, whose middle is not half its top. `None` for a straight
+        /// scale of one hue.
         through: Option<(String, String)>,
     },
 }
@@ -224,7 +226,11 @@ impl Legend {
     /// `to` at the high end.
     ///
     /// For a quantity read either side of a value that is neither, as a
-    /// depth against a sample's usual one or a log ratio against nought.
+    /// depth against a sample's usual one or a log ratio against nought. One
+    /// hue on a log scale takes it too, with `middle` the colour half way
+    /// along: [`PairTrack`](crate::PairTrack) writes there the count it is,
+    /// 16.43 on a scale topped at 302.64, which its two ends alone left the
+    /// reader to work out.
     #[allow(clippy::too_many_arguments)]
     pub fn diverging(
         mut self,
@@ -283,6 +289,16 @@ impl Legend {
     /// Whether the legend explains nothing.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    /// How wide the widest of its items is drawn with letters of `font`
+    /// pixels, which a row narrower than that cannot hold: such an item has
+    /// a row to itself and runs past its end.
+    pub(crate) fn widest(&self, font: f64) -> f64 {
+        self.items
+            .iter()
+            .map(|item| self.item_width(item, font))
+            .fold(0.0, f64::max)
     }
 
     /// How wide one item needs to be.

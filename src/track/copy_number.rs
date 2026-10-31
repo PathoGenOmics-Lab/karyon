@@ -210,6 +210,17 @@ impl CopyNumberSegment {
 /// stops being one.
 const CEILING: f64 = 100_000.0;
 
+/// The ink of a stretch with no copies at all, along the foot and in the key:
+/// the theme's foreground, which no hue of the track shares.
+///
+/// Losing both copies is the deepest a loss goes, so it is the darkest mark
+/// the lane makes. It was painted in the ink of a loss, and the key named
+/// `loss` and `no copies` both `#1634c2`, so a homozygous deletion read as
+/// the loss of one copy.
+fn absent_of(theme: &Theme) -> String {
+    theme.foreground.clone()
+}
+
 /// The lane along the foot of the band, saying what the alleles did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Allele {
@@ -551,14 +562,14 @@ impl CopyNumberTrack {
             legend = legend.key("gain", gain);
         }
         if called(&|s, ploidy| s.copy.total() < ploidy) {
-            legend = legend.key("loss", loss.clone());
+            legend = legend.key("loss", loss);
         }
         if self.show_alleles {
             if has(Allele::Lost) {
                 legend = legend.key("heterozygosity lost", lost);
             }
             if has(Allele::Absent) {
-                legend = legend.key("no copies", loss);
+                legend = legend.key("no copies", absent_of(theme));
             }
             if has(Allele::Unresolved) {
                 legend = legend.key("allele split not called", theme.rule.clone());
@@ -696,6 +707,7 @@ impl Track for CopyNumberTrack {
             .loh
             .clone()
             .unwrap_or_else(|| ctx.theme.color(2).to_string());
+        let absent = absent_of(ctx.theme);
 
         // Whole copies only. An evenly divided axis would print three and a
         // half copies, which is a number of copies nobody has.
@@ -904,7 +916,7 @@ impl Track for CopyNumberTrack {
                         ctx.theme.tokens.hairline,
                     ),
                     Allele::Lost => ctx.svg.rect(x0, top, width, lane, &lost),
-                    Allele::Absent => ctx.svg.rect(x0, top, width, lane, &loss),
+                    Allele::Absent => ctx.svg.rect(x0, top, width, lane, &absent),
                 }
             }
         }
@@ -1129,6 +1141,50 @@ mod tests {
             "{svg}"
         );
         assert!(svg.contains(", 2 copies (1 + 1)</title>"), "{svg}");
+    }
+
+    /// A stretch with no copies at all is painted along the foot, and keyed,
+    /// in an ink of its own. In the ink of a loss, the key named `loss` and
+    /// `no copies` both `#1634c2`, and a homozygous deletion read as the loss
+    /// of one copy.
+    #[test]
+    fn no_copies_has_an_ink_of_its_own_in_the_lane_and_the_key() {
+        for theme in [Theme::light(), Theme::dark()] {
+            let track = CopyNumberTrack::diploid(vec![
+                CopyNumberSegment::allelic(0, 5_000, 1.0, 0.0),
+                CopyNumberSegment::allelic(5_000, 10_000, 0.0, 0.0),
+            ]);
+            let legend = track.legend(&theme);
+            let ink = |name: &str| -> String {
+                legend
+                    .items()
+                    .iter()
+                    .find_map(|item| match item {
+                        crate::LegendItem::Key { label, color, .. } if label == name => {
+                            Some(color.clone())
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("no {name} in {legend:?}"))
+            };
+            let none = ink("no copies");
+            assert_ne!(none, ink("loss"), "{legend:?}");
+            assert_ne!(none, ink("heterozygosity lost"), "{legend:?}");
+            // The lane is the row of blocks five pixels tall along the foot:
+            // one allele lost over the first half, none left over the second.
+            let svg = Figure::new(region())
+                .theme(theme.clone())
+                .show_region_label(false)
+                .push(track)
+                .to_svg();
+            let lane: Vec<&str> = svg
+                .split("<rect ")
+                .skip(1)
+                .filter(|rect| rect.contains(r#" height="5""#))
+                .filter_map(|rect| rect.split("fill=\"").nth(1)?.split('"').next())
+                .collect();
+            assert_eq!(lane, [ink("heterozygosity lost"), none], "{svg}");
+        }
     }
 
     #[test]

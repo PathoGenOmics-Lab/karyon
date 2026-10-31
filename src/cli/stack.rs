@@ -106,7 +106,11 @@ pub enum BuildError {
         wanted: &'static str,
         /// How many of them the file did hold.
         held: usize,
-        /// The sequences it named, where naming them helps.
+        /// The sequences it named, where naming them helps, and where it
+        /// names one and was read as text, the first and the last position
+        /// its rows give, as the file writes them: `1, from 604,401 to
+        /// 899,401`. That is what tells a reader whether the rows could be
+        /// the window's at all, where no `--rename` is offered.
         named: String,
         /// The locus that was asked for.
         region: String,
@@ -2130,6 +2134,22 @@ fn build_one(
     }
 
     colored_as_asked(invocation, files)?;
+    let lettering = RefCell::new(Vec::new());
+    // The gene an annotation drawn a gene at a time says it merged the
+    // transcripts of, where the annotation is what the figure is about:
+    // nothing is drawn over the gene but the annotation, its reference and
+    // rulers, in each panel of several genes as in a figure of one. Beside a
+    // signal or reads the gene is where they are, and two genes side by side
+    // with a signal over each printed the note for a figure that never asked
+    // about transcripts.
+    let about = gene.map(String::as_str).filter(|_| {
+        invocation.tracks.iter().all(|spec| {
+            matches!(
+                spec.kind,
+                Kind::Features | Kind::Sequence | Kind::Orfs | Kind::Codons | Kind::Axis
+            )
+        })
+    });
     for spec in &invocation.tracks {
         // The ruler is the one track that reads nothing, and the one the plot
         // has to be told about so it does not append a second.
@@ -2176,8 +2196,9 @@ fn build_one(
             genotyped,
             colors: &invocation.colors,
             width: invocation.width.unwrap_or(900.0),
-            gene: gene.map(String::as_str),
+            gene: about,
             consequences,
+            lettering: &lettering,
         };
         let built = match track(spec, &context, files, &mut parsed, &mut legend) {
             Ok(built) => built,
@@ -2197,8 +2218,9 @@ fn build_one(
                         genotyped,
                         colors: &invocation.colors,
                         width: invocation.width.unwrap_or(900.0),
-                        gene: gene.map(String::as_str),
+                        gene: about,
                         consequences,
+                        lettering: &lettering,
                     };
                     if let Ok(built) = track(spec, &context, files, &mut parsed, &mut legend) {
                         again = Some(built);
@@ -2284,6 +2306,26 @@ fn build_one(
     // into the figure, which goes into the paper as it is.
     for note in figure.notes() {
         files.note(&note);
+    }
+    // And where a read is drawn whole with bases too narrow for their
+    // letters, how wide a figure letters every one, which the window the
+    // note names cannot: it letters the bases inside it.
+    let px = figure.px_per_bp();
+    for read in lettering.borrow().iter() {
+        let whole = region.start() == 0 && region.end() >= read.samples as u64;
+        if !whole || read.px <= px {
+            continue;
+        }
+        let now = figure.dimensions().0;
+        let wanted = ((now + (read.px - px) * region.len() as f64) / 100.0).ceil() * 100.0;
+        if wanted <= 100_000.0 {
+            files.note(&format!(
+                "{}: --width {} letters every one of its {} bases",
+                read.read,
+                wanted as u64,
+                crate::track::axis::group_thousands(read.bases as u64)
+            ));
+        }
     }
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
@@ -4623,12 +4665,29 @@ struct Context<'a> {
     /// pixel holds and so which zoom level of a bigWig to read.
     width: f64,
     /// The gene the figure is placed on by its name, as its annotation
-    /// spells it, which an annotation drawn a gene at a time says it merged.
+    /// spells it, which an annotation drawn a gene at a time says it merged;
+    /// `None` where the annotation is not what the figure is about.
     gene: Option<&'a str>,
     /// The order the calls of a figure of several places deal their colours
     /// in, which every panel shares; `None` for a figure of one place, whose
     /// calls deal their own.
     consequences: Option<&'a RefCell<Consequences>>,
+    /// What each read drawn as a squiggle needs for every one of its bases
+    /// to be lettered, which the figure's width settles once it is laid out.
+    lettering: &'a RefCell<Vec<Lettering>>,
+}
+
+/// What a squiggle needs for every base of its read to be lettered, for a
+/// figure drawn over the whole read to say how wide that is.
+struct Lettering {
+    /// The read's name, as its track is labelled.
+    read: String,
+    /// The pixels a sample takes for the shortest base to be lettered.
+    px: f64,
+    /// How many bases the read has.
+    bases: usize,
+    /// How many samples it has.
+    samples: usize,
 }
 
 /// Adds a track's keys to the figure's, each once: a lineage coloured beside
@@ -7359,7 +7418,10 @@ fn explained(
             // drew has no need to know. A file with an index is not read
             // again at all where the index counts its rows, which is the
             // usual way this fails, a file that says 1 where the figure says
-            // chr1, answered without inflating a whole genome's calls.
+            // chr1, answered without inflating a whole genome's calls. Read
+            // as text, a file naming one sequence says where on it its rows
+            // lie too, as only the text can.
+            let mut span = None;
             let held = match (region, spec.source.as_ref()) {
                 (Some(_), Some(source @ Source::Path(_))) => bcf_rows(files, source)
                     .or_else(|| {
@@ -7371,7 +7433,13 @@ fn explained(
                     .unwrap_or_else(|| {
                         files
                             .text(source)
-                            .map(|text| rows_on(spec.kind, &text))
+                            .map(|text| {
+                                let held = rows_on(spec.kind, &text);
+                                if let [(one, _)] = held.as_slice() {
+                                    span = rows_span(spec.kind, &text, one);
+                                }
+                                held
+                            })
                             .unwrap_or_default()
                     }),
                 _ => Vec::new(),
@@ -7382,7 +7450,7 @@ fn explained(
                     path,
                     wanted,
                     held: held.iter().map(|(_, count)| count).sum(),
-                    named: listed(&held),
+                    named: format!("{}{}", listed(&held), spanned(span)),
                     region: region.to_string(),
                     rename: rename_for(&held, region.seq(), true).map(Box::new),
                 },
@@ -7453,6 +7521,77 @@ fn rows_on(kind: Kind, text: &str) -> Vec<(String, usize)> {
     sequence_column(kind).map_or_else(Vec::new, |column| sequences_named(text, column))
 }
 
+/// Where a file's rows lie, as a refusal says it after the sequence they are
+/// on: `, from 604,401 to 899,401`, or `, at 4,800` for one position.
+fn spanned(span: Option<(u64, u64)>) -> String {
+    use crate::track::axis::group_thousands;
+    match span {
+        Some((first, last)) if first == last => format!(", at {}", group_thousands(first)),
+        Some((first, last)) => format!(
+            ", from {} to {}",
+            group_thousands(first),
+            group_thousands(last)
+        ),
+        None => String::new(),
+    }
+}
+
+/// The first and the last position a track's file gives on `sequence`, as
+/// the file writes them: the first start, and the last end of a row that is
+/// a stretch or the last position of one that is a point. None where its
+/// format keeps no position karyon finds without reading it as a track.
+fn rows_span(kind: Kind, text: &str, sequence: &str) -> Option<(u64, u64)> {
+    if kind == Kind::Manhattan {
+        return read::point::association_span(text, sequence);
+    }
+    let column = sequence_column(kind)?;
+    let mut span: Option<(u64, u64)> = None;
+    for (_, line) in read::lines(text) {
+        let cols = read::columns(line);
+        if cols.len() < column.width || cols[column.name].trim() != sequence {
+            continue;
+        }
+        let start = column.position.iter().find_map(|at| {
+            let start = cols.get(*at)?.trim().parse::<u64>().ok()?;
+            Some((*at, start))
+        });
+        if let Some((at, start)) = start {
+            let end = row_end(kind, &cols, at)
+                .filter(|end| *end >= start)
+                .unwrap_or(start);
+            span = Some(span.map_or((start, end), |(first, last)| {
+                (first.min(start), last.max(end))
+            }));
+        }
+    }
+    span
+}
+
+/// Where a row of a track's file ends, for the formats whose rows are
+/// stretches rather than points: the column after the start, as BED and the
+/// formats built on it, a GFF3's fifth column and an InterProScan table
+/// write it. A coverage table of four columns is a bedGraph, and one of
+/// three is `samtools depth`, whose third column is a depth and not an end.
+/// `at` is the column the start was read from.
+fn row_end(kind: Kind, cols: &[&str], at: usize) -> Option<u64> {
+    let stretches = match kind {
+        Kind::Coverage | Kind::Windows | Kind::Dynseq => cols.len() >= 4,
+        Kind::Junctions
+        | Kind::Methylation
+        | Kind::Ideogram
+        | Kind::CopyNumber
+        | Kind::Heatmap
+        | Kind::Features
+        | Kind::Clades
+        | Kind::Domains => true,
+        _ => false,
+    };
+    if !stretches {
+        return None;
+    }
+    cols.get(at + 1)?.trim().parse().ok()
+}
+
 /// The sequences a file's rows are on, each once with how many rows it has,
 /// in the order the file first names them.
 fn sequences_named(text: &str, column: SequenceColumn) -> Vec<(String, usize)> {
@@ -7483,14 +7622,27 @@ const READS_WINDOW: u64 = 1_000;
 /// The `--rename` that would draw a file's rows under the figure's name
 /// `figure`, where one plainly would: the name among `held` that is the
 /// figure's own with a `chr` more or less, or, where `alone` allows, the one
-/// sequence the file names. None where the file already names the figure's.
+/// sequence the file names, where neither name is a chromosome's number.
+/// None where the file already names the figure's.
+///
+/// A chromosome's number says which of a genome's chromosomes the rows are
+/// on and nothing of which genome, so it is offered for its own spelling
+/// alone. Offered for the one sequence of another genome, `1` beside
+/// `NC_000962.3`, the rename was followed, and the rates of a chromosome 1
+/// measured on another genome were drawn flat over the window as if they
+/// were its own.
 fn rename_for(held: &[(String, usize)], figure: &str, alone: bool) -> Option<(String, String)> {
     if held.iter().any(|(name, _)| name == figure) {
         return None;
     }
+    // A name with its `chr` taken off, and the mitochondrion's two
+    // spellings, `M` as UCSC writes it and `MT` as Ensembl does, as one.
     let bare = |name: &str| {
         let lower = name.to_ascii_lowercase();
-        lower.strip_prefix("chr").unwrap_or(&lower).to_string()
+        match lower.strip_prefix("chr").unwrap_or(&lower) {
+            "m" => "mt".to_string(),
+            rest => rest.to_string(),
+        }
     };
     let spelled: Vec<&String> = held
         .iter()
@@ -7499,10 +7651,30 @@ fn rename_for(held: &[(String, usize)], figure: &str, alone: bool) -> Option<(St
         .collect();
     let from = match (spelled.as_slice(), held) {
         ([one], _) => (*one).clone(),
-        ([], [(one, _)]) if alone => one.clone(),
+        ([], [(one, _)]) if alone && !numbered(one) && !numbered(figure) => one.clone(),
         _ => return None,
     };
     Some((from, figure.to_string()))
+}
+
+/// Whether a sequence's name is a chromosome's number or letter, with a
+/// `chr` in front or without one: `1`, `12`, `2L`, `X`, `MT`, `IV`, `chr1`,
+/// `chrX`. A word, as `Chromosome` or `contig_3`, and an accession, as
+/// `NC_000962.3`, is not one.
+fn numbered(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let rest = match lower.strip_prefix("chr") {
+        Some(rest) if !rest.is_empty() => rest,
+        _ => &lower,
+    };
+    // A number, with an arm or a copy's letter after it.
+    let letters = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+    let counted = letters.len() < rest.len()
+        && letters.len() <= 1
+        && letters.chars().all(|c| c.is_ascii_alphabetic());
+    // A roman number, as some genomes count their chromosomes.
+    let roman = (1..=5).contains(&rest.len()) && rest.chars().all(|c| matches!(c, 'i' | 'v' | 'x'));
+    counted || roman || matches!(rest, "y" | "w" | "z" | "m" | "mt")
 }
 
 /// Names for a sentence: `chr1`, `chr1 and chr2`, `1, 2 and 3`, and past
@@ -7784,11 +7956,12 @@ fn built(
             if features.is_empty() {
                 return Err(empty("features"));
             }
-            // A gene the figure is placed on, drawn once for transcripts that
-            // differ, says so once: three isoforms drawn as one model printed
-            // nothing, and the flag that draws them apart was found only in
-            // the help on features. Only a gene drawn a gene at a time counts
-            // the transcripts it merged, so `--isoforms` says nothing here.
+            // A gene the figure is placed on and about, drawn once for
+            // transcripts that differ, says so once: three isoforms drawn as
+            // one model printed nothing, and the flag that draws them apart
+            // was found only in the help on features. Only a gene drawn a
+            // gene at a time counts the transcripts it merged, so
+            // `--isoforms` says nothing here.
             let merged = context.gene.and_then(|gene| {
                 features
                     .iter()
@@ -9119,6 +9292,14 @@ fn built(
             }
             if let Some(height) = height {
                 track = track.height(height);
+            }
+            if let Some((px, bases)) = track.lettered(theme) {
+                context.lettering.borrow_mut().push(Lettering {
+                    read: label.clone().unwrap_or_default(),
+                    px,
+                    bases,
+                    samples: track.len(),
+                });
             }
             Box::new(named(track, label, SquiggleTrack::label))
         }
@@ -11195,7 +11376,9 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         .unwrap_err()
         .to_string();
         assert!(
-            error.ends_with("though the file holds 1 on 1; if 1 is chr1, add --rename 1=chr1"),
+            error.ends_with(
+                "though the file holds 1 on 1, from 0 to 10; if 1 is chr1, add --rename 1=chr1"
+            ),
             "{error}"
         );
         // Read from a pipe, there is nothing to read twice.
@@ -11208,6 +11391,73 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert_eq!(
             error,
             "--variants standard input: no variants in the region"
+        );
+    }
+
+    /// Where a file's rows lie runs from the first start to the last end:
+    /// a row that is a stretch ends where its end column says, and one that
+    /// is a point at its position. An interval read by its start alone was
+    /// said to lie at 700,000 where it ran on to 900,000.
+    #[test]
+    fn where_the_rows_lie_runs_to_the_end_of_the_last() {
+        let said = |line: &str, file: &str, text: &str| {
+            let error = drawn_from(line, &[(file, text)]).unwrap_err().to_string();
+            let (_, after) = error.split_once("though the file holds ").unwrap();
+            after.to_string()
+        };
+        for (line, file, text, wanted) in [
+            (
+                "chr2:759,900-763,100 f.bed",
+                "f.bed",
+                "chr1\t700000\t900000\tgeneA\n",
+                "1 on chr1, from 700,000 to 900,000",
+            ),
+            (
+                "chr2:759,900-763,100 f.gff3",
+                "f.gff3",
+                "##gff-version 3\nchr1\t.\tgene\t700001\t900000\t.\t+\t.\tID=g1\n",
+                "1 on chr1, from 700,001 to 900,000",
+            ),
+            (
+                "chr2:1-1000 d.bedgraph",
+                "d.bedgraph",
+                "chr1\t0\t4411532\t5\n",
+                "1 on chr1, from 0 to 4,411,532",
+            ),
+            (
+                "chr2:1-1000 --windows w.bedgraph",
+                "w.bedgraph",
+                "chr1\t0\t100\t5\nchr1\t100\t200\t7\n",
+                "2 on chr1, from 0 to 200",
+            ),
+            // A table of samtools depth: the third column is a depth.
+            (
+                "chr2:1-1000 --coverage d.depth",
+                "d.depth",
+                "chr1\t100\t3000\nchr1\t101\t3000\n",
+                "2 on chr1, from 100 to 101",
+            ),
+            // Calls are points.
+            (
+                "chr2:1-1000 c.vcf",
+                "c.vcf",
+                "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                 chr1\t100\t.\tA\tG\t.\t.\t.\nchr1\t250\t.\tA\tG\t.\t.\t.\n",
+                "2 on chr1, from 100 to 250",
+            ),
+        ] {
+            assert_eq!(said(line, file, text), wanted, "{line}");
+        }
+        // The mitochondrion is M to one tool and MT to another.
+        let error = drawn_from(
+            "MT:1-1000 m.bedgraph",
+            &[("m.bedgraph", "chrM\t100\t200\t5\n")],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.ends_with("from 100 to 200; if chrM is MT, add --rename chrM=MT"),
+            "{error}"
         );
     }
 
@@ -12132,22 +12382,52 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert!(svg.unwrap().contains("<circle"));
         let said: Vec<&String> = notes
             .iter()
-            .filter(|note| note.contains("letters"))
+            .filter(|note| note.contains("too narrow"))
             .collect();
         assert_eq!(said.len(), 1, "{notes:?}");
         assert!(
             said[0].starts_with("r1: 1 of 21 bases are too narrow for their letters"),
             "{said:?}"
         );
+        // The window letters the bases in it, and says how many of the
+        // read's those are; drawn whole, the read is lettered at a width the
+        // note names.
         let window = said[0].rsplit("; ").next().unwrap();
-        let window = window.strip_suffix(" letters every base").unwrap();
-        let (svg, notes) = drawn_noting(
-            &format!("{window} reads.slow5 --with-moves calls.sam"),
-            &held,
-        );
-        assert!(!svg.unwrap().contains("<circle"));
+        let (window, within) = window.split_once(" letters ").unwrap();
         assert!(
-            notes.iter().all(|note| !note.contains("letters")),
+            within.starts_with("the ") && within.ends_with(" of the read's 21 bases in it"),
+            "{within}"
+        );
+        let width = notes
+            .iter()
+            .find_map(|note| note.strip_prefix("r1: --width "))
+            .and_then(|rest| rest.strip_suffix(" letters every one of its 21 bases"))
+            .unwrap_or_else(|| panic!("{notes:?}"));
+        for line in [
+            format!("{window} reads.slow5 --with-moves calls.sam"),
+            format!("reads.slow5 --with-moves calls.sam --width {width}"),
+        ] {
+            let (svg, notes) = drawn_noting(&line, &held);
+            assert!(!svg.unwrap().contains("<circle"), "{line}");
+            assert!(
+                notes.iter().all(|note| !note.contains("letters")),
+                "{line}: {notes:?}"
+            );
+        }
+        // A width is named only for the whole read: a window of it with a
+        // base too narrow is lettered by the narrower window the note names.
+        let (_, notes) = drawn_noting("sample:1-400 reads.slow5 --with-moves calls.sam", &held);
+        assert!(
+            notes.iter().any(|note| note.contains("--width")),
+            "{notes:?}"
+        );
+        let (_, notes) = drawn_noting("sample:2-400 reads.slow5 --with-moves calls.sam", &held);
+        assert!(
+            notes.iter().any(|note| note.contains("too narrow")),
+            "{notes:?}"
+        );
+        assert!(
+            notes.iter().all(|note| !note.contains("--width")),
             "{notes:?}"
         );
     }
@@ -12519,19 +12799,46 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         // calls it otherwise would draw it too.
         let (_, notes) = drawn_noting("1 gwas.assoc", &held);
         assert!(notes[0].ends_with("add --rename 1=THAT_NAME"), "{notes:?}");
-        // Without --rename each refusal says which one to write.
+        // Without --rename a refusal says what the table names and where
+        // its rows lie, and offers no rename: a chromosome's number says
+        // nothing of whose chromosome it is, and a 1 renamed to the one
+        // sequence of another genome drew one genome's scan on the other's.
         let error = drawn_from("NC_1 gwas.assoc", &held)
             .unwrap_err()
             .to_string();
         assert!(
-            error.contains("If 1 is NC_1, add --rename 1=NC_1."),
+            error.contains("gwas.assoc names the sequence 1."),
             "{error}"
         );
+        assert!(!error.contains("--rename"), "{error}");
+        let error = drawn_from("NC_1:1-5000 gwas.assoc", &held)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "--manhattan gwas.assoc: no association statistics in NC_1:1-5000, though the file \
+             holds 2 on 1, from 150 to 4,800"
+        );
+        // Named with a word, or as the figure's own with a chr more or less,
+        // the table's one sequence is offered.
+        let worded = scan.replace("\n1 ", "\nChromosome ");
+        let held = [("gwas.assoc", worded.as_str())];
         let error = drawn_from("NC_1:1-5000 gwas.assoc", &held)
             .unwrap_err()
             .to_string();
         assert!(
-            error.ends_with("; if 1 is NC_1, add --rename 1=NC_1"),
+            error.ends_with(
+                "holds 2 on Chromosome, from 150 to 4,800; if Chromosome is NC_1, add \
+                 --rename Chromosome=NC_1"
+            ),
+            "{error}"
+        );
+        let held = [("gwas.assoc", scan)];
+        let error = drawn_from("chr1:1-5000 gwas.assoc", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.ends_with("; if 1 is chr1, add --rename 1=chr1"),
             "{error}"
         );
     }
@@ -12567,11 +12874,44 @@ chr2\t300\t.\tA\tG\t.\t.\t.
             rename_for(&[("7".into(), 3), ("8".into(), 2)], "NC_1", true),
             None
         );
-        assert_eq!(
-            rename_for(&[("1".into(), 3)], "NC_1", true),
-            Some(("1".to_string(), "NC_1".to_string()))
-        );
         assert_eq!(rename_for(&[("1".into(), 3)], "NC_1", false), None);
+        // The one sequence a file names is offered where neither name is a
+        // chromosome's number: a word or another accession may be the
+        // window's sequence under another name, and another genome's
+        // chromosome 1 is not.
+        let one = |held: &str, figure: &str| rename_for(&[(held.into(), 3)], figure, true);
+        let offered = |held: &str, figure: &str| Some((held.to_string(), figure.to_string()));
+        for (held, figure) in [
+            ("Chromosome", "NC_000962.3"),
+            ("NC_000962.3", "Chromosome"),
+            ("AL123456.3", "NC_000962.3"),
+            ("contig_3", "CP012345.1"),
+            ("1", "chr1"),
+            ("chrX", "X"),
+            ("chrM", "MT"),
+            ("MT", "chrM"),
+            ("chrMT", "chrM"),
+        ] {
+            assert_eq!(
+                one(held, figure),
+                offered(held, figure),
+                "{held} as {figure}"
+            );
+        }
+        for (held, figure) in [
+            ("1", "NC_000962.3"),
+            ("12", "CP012345.1"),
+            ("chr1", "NC_1"),
+            ("X", "NC_000962.3"),
+            ("NC_000962.3", "1"),
+            ("NC_000962.3", "chrX"),
+            ("chr2", "chr1"),
+            ("2L", "Chromosome"),
+            ("IV", "contig_3"),
+            ("MT", "NC_012920.1"),
+        ] {
+            assert_eq!(one(held, figure), None, "{held} as {figure}");
+        }
         assert_eq!(rename_for(&[("NC_1".into(), 3)], "NC_1", true), None);
         // A gene named nearly right is a typo, and no rename is offered for it.
         let error = drawn_from("rpoC genes.gff3", &[("genes.gff3", GENES)]).unwrap_err();
@@ -13408,15 +13748,29 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
             svg.unwrap();
             assert!(notes.is_empty(), "{line}: {notes:?}");
         }
+        // Over a window of another genome's sequence the map is refused
+        // where its rows lie, with no --rename to lay a chromosome 1 there.
+        let error = drawn_from("NC_000962.3:2,001-4,000 --recombination map.txt", &held)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            "--recombination map.txt: no rates in NC_000962.3:2001-4000, though the file holds \
+             3 on 1, from 1,001 to 9,001"
+        );
     }
 
     /// A gene the figure is placed on, drawn as one model of several
     /// transcripts, says so once and names the flag that draws them apart;
-    /// a gene of one transcript, a place written as a span, and a figure
-    /// that asked for the transcripts say nothing.
+    /// a gene of one transcript, a place written as a span, a figure that
+    /// asked for the transcripts, and one that draws data over the gene,
+    /// which is about the data and not the transcripts, say nothing.
     #[test]
     fn a_placed_gene_drawn_as_one_model_names_isoforms() {
-        let held = [("genes.gff3", ISOFORMS)];
+        let held = [
+            ("genes.gff3", ISOFORMS),
+            ("depth.bedgraph", "7\t1000\t9000\t5\n"),
+        ];
         let (svg, notes) = drawn_noting("GENE1 genes.gff3", &held);
         svg.unwrap();
         assert_eq!(
@@ -13426,7 +13780,16 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
               row each"
             ]
         );
-        for line in ["GENE1 genes.gff3 --isoforms", "7:1-10,000 genes.gff3"] {
+        // In a panel of several, the gene's panel says so too.
+        let (svg, notes) = drawn_noting("GENE1 7:1-10,000 genes.gff3", &held);
+        svg.unwrap();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        for line in [
+            "GENE1 genes.gff3 --isoforms",
+            "7:1-10,000 genes.gff3",
+            "GENE1 depth.bedgraph genes.gff3",
+            "GENE1 7:1-10,000 depth.bedgraph genes.gff3 --panel-columns 2",
+        ] {
             let (svg, notes) = drawn_noting(line, &held);
             svg.unwrap();
             assert!(notes.is_empty(), "{line}: {notes:?}");
@@ -14093,9 +14456,8 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         let error = drawn_from("NC_1 gwas.assoc", &[("gwas.assoc", scan)]).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "no gene and no sequence is called NC_1. gwas.assoc names the sequence 1. If 1 is \
-             NC_1, add --rename 1=NC_1. To find a gene by name, add the annotation that names \
-             it, as --features genes.gff3."
+            "no gene and no sequence is called NC_1. gwas.assoc names the sequence 1. To find a \
+             gene by name, add the annotation that names it, as --features genes.gff3."
         );
         // Files that name the same sequences are named together.
         let vcf = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
@@ -15487,13 +15849,11 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         for (line, said) in [
             (
                 "chr2:1-500 sparse.bw",
-                "--coverage sparse.bw: the bigWig has no sequence called chr2; it has chr1; if \
-                 chr1 is chr2, add --rename chr1=chr2",
+                "--coverage sparse.bw: the bigWig has no sequence called chr2; it has chr1",
             ),
             (
                 "chr2:1-500 sparse.bb",
-                "--features sparse.bb: the bigBed has no sequence called chr2; it has chr1; if \
-                 chr1 is chr2, add --rename chr1=chr2",
+                "--features sparse.bb: the bigBed has no sequence called chr2; it has chr1",
             ),
         ] {
             let error = held_figure(&mut held, line).unwrap_err();
@@ -15847,7 +16207,8 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
     }
 
     /// Rows on another sequence are rows elsewhere, and the refusal says
-    /// where, with the --rename that would draw them.
+    /// where they lie. Another chromosome's number is no other name for the
+    /// window's, so no --rename is offered for it.
     #[test]
     fn genotypes_on_another_sequence_say_where_the_rows_are() {
         let error = drawn_from(
@@ -15866,9 +16227,10 @@ chr1\t700\t.\tG\tA\t.\t.\t.\tGT\t1/1\t0/0\t0/1\t0/0
             ),
             "{error:?}"
         );
-        assert!(
-            error.to_string().contains("add --rename chr1=chr2"),
-            "{error}"
+        assert_eq!(
+            error.to_string(),
+            "--genotypes cohort.vcf: no genotypes in chr2:1-1000, though the file holds 3 on \
+             chr1, from 100 to 700"
         );
     }
 

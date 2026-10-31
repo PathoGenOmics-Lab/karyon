@@ -271,7 +271,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 
 Where balanced sits has no default, in `at_ploidy` or on the command line, where `--ploidy` is required. The crate does not know what it is drawing, and a rule in the wrong place does not merely mis-scale the ladder: it swaps every gain for a loss. `diploid` and `haploid` say it for you.
 
-The key is the marks drawn: `legend` gives the whole track's, and the `key` a figure gathers gives the ones the segments in view use, so a zoom into a gain is not keyed with a loss it left out. The thick bar of a balanced total is keyed `total copies` as a line, the thin bar of the minor allele `minor allele` as a line half as thick (`Marker::ThinLine`), and the lane's states only while the lane is shown. A tooltip says `1 copy` and `2 copies`.
+The key is the marks drawn: `legend` gives the whole track's, and the `key` a figure gathers gives the ones the segments in view use, so a zoom into a gain is not keyed with a loss it left out. The thick bar of a balanced total is keyed `total copies` as a line, the thin bar of the minor allele `minor allele` as a line half as thick (`Marker::ThinLine`), and the lane's states only while the lane is shown: a lost allele in the ink of `loh_color`, and a stretch with no copies at all in the ink of the text, which is not the loss of one copy and is not painted as one. A tooltip says `1 copy` and `2 copies`.
 
 A level is a bar drawn at the level, not a fill from a line to it. A window track fills from its baseline, so a segment called exactly at the ploidy draws nothing, and a balanced segment is most of a genome: its quiet arms would look the same as arms nobody called. That is why this is not a [WindowTrack](signal-sequence.md#windowtrack).
 
@@ -550,7 +550,7 @@ Pairs of places and a value between them: linkage between variants, contacts bet
 | `.height(200.0)` | Band height in pixels (`--height`) | a triangle as deep as its widest pair, up to `240`; arcs `90` |
 | `.ceiling(1.0)` | The value the ramp saturates at (`--max`, which wins over the r² default) | the largest value drawn; `1` on the command line for an r², r or D' |
 | `.threshold(0.2)` | Draws only the pairs at or above this value (`--threshold`) | every pair |
-| `.log_scale(true)` | Colours on a log scale, as a contact map is read (`--log`) | linear |
+| `.log_scale(true)` | Colours on a log scale, `ln(1 + x)` so that nought is the pale end, as a contact map is read; the key says `log(1 + x)` and writes the value half way along (`--log`) | linear |
 | `.color("#d55e00")` | The hue at the top of the ramp (`--color`) | theme accent |
 
 #### Notes
@@ -625,7 +625,7 @@ Site-wise molecular selection in two aligned tiers, so evidence and effect never
 
 #### Notes
 
-A site that crosses the threshold is drawn as a larger diamond instead of a small circle, and while thirty or fewer cross it in view each is named over its mark, from 1 as the ruler counts; sites whose names would touch share one, as `58, 59, 63-65`. Colour follows the direction of ω and not the evidence, so a significant purifying site keeps the purifying colour.
+A site that crosses the threshold is drawn as a larger diamond instead of a small circle, and while thirty or fewer cross it in view each is named over its mark, from 1 as the ruler counts; sites whose names would touch share one, as `58, 59, 63-65`. Colour follows the direction of ω and not the evidence, so a significant purifying site keeps the purifying colour, and its strength follows how far ω is from 1, which the key says in words, `deeper = further from 1`, after a dot of each direction, where the band has room. A row of p-values is titled `-log10 p` under the track's name, as a scan is (`Track::axis_title`), and its top tick is the number alone.
 
 Missing evidence or rates are left out rather than drawn at nought, the exact values you supplied stay in the tooltips, and an infinite ω from `dS = 0` is capped only in the drawn geometry. A ratio past either end of the effect tier is held at that end and drawn open, and the end is then written as a bound, `ω ≥ 8` or `≤ 1/8`, so a held mark does not read as exactly the end.
 

@@ -95,8 +95,12 @@ An option and its value may be written as two words or joined by `=`, as
 `karyon --help` fits on one screen: the grammar, every track by what it draws,
 and the figure options. `karyon help coverage`, or `--help` written after a
 track flag, prints one track's entry and only the options that track takes,
-with a link to its page here. `karyon help all` prints everything, every track
-and every option in full. A flag typed wrong is answered with the one it was
+with a link to its page here. A format's name, or a file's, as `karyon help
+hic` or `karyon help genes.gtf.gz`, prints the help on the track a file of
+that format is named on its own, after a line on standard error that names
+the track and the others that read one: `a .bcf named on its own is a
+--variants track; --genotypes and --structural read one too`. `karyon help
+all` prints everything, every track and every option in full. A flag typed wrong is answered with the one it was
 probably meant to be:
 
 ```text
@@ -695,7 +699,8 @@ karyon NC_000962.3:759,001-768,000 reads.bam genes.gff3 \
 - **Behind the tracks, edged over them.** The wash is under every track, so no
   colour in the figure changes, and its two ends are dashed lines drawn over
   the tracks, so a heatmap whose cells hide the wash still shows where the
-  stretch starts and stops.
+  stretch starts and stops. They come down to a ruler's ticks and stop
+  there, short of its numbers.
 - **Only what is on the coordinates.** A phylogeny, a tanglegram, a
   variable-site panel, an ideogram and the key are not, and the column stops
   at them and goes on under them. Synteny is not shaded either, since its
@@ -1256,7 +1261,7 @@ $ karyon chr1:1-1000 --features broken.bed
 karyon: --features broken.bed: line 2: end is not a number: "three-hundred-and-fifty"
 
 $ karyon 1:1-5,000 --variants calls.vcf
-karyon: --variants calls.vcf: no variants in 1:1-5000, though the file holds 12 on chr1
+karyon: --variants calls.vcf: no variants in 1:1-5000, though the file holds 12 on chr1, from 1,204 to 4,861; if chr1 is 1, add --rename chr1=1
 
 $ karyon aln:1-9 --msa aln.fa
 karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns
@@ -1276,7 +1281,13 @@ karyon: --clades gubbins.gff: no clade blocks in NC_011900.1:5000-9000, though t
 ```
 
 Check the sequence name first. It has to match the region's exactly: `chr1`,
-`1` and `NC_000001.11` are three different sequences to every reader.
+`1` and `NC_000001.11` are three different sequences to every reader. Where
+the file names one sequence, most tracks say where on it its rows lie, as the
+file writes their positions, and the `--rename` that would draw it is offered
+where one plainly fits: the region's name with a `chr` more or less, or the
+file's one sequence where neither name is a chromosome's number. `1` is never
+offered as `NC_000001.11`, or the other way about, since a number says nothing
+of whose chromosome it is.
 
 A codon ruler is refused where the annotation does not give it one unbroken
 coding sequence to count, saying why, and what to write instead where

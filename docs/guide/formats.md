@@ -734,9 +734,16 @@ or failing one the column naming its logarithm, as `LOG10P` does. That is what
 PLINK, PLINK 2, REGENIE, BOLT-LMM, GEMMA, SAIGE and the GWAS Catalog write. A
 test the tool could not run is written `NA` and left out, and a header that
 names no position or no p-value is refused with the names it does give. The
-tools write a chromosome as a number, `1` where a FASTA may say `NC_000962.3`;
-`--rename 1=NC_000962.3` reads the table by the FASTA's name, and a figure on
-a name the table does not use says which `--rename` would draw it:
+tools write a chromosome as a number, `1` where a FASTA may say `NC_000962.3`,
+and `--rename 1=NC_000962.3` reads the table by the FASTA's name. A figure on a
+name the table does not use is refused saying what the table names, and where
+its rows lie when it names one sequence: `though the file holds 2 on 1, from
+150 to 4,800`. It offers the `--rename` where one plainly fits, the figure's
+name with a `chr` more or less, or the table's one sequence where neither name
+is a chromosome's number, as `Chromosome` beside `NC_000962.3`. A number is
+never offered for another name, since nothing in it says whose chromosome 1
+it is, and one followed laid another genome's chromosome over the window.
+Placed on the table's own name, a figure needs none:
 
 ```bash
 karyon 7:1-159,345,973 --manhattan scan.assoc --threshold 5e-8 -o scan.svg
