@@ -1578,8 +1578,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and is kept inside the band. Heads that touch none stay exactly where
   they were, so a figure with no heads that collide is drawn as before, and
   heads too many for the band to hold in a row are left as they are, the
-  density ticks are for. `gallery.svg` and its copy on the site move, its
-  calls of no value side by side.
+  density ticks are for, as is a whole band where more than a million pairs
+  of heads lie within a head of each other: two hundred thousand calls over
+  four megabases, laid out pair by pair, took 6.3 s to draw where they take
+  0.3 s. `gallery.svg` and its copy on the site move, its calls of no value
+  side by side.
 - A consequence keeps its colour at every zoom of a file of calls: the
   colours are dealt from every call of the file, on every sequence, ranked
   from the most damaging down, rather than from the calls in view.

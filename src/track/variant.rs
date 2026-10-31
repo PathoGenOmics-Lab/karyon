@@ -755,9 +755,30 @@ impl Beside {
 /// a figure with no heads that touch is drawn as it always was. A row moved
 /// onto another head takes that one in and is laid out again. Heads too many
 /// for the band to hold in a row are left where they are, which is the
-/// density ticks are for.
+/// density ticks are for, and so is a band so crowded that a head has
+/// thousands of others within a head's width of it: two hundred thousand
+/// calls over four megabases were twenty times as slow to draw, looking at
+/// every pair of heads, for rows no band could hold.
 fn apart(heads: &[(f64, f64)], radius: f64, left: f64, right: f64) -> Vec<f64> {
     let mut drawn: Vec<f64> = heads.iter().map(|(x, _)| *x).collect();
+    let width = 2.0 * radius;
+    // The pairs of heads within a head's width of each other across the
+    // band, which the rounds below look at each of.
+    const MOST_PAIRS: usize = 1_000_000;
+    let mut across = drawn.clone();
+    across.sort_by(f64::total_cmp);
+    let mut pairs = 0usize;
+    let mut reach = 0;
+    for (at, x) in across.iter().enumerate() {
+        reach = reach.max(at);
+        while reach + 1 < across.len() && across[reach + 1] - x < width {
+            reach += 1;
+        }
+        pairs += reach - at;
+        if pairs > MOST_PAIRS {
+            return drawn;
+        }
+    }
     let mut group: Vec<usize> = (0..heads.len()).collect();
     fn root(group: &mut [usize], mut at: usize) -> usize {
         while group[at] != at {
@@ -766,7 +787,6 @@ fn apart(heads: &[(f64, f64)], radius: f64, left: f64, right: f64) -> Vec<f64> {
         }
         at
     }
-    let width = 2.0 * radius;
     let pitch = width + 1.0;
     // A row moved onto a head takes it in, so the groups only grow, and a
     // few rounds settle every figure a lollipop is drawn for.
@@ -1362,6 +1382,15 @@ mod tests {
         let crowd: Vec<(f64, f64)> = (0..50).map(|i| (50.0 + i as f64 * 0.1, 50.0)).collect();
         let left = apart(&crowd, 4.0, 0.0, 100.0);
         assert_eq!(left, crowd.iter().map(|(x, _)| *x).collect::<Vec<_>>());
+        // Nor can twenty thousand over half a band of a thousand, and a band
+        // that crowded is left as it is without looking at each of its pairs,
+        // the two touching heads far from the crowd with it.
+        let mut throng: Vec<(f64, f64)> = (0..20_000)
+            .map(|i| (i as f64 * 0.025, 50.0 + (i % 7) as f64))
+            .collect();
+        throng.extend([(900.0, 50.0), (901.0, 50.0)]);
+        let left = apart(&throng, 4.0, 0.0, 1_000.0);
+        assert_eq!(left, throng.iter().map(|(x, _)| *x).collect::<Vec<_>>());
     }
 
     /// A mark says the change it is, after where it is: `761,139 C>T`. An
