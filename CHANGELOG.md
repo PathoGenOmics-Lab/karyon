@@ -368,14 +368,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A figure's description names every track it counts, each by its label or,
   where it has none, by what it is: `with 4 tracks, drawn top to bottom: reads
   depth, genes, calls and a ruler`. It counted the ruler and the key and named
-  neither, so four tracks were three names long, which a simulated user
-  reading it as a screen reader would took for a mistake. `Track::noun` says
+  neither, so four tracks were three names long, which a screen reader read
+  out as a count its own list did not match. `Track::noun` says
   what a track is, and every track of the crate says it; one that does not is
   `a track`. Every committed figure's description changes.
 - The key names a column's levels as a reader looks them up, `L1`, `L2`,
   `L4`, `L10`, each in the colour it was dealt, where it named them in the
-  order the sheet dealt them their colours: `L4`, `L2`, `L1`, which all three
-  simulated users asked about. The colours are dealt as they were, so no strip
+  order the sheet dealt them their colours: `L4`, `L2`, `L1`, which looked out
+  of order. The colours are dealt as they were, so no strip
   and no branch changes colour.
 - A phylogram draws its branch-length scale bar by default, since its widths
   measured nothing a reader could name without one; `--no-scale-bar` and
@@ -390,8 +390,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tick: `10 -log10 p` read as ten minus something, and nothing named the
   calls' axis at all. `Track::axis_title` says it, `ManhattanTrack` and
   `VariantTrack` take one, and the command line sets both. A unit written as a
-  symbol, the `x` of `50x`, stays on the tick. All three simulated users read
-  the scan's axis wrong or asked what the calls' axis was.
+  symbol, the `x` of `50x`, stays on the tick. The scan's axis was read wrong,
+  and the calls' axis did not say what it measured.
 - The significance line says where it is: `p = 5e-8` for
   `genome_wide_threshold`, `p = 1e-5` for the new `p_value_threshold(1e-5)`,
   and the value itself for `threshold`, over the line, or under it where the
@@ -409,8 +409,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Every column of words in a sample sheet deals its own stretch of the
   palette, by its place in the sheet: two columns take three colours each and
   three take two. They all dealt it from the first colour, so a lineage and a
-  country were one colour side by side, `L4` and `Kenya` the same blue, and two
-  simulated users called it misleading. The stretch goes by the sheet rather
+  country were one colour side by side, `L4` and `Kenya` the same blue, as
+  though the two were one thing. The stretch goes by the sheet rather
   than by what is drawn or how many levels come first, so neither `--columns`
   nor an appended sample repaints anything. A tree coloured by a column starts
   where the column does. `TraitColumn::first_color` sets it by hand.
@@ -418,8 +418,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lineage strip's colours.
 - The command line names the bases' colours in the key under the figure while
   they are blocks too narrow for their letters, in the reference and in a
-  pileup's mismatches, and says nothing of them once each is lettered. No
-  simulated user could say which colour was which base. `Track::key` is what
+  pileup's mismatches, and says nothing of them once each is lettered.
+  Nothing said which colour was which base. `Track::key` is what
   a track needs explained at a zoom, `Figure::key` gathers every track's at
   the zoom the figure draws at, `BaseColors::legend` is the key to the four
   colours, and `Legend::and` joins two keys without saying a colour twice. No
@@ -1181,18 +1181,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   does not use says which `--rename` would draw it, where one plainly would:
   the figure's own with a `chr` more or less, or the one sequence the file
   names where neither name is a chromosome's number. One name renamed two
-  ways is refused. All three simulated users had to find out by reading the
-  file that PLINK named the chromosome `1`.
+  ways is refused. That PLINK named the chromosome `1` could be found only by
+  reading the file.
 - A sequence drawn whole to where its rows reach, because no file gives its
-  length, says so on standard error: all three simulated users saw that the
-  figure stopped at the last tested position only from the corner label. The
+  length, says so on standard error: that the figure stopped at the last
+  tested position showed only in the corner label. The
   note says to write the span, or to add a FASTA or BAM, and how to place the
   figure on their name where they call the sequence otherwise. `Files::note`
   is how the figure tells whoever drew it, and `Disk::notes` keeps what it
   was told.
 - Two more notes: a BAM named on its own over a thousand bases or fewer says
-  that `--pileup` draws its reads, since a simulated user drew four hundred
-  bases of depth where the reads were wanted; and bases drawn as blocks say
+  that `--pileup` draws its reads, since four hundred bases of a BAM were
+  drawn as depth where the reads were wanted; and bases drawn as blocks say
   the `--width` that would letter them. `Figure::px_per_bp` is the zoom a
   figure draws at.
 - A file named on its own is a track of the kind its name says, under any
@@ -1217,20 +1217,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `calls.vcf.gz`, `reads` for the reads of `data/reads.bam` and `reads depth`
   for its depth. Standard input, a pipe the shell names, a tanglegram's two
   trees and a tree get no name: a tree is plain to see, and its file's name
-  was a word by itself in the margin that all three simulated users asked
-  about.
+  was a word by itself in the margin with nothing to say what it named.
 - A flag another tool spells for something karyon says otherwise, `--vcf`,
   `--region`, `--metadata`, `--legend` and some sixty more, is answered with
   how karyon says it, and any other unknown flag says where the tracks and
   their options are listed.
 - A key to the colours of a tree's branches and of every `--traits` strip is
   drawn under the figure, each level once however many strips show it.
-  `--no-legend` leaves it out. The three simulated users each drew a tree
-  coloured by lineage and found no way to say which colour was which.
+  `--no-legend` leaves it out. A tree coloured by lineage had nothing to say
+  which colour was which.
 - A pileup with no `--with-sequence` reads its reads against the reference the
   figure's `--sequence` draws. It drew every read as agreeing, with the
-  reference right above it, which is how one simulated user nearly missed the
-  variant the figure was for.
+  reference right above it, so the variant the figure was for could be
+  missed.
 - `--manhattan` reads an association tool's own table by its header: PLINK,
   PLINK 2, whose header is written behind a `#`, REGENIE, BOLT, GEMMA, SAIGE
   and the GWAS Catalog's format, finding
