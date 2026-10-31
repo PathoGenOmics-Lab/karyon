@@ -4882,7 +4882,8 @@ fn colored_as_asked(invocation: &Invocation, files: &mut dyn Files) -> Result<()
                     .columns
                     .as_ref()
                     .map_or(true, |named| named.contains(column))
-                    || spec.color_by.as_ref() == Some(column))
+                    || spec.color_by.as_ref() == Some(column)
+                    || spec.tip_color_by.as_ref() == Some(column))
         });
         if !drawn {
             return Err(BuildError::ColorsUndrawn {
@@ -8352,37 +8353,45 @@ fn built(
             // the answer is coloured by unless the command said to colour by
             // something else.
             let coloured = spec.color_by.clone().or_else(|| spec.carrying.clone());
-            if let Some(key) = coloured {
-                // A key no node carries colours no branch, and the tree comes
-                // out as it would have without the flag. Looked for on every
-                // node rather than on the tips, since a branch takes its
-                // nearest annotated ancestor's value, and on the tree as it
-                // will be drawn: after `--focus` has cut it, and after the
-                // sheet and the carriers have been written onto it.
+            // A key no node carries colours no branch and no tip, and the tree
+            // comes out as it would have without the flag. Looked for on
+            // every node rather than on the tips, since a branch takes its
+            // nearest annotated ancestor's value, and on the tree as it will
+            // be drawn: after `--focus` has cut it, and after the sheet and
+            // the carriers have been written onto it.
+            let carried = |track: &TreeTrack, key: String| {
                 let tree = track.tree();
                 let nodes = 0..tree.nodes().len();
-                if !nodes
+                if nodes
                     .clone()
                     .any(|node| tree.annotation(node, &key).is_some())
                 {
-                    let keys: std::collections::BTreeSet<&str> = nodes
-                        .filter_map(|node| tree.annotations(node))
-                        .flat_map(|held| held.keys().map(String::as_str))
-                        .collect();
-                    let mut held: Vec<String> =
-                        keys.iter().take(24).map(|key| key.to_string()).collect();
-                    if keys.len() > held.len() {
-                        held.push(format!("and {} more", keys.len() - held.len()));
-                    }
-                    return Err(BuildError::Unnamed {
-                        track: "tree",
-                        path: path.clone(),
-                        what: "annotation",
-                        wanted: key,
-                        held,
-                    });
+                    return Ok(key);
                 }
+                let keys: std::collections::BTreeSet<&str> = nodes
+                    .filter_map(|node| tree.annotations(node))
+                    .flat_map(|held| held.keys().map(String::as_str))
+                    .collect();
+                let mut held: Vec<String> =
+                    keys.iter().take(24).map(|key| key.to_string()).collect();
+                if keys.len() > held.len() {
+                    held.push(format!("and {} more", keys.len() - held.len()));
+                }
+                Err(BuildError::Unnamed {
+                    track: "tree",
+                    path: path.clone(),
+                    what: "annotation",
+                    wanted: key,
+                    held,
+                })
+            };
+            if let Some(key) = coloured {
+                let key = carried(&track, key)?;
                 track = track.color_by(key);
+            }
+            if let Some(key) = spec.tip_color_by.clone() {
+                let key = carried(&track, key)?;
+                track = track.tip_color_by(key);
             }
             // Refused rather than said under the tree, as a colour key is: a
             // support style drawing nothing on a tree whose support the file
@@ -14656,6 +14665,49 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         assert_ne!(
             key_colour(&alone, "lineage: L4"),
             key_colour(&alone, "country: Kenya")
+        );
+    }
+
+    /// `--tip-color-by` colours each tip by a column of the sheet, keyed
+    /// beside the branches' colours and apart from them, takes the colours
+    /// `--colors` gives the column, and is refused a key the tree does not
+    /// carry, with the keys it does.
+    #[test]
+    fn a_tree_s_tips_are_coloured_by_a_column_of_its_sheet() {
+        let tree = "((a:1,b:1):1,(c:1,d:1):1);";
+        let sheet = "sample\tlineage\thost\na\tL1\tcattle\nb\tL2\thuman\n\
+                     c\tL3\thuman\nd\tL4\tcattle\n";
+        let held = [("t.nwk", tree), ("s.tsv", sheet)];
+        let svg = drawn_from(
+            "--tree t.nwk --traits s.tsv --columns lineage --tip-color-by host",
+            &held,
+        )
+        .unwrap();
+        assert!(svg.contains("<title>a; host cattle</title>"), "{svg}");
+        let lineages: Vec<String> = ["L1", "L2", "L3", "L4"]
+            .iter()
+            .map(|level| key_colour(&svg, &format!("lineage: {level}")))
+            .collect();
+        for host in ["cattle", "human"] {
+            let colour = key_colour(&svg, &format!("host: {host}"));
+            assert!(
+                !lineages.contains(&colour),
+                "{host} is a lineage's {colour}"
+            );
+        }
+        let chosen = drawn_from(
+            "--tree t.nwk --traits s.tsv --columns lineage --tip-color-by host \
+             --colors host=human:#aa0000",
+            &held,
+        )
+        .unwrap();
+        assert_eq!(key_colour(&chosen, "host: human"), "#aa0000");
+        let refused = drawn_from("--tree t.nwk --traits s.tsv --tip-color-by hots", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("hots") && refused.contains("host") && refused.contains("lineage"),
+            "{refused}"
         );
     }
 

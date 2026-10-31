@@ -8,7 +8,8 @@ itself as it was.
 
 !!! note "Command line or library"
     `--tree` reads Newick or NEXUS and reaches metadata strips (`--traits`),
-    branch colour (`--color-by`), `--projection`, `--support-style`,
+    branch colour (`--color-by`), tip colour (`--tip-color-by`),
+    `--projection`, `--support-style`,
     `--support-from`, `--no-scale-bar`, `--shape`, folding (`--max-rows`),
     `--focus`, `--mutations` and `--highlight`; every flag is in
     [Command line](cli.md). Calendar time, rerooting, branch geometry, dN/dS,
@@ -81,14 +82,17 @@ which tips it has no row for; `.join()` on the track gives what matched and
 what was left out on both sides. Each column starts on a stretch of the palette
 of its own, in the order of the sheet, so a value added to one column later
 does not repaint another, and a value is one colour in every figure drawn from
-the sheet. `add_key()` keys every strip at the foot of the figure, in the
-colours it drew.
+the sheet. A column after the first whose values fit in the colours the ones
+before it left takes those instead, so two columns share no colour while the
+palette has room for both. `add_key()` keys every strip at the foot of the
+figure, in the colours it drew.
 
 The palette has six colours. A column with more values than that is drawn as
 shapes, each value a colour and a shape of its own, and the figure says so
-under the tree; so does one whose values run into the colours of the strip
-beside it. To keep it a strip, give its values colours of your own, as a field
-that knows its lineages by colour already would:
+under the tree; so does one whose values do not fit in the colours the columns
+before it left, and share some of theirs. To keep it a strip, give its values
+colours of your own, as a field that knows its lineages by colour already
+would:
 
 ```rust
 let traits = Traits::from_sheet(&sheet)
@@ -143,6 +147,14 @@ the tree. A folded clade is a wedge in the colour of its branches, named by
 the value it was folded by, as `L4 (16 tips)`, by a name of its own where it
 has one, and otherwise by its first tip and how many more it holds, as
 `S26 +15 more`; its tooltip gives its first and last tips.
+
+`tip_color_by("country")` colours each tip by another column, a point at the
+end of its branch and its name, so the branches say the lineage while the tips
+say where each sample came from. The branches, the strips and the tips are
+dealt the palette in that order, each from the colours the ones before it left
+while its values fit, so a lineage and a country are not one colour; a tip the
+sheet says nothing of is an open ring. From the command line it is
+`--color-by lineage --tip-color-by country`.
 
 ### Draw it as a circle
 

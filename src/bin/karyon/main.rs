@@ -157,6 +157,7 @@ const SAMPLES: &[(&str, &str)] = &[
     ("--threshold", "7"),
     ("--projection", "circular"),
     ("--color-by", "lineage"),
+    ("--tip-color-by", "country"),
     ("--support-from", "posterior"),
     ("--support-style", "both"),
     ("--mutations", "muts"),
@@ -254,6 +255,11 @@ fn said_for(kind: args::Kind, flag: &str) -> Option<&'static str> {
         (Kind::Genotypes, "--sample") => {
             "    --sample <A,B,C>     which samples of the VCF to draw, in this order; every
                          sample, in the order of its header, by default
+"
+        }
+        (Kind::Tree, "--no-scale-bar") => {
+            "    --no-scale-bar       leave out the rule in the tree's own branch-length
+                         units, which a phylogram draws by default
 "
         }
         (Kind::Tree, "--threshold") => {
@@ -719,6 +725,9 @@ TRACK OPTIONS, each describing the track before it, once
                          A clade whose tips all agree takes that colour too, so
                          a lineage is a coloured clade; a key the tree does not
                          carry is refused with the keys it does
+    --tip-color-by <KEY> colour each tip, a point and its name, by a column or
+                         an annotation as --color-by reads one, in colours the
+                         branches and the strips left while there are enough
     --support-style <HOW>
                          none, symbols, labels or both, for the support values
                          a phylogeny carries; support is always in the tooltips

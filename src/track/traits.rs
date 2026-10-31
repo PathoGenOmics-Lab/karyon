@@ -348,6 +348,131 @@ pub(crate) struct Dealt<'a> {
     pub(crate) first: usize,
     /// Colours chosen for levels by name, over the palette's.
     pub(crate) colors: &'a [(String, String)],
+    /// The palette colours the columns coloured before this one in the same
+    /// figure were dealt, which its levels step over. See [`apart`].
+    pub(crate) taken: Taken,
+}
+
+/// The colours of a palette that the columns coloured earlier in a figure
+/// were dealt, which a column coloured after them steps over.
+///
+/// Empty for a column dealt as it always was: its levels from its colour
+/// `first` on, in a row. A set of bits rather than a list so a [`Dealt`]
+/// stays a copy of a few words, which is what lets every projection hand it
+/// around by value; a palette of more than 64 colours takes none, and is
+/// dealt in a row.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Taken {
+    /// Bit `i` is the palette's colour `i`.
+    bits: u64,
+    /// How many colours the palette has.
+    of: usize,
+}
+
+impl Taken {
+    /// None of a palette of `of` colours, or `None` for a palette too long
+    /// to be held in bits.
+    fn of(of: usize) -> Option<Self> {
+        (1..=64).contains(&of).then_some(Taken { bits: 0, of })
+    }
+
+    /// Whether nothing is taken, which deals a column in a row.
+    fn is_empty(self) -> bool {
+        self.bits == 0 || self.of == 0
+    }
+
+    /// How many of the palette's colours are left.
+    fn free(self) -> usize {
+        self.of - self.bits.count_ones() as usize
+    }
+
+    /// The same, with the colour a level dealt `index` is painted taken.
+    fn with(self, index: usize) -> Self {
+        Taken {
+            bits: self.bits | 1 << (index % self.of),
+            ..self
+        }
+    }
+
+    /// The colour the `nth` level of a column starting at `first` is dealt:
+    /// the `nth` colour left, counting round the palette from `first`, so a
+    /// column that clashes with nothing keeps the colours its own stretch
+    /// gave it. With nothing taken, or past the colours left, it is the
+    /// `nth` from `first` in a row, as a column was always dealt.
+    fn slot(self, first: usize, nth: usize) -> usize {
+        if self.is_empty() {
+            return first + nth;
+        }
+        (0..self.of)
+            .map(|step| (first + step) % self.of)
+            .filter(|index| self.bits & 1 << index == 0)
+            .nth(nth)
+            .unwrap_or(first + nth)
+    }
+}
+
+/// Deals the palette to the columns one figure colours, in the order they
+/// are coloured, each after the first from the colours the ones before it
+/// left, where its levels fit in them.
+///
+/// Each column of words takes a stretch of the palette by its place in its
+/// sheet, which keeps a colour where it was when a column is added to the
+/// figure or left out, and a stretch is a third of six colours where a
+/// sheet has three such columns: four lineages ran past theirs into the
+/// countries', and a lineage and a country were one colour while the
+/// palette had colours nobody was painted. A column whose levels fit in the
+/// colours the columns before it left takes those instead, from where its
+/// stretch starts, so one clashing with nothing keeps the colours it had.
+/// One that does not fit is dealt its stretch, as before, and the figure
+/// says which two values share a colour. A level given a colour of its own
+/// takes none of the palette's from a column after it, and a column given
+/// its first colour with [`TraitColumn::first_color`] keeps it, and the
+/// colours it is dealt from there are taken all the same.
+///
+/// `domain` is the column's levels as it would deal them, which a tree
+/// counts over its nodes and a sheet over its rows; `None` leaves a column
+/// out, as a ramp or a column of present and absent, which paint no level a
+/// palette colour. `chosen` says whether a key's start was chosen. Two
+/// columns of one key are dealt alike, which is what [`Dealt`]s of the same
+/// key are for.
+pub(crate) fn apart<'a>(
+    dealt: &mut [(&str, Dealt<'a>)],
+    colors: usize,
+    domain: impl Fn(&str, Dealt<'a>) -> Option<TraitDomain>,
+    chosen: impl Fn(&str) -> bool,
+) {
+    let Some(mut taken) = Taken::of(colors) else {
+        return;
+    };
+    let mut done: Vec<(&str, Taken)> = Vec::new();
+    for (key, held) in dealt.iter_mut() {
+        let (key, mut one) = (*key, *held);
+        if let Some((_, before)) = done.iter().find(|(named, _)| *named == key) {
+            held.taken = *before;
+            continue;
+        }
+        let Some(levels) = domain(key, one) else {
+            continue;
+        };
+        if !taken.is_empty() && !chosen(key) && levels.categories.len() <= taken.free() {
+            one.taken = taken;
+        }
+        let dealt_as = if one.taken.is_empty() {
+            levels
+        } else {
+            match domain(key, one) {
+                Some(levels) => levels,
+                None => continue,
+            }
+        };
+        done.push((key, one.taken));
+        *held = one;
+        for index in dealt_as.categories.values() {
+            if !dealt_as.chose(*index) {
+                taken = taken.with(*index);
+            }
+        }
+    }
 }
 
 impl TraitColumn {
@@ -396,16 +521,17 @@ pub(crate) struct TraitDomain {
 
 impl TraitDomain {
     /// The same, with `levels` dealt the palette first, in that order, from
-    /// its colour `first` on.
-    pub(crate) fn ordered<'a>(
+    /// its colour `first` on, each the next colour `taken` leaves.
+    fn ordered<'a>(
         first: usize,
+        taken: Taken,
         levels: &[String],
         values: impl IntoIterator<Item = &'a AnnotationValue>,
     ) -> Self {
         let values: Vec<&AnnotationValue> = values.into_iter().collect();
         let mut categories = BTreeMap::new();
         for level in levels {
-            let next = first + categories.len();
+            let next = taken.slot(first, categories.len());
             categories.entry(level.clone()).or_insert(next);
         }
         let mut met = BTreeSet::new();
@@ -417,7 +543,7 @@ impl TraitDomain {
                 None => {}
             }
             let value = value.to_string();
-            let next = first + categories.len();
+            let next = taken.slot(first, categories.len());
             categories.entry(value.clone()).or_insert(next);
             met.insert(value);
         }
@@ -443,7 +569,7 @@ impl TraitDomain {
         dealt: Dealt<'_>,
         values: impl IntoIterator<Item = &'a AnnotationValue>,
     ) -> Self {
-        let mut domain = Self::ordered(dealt.first, dealt.levels, values);
+        let mut domain = Self::ordered(dealt.first, dealt.taken, dealt.levels, values);
         for (level, color) in dealt.colors {
             if let Some(index) = domain.categories.get(level) {
                 domain.chosen.insert(*index, color.clone());
@@ -544,7 +670,7 @@ impl TraitDomain {
     }
 
     /// Whether the level dealt `index` was given its colour by name.
-    fn chose(&self, index: usize) -> bool {
+    pub(crate) fn chose(&self, index: usize) -> bool {
         self.chosen.contains_key(&index)
     }
 
@@ -1256,17 +1382,21 @@ impl Traits {
     /// so its key is [`TreeTrack::legend`](crate::track::tree::TreeTrack::legend)
     /// and not this, which would name each colour beside another level.
     pub fn legend(&self, theme: &Theme) -> Legend {
-        self.columns.iter().fold(Legend::new(), |legend, column| {
-            let domain = self.domain(column, theme.palette.len());
-            key_entries(
-                legend,
-                &column.label,
-                column.scale,
-                column.drawn_style(&domain, theme),
-                &domain,
-                theme,
-            )
-        })
+        let dealt = self.dealing(theme.palette.len());
+        self.columns
+            .iter()
+            .zip(dealt)
+            .fold(Legend::new(), |legend, (column, dealt)| {
+                let domain = TraitDomain::dealt(dealt, self.stated(&column.key));
+                key_entries(
+                    legend,
+                    &column.label,
+                    column.scale,
+                    column.drawn_style(&domain, theme),
+                    &domain,
+                    theme,
+                )
+            })
     }
 
     /// The two numbers a continuous column's ramp runs between, as written.
@@ -1288,14 +1418,40 @@ impl Traits {
     /// The levels and the range one column covers over every row named here,
     /// dealt a palette of `colors` in the column's own order where it has one.
     fn domain(&self, column: &TraitColumn, colors: usize) -> TraitDomain {
-        TraitDomain::dealt(
-            Dealt {
-                levels: &column.levels,
-                first: column.first_in(colors),
-                colors: &column.colors,
+        TraitDomain::dealt(self.dealt_alone(column, colors), self.stated(&column.key))
+    }
+
+    /// How one column deals a palette of `colors` with no other beside it.
+    fn dealt_alone<'a>(&self, column: &'a TraitColumn, colors: usize) -> Dealt<'a> {
+        Dealt {
+            levels: &column.levels,
+            first: column.first_in(colors),
+            colors: &column.colors,
+            taken: Taken::default(),
+        }
+    }
+
+    /// How each column deals a palette of `colors`, in the order of the
+    /// columns: each column of words after the first from the colours the
+    /// ones before it left, where it fits in them, as [`apart`] says.
+    fn dealing(&self, colors: usize) -> Vec<Dealt<'_>> {
+        let mut dealt: Vec<(&str, Dealt<'_>)> = self
+            .columns
+            .iter()
+            .map(|column| (column.key.as_str(), self.dealt_alone(column, colors)))
+            .collect();
+        let of = |key: &str| self.columns.iter().find(|column| column.key == key);
+        apart(
+            &mut dealt,
+            colors,
+            |key, one| {
+                let column = of(key)?;
+                (column.scale == TraitScale::Categorical && column.style != TraitStyle::Binary)
+                    .then(|| TraitDomain::dealt(one, self.stated(key)))
             },
-            self.stated(&column.key),
-        )
+            |key| of(key).is_some_and(|column| column.first.is_some()),
+        );
+        dealt.into_iter().map(|(_, one)| one).collect()
     }
 
     /// Draws the strip beside rows that have already been laid out.
@@ -1312,8 +1468,9 @@ impl Traits {
         let room = self.heading_height();
         let mut x = area.x + 4.0;
 
-        for column in &self.columns {
-            let domain = self.domain(column, ctx.theme.palette.len());
+        let dealing = self.dealing(ctx.theme.palette.len());
+        for (column, dealt) in self.columns.iter().zip(dealing) {
+            let domain = TraitDomain::dealt(dealt, self.stated(&column.key));
             if room > 0.0 {
                 // Turned on end because a column is narrower than its name and
                 // will stay that way: a strip wide enough to caption flat is a
@@ -1404,7 +1561,7 @@ mod tests {
     fn a_domain_counts_its_levels_from_where_its_column_starts() {
         let a = AnnotationValue::Text("a".to_string());
         let b = AnnotationValue::Text("b".to_string());
-        let domain = TraitDomain::ordered(3, &["a".to_string()], [&a, &b]);
+        let domain = TraitDomain::ordered(3, Taken::default(), &["a".to_string()], [&a, &b]);
         assert_eq!(domain.category(Some(&a)), Some(3));
         assert_eq!(domain.category(Some(&b)), Some(4));
     }
@@ -1461,6 +1618,76 @@ mod tests {
         let three = Traits::from_sheet(&three).strips(three.columns.clone());
         let starts: Vec<usize> = firsts(&three).into_iter().map(|(_, first)| first).collect();
         assert_eq!(starts, [0, 2, 4]);
+    }
+
+    /// Two columns of words take a stretch each, half the palette, and
+    /// four lineages ran past theirs into the hosts', so L4 and cattle were
+    /// one colour while two of the six were painted nothing. A column whose
+    /// values fit in the colours the ones before it left takes those.
+    #[test]
+    fn a_column_that_fits_in_what_the_ones_before_it_left_takes_those() {
+        let text = "sample\tlineage\thost\n\
+                    S1\tL1\thuman\n\
+                    S2\tL2\tcattle\n\
+                    S3\tL3\thuman\n\
+                    S4\tL4\tcattle\n";
+        let held = sheet(text).unwrap();
+        let theme = Theme::light();
+        let key = keyed_colours(
+            &Traits::from_sheet(&held)
+                .strips(["lineage", "host"])
+                .legend(&theme),
+        );
+        let colours: Vec<&str> = key.iter().map(|(_, colour)| colour.as_str()).collect();
+        // L1 to L4 from the palette's first colour, and the hosts in the two
+        // after them, where their stretch started on L4's.
+        let palette: Vec<&str> = (0..6).map(|index| theme.color(index)).collect();
+        assert_eq!(
+            key.iter()
+                .map(|(label, _)| label.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "lineage: L1",
+                "lineage: L2",
+                "lineage: L3",
+                "lineage: L4",
+                "host: cattle",
+                "host: human"
+            ]
+        );
+        assert_eq!(
+            colours,
+            [palette[0], palette[1], palette[2], palette[3], palette[5], palette[4]]
+        );
+        // Drawn alone, the hosts keep their stretch.
+        let alone = keyed_colours(&Traits::from_sheet(&held).strips(["host"]).legend(&theme));
+        assert_eq!(
+            alone[1],
+            ("host: human".to_string(), palette[3].to_string())
+        );
+        // Five countries do not fit in the two colours left, and are dealt
+        // their stretch, sharing colours with the lineages, as before.
+        let wide = sheet(
+            "sample\tlineage\tcountry\nS1\tL1\tPeru\nS2\tL2\tChile\nS3\tL3\tSpain\n\
+             S4\tL4\tKenya\nS5\tL1\tIndia\n",
+        )
+        .unwrap();
+        let wide = keyed_colours(
+            &Traits::from_sheet(&wide)
+                .strips(["lineage", "country"])
+                .legend(&theme),
+        );
+        let peru = wide
+            .iter()
+            .find(|(label, _)| label == "country: Peru")
+            .unwrap();
+        assert_eq!(peru.1, palette[3], "{wide:?}");
+        // A column given its first colour by hand keeps it.
+        let kept = Traits::from_sheet(&held)
+            .strips(["lineage"])
+            .column(TraitColumn::categorical("host").first_color(0));
+        let kept = keyed_colours(&kept.legend(&theme));
+        assert_eq!(kept[5], ("host: human".to_string(), palette[0].to_string()));
     }
 
     const SHEET: &str = "\

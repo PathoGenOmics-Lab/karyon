@@ -931,6 +931,7 @@ pub struct TreeTrack {
     time_unit: Option<String>,
     show_time_axis: bool,
     color_by: Option<String>,
+    tip_color_by: Option<String>,
     dnds: Option<String>,
     dnds_label: String,
     dnds_neutral_band: (f64, f64),
@@ -1069,6 +1070,7 @@ impl TreeTrack {
             time_unit: None,
             show_time_axis: true,
             color_by: None,
+            tip_color_by: None,
             dnds: None,
             dnds_label: "dN/dS (ω)".to_string(),
             dnds_neutral_band: (0.95, 1.05),
@@ -1488,6 +1490,68 @@ impl TreeTrack {
     /// colouring takes the branches over.
     fn branch_key(&self) -> Option<&str> {
         self.color_by.as_deref().filter(|_| self.dnds.is_none())
+    }
+
+    /// Colours each tip by one annotation: a point at the end of its branch
+    /// and its name, in the colour its value is dealt, so the samples can be
+    /// coloured by one thing while the branches are coloured by another.
+    ///
+    /// A value is the colour here that it is in a strip of the same key and
+    /// along branches coloured by it, and a key nothing else in the figure
+    /// colours is dealt the colours the branches and the strips left, where
+    /// its values fit in them. A tip that holds no value is an open ring, and
+    /// its name keeps the ink the others had. A key of numbers is a ramp, as
+    /// a strip of them is, and one with more values than the palette has
+    /// colours draws each point as a shape as well, as a strip does. The
+    /// key under the figure names each value with a point, unless a strip
+    /// or the branches of the same key name it already.
+    ///
+    /// ```
+    /// use karyon::{Sheet, Traits, Tree, TreeTrack};
+    ///
+    /// let sheet = Sheet::parse("sample\tcountry\nA\tPeru\nB\tKenya\nC\tPeru\n")?;
+    /// let tree = Tree::parse_newick("((A:1,B:1):1,C:2);")?;
+    /// let track = TreeTrack::new(tree)
+    ///     .traits(Traits::from_sheet(&sheet))
+    ///     .tip_color_by("country");
+    /// let key = track.legend(&karyon::Theme::light());
+    /// assert_eq!(key.len(), 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn tip_color_by(mut self, key: impl Into<String>) -> Self {
+        self.tip_color_by = Some(key.into());
+        self
+    }
+
+    /// The key the tips are coloured by, where one is.
+    fn tip_key(&self) -> Option<&str> {
+        self.tip_color_by.as_deref()
+    }
+
+    /// The room a point at the end of each tip's branch takes before its
+    /// name, where the tips are coloured: the names start that much further
+    /// out, so a point on the longest branch does not run into its name.
+    fn tip_room(&self, theme: &Theme) -> f64 {
+        if self.tip_color_by.is_some() {
+            theme.tokens.marker_radius + theme.tokens.hairline
+        } else {
+            0.0
+        }
+    }
+
+    /// How the tips are painted in `theme`, where they are coloured.
+    fn tip_paint(&self, theme: &Theme) -> Option<TipPaint<'_>> {
+        let key = self.tip_key()?;
+        let continuous = rectangular::is_continuous(&rectangular::branch_values(&self.tree, key));
+        let domain =
+            rectangular::tree_domain(&self.tree, key, self.dealing(theme.palette.len()).tips);
+        let shaped = !continuous && domain.colors_repeat(theme);
+        Some(TipPaint {
+            key,
+            domain,
+            continuous,
+            shaped,
+        })
     }
 
     /// Colours incoming branches by a direct dN/dS (ω) annotation.
@@ -2209,6 +2273,47 @@ impl TreeTrack {
             );
             keyed.push(these);
         }
+        // The tips' colours, as points, where neither the branches nor a
+        // column of the same key keyed them: one colour is keyed once.
+        if let Some(painted) = self.tip_paint(theme) {
+            let key = painted.key;
+            let named = keyed.iter().any(|(named, scale, binary)| {
+                named == key && !binary && {
+                    *scale
+                        == if painted.continuous {
+                            TraitScale::Continuous
+                        } else {
+                            TraitScale::Categorical
+                        }
+                }
+            });
+            if !named {
+                legend = if painted.continuous {
+                    crate::track::traits::key_entries(
+                        legend,
+                        key,
+                        TraitScale::Continuous,
+                        TraitStyle::Strip,
+                        &painted.domain,
+                        theme,
+                    )
+                } else {
+                    painted
+                        .domain
+                        .keyed()
+                        .into_iter()
+                        .fold(legend, |legend, (level, index)| {
+                            let (color, shape) = painted.level(index, theme);
+                            let label = format!("{key}: {level}");
+                            if painted.shaped {
+                                legend.symbol(label, color, shape)
+                            } else {
+                                legend.dot(label, color)
+                            }
+                        })
+                };
+            }
+        }
         legend
     }
 
@@ -2220,7 +2325,7 @@ impl TreeTrack {
     }
 
     /// How each trait column deals the palette, in the order of the columns,
-    /// and how the branch key does.
+    /// and how the branch key and the tip key do.
     ///
     /// A column given a start of its own keeps it, as every column from a
     /// sample sheet does. The others, and the branch key where no column
@@ -2228,8 +2333,14 @@ impl TreeTrack {
     /// were asked for, the way a sheet deals its columns: two strips of words
     /// both started at the palette's first colour, so each lineage was also a
     /// country. A key some column chose a start for starts there in every
-    /// column over it.
-    fn dealing(&self, colors: usize) -> Dealing<'_> {
+    /// column over it, and the tips coloured by a key the branches or a
+    /// column colour by take those colours.
+    ///
+    /// Then each key after the first, the branches', the columns' in their
+    /// order and the tips', is dealt from the colours the ones before it
+    /// left, where its levels fit in them, as
+    /// [`apart`](crate::track::traits::apart) says.
+    fn dealing<'a>(&'a self, colors: usize) -> Dealing<'a> {
         let colors = colors.max(1);
         let worded = |column: &TraitColumn| {
             column.scale == TraitScale::Categorical && column.style != TraitStyle::Binary
@@ -2239,9 +2350,13 @@ impl TreeTrack {
                 .iter()
                 .position(|column| column.key == key && column.scale == TraitScale::Categorical)
         };
-        let branch_key = self.branch_key().filter(|key| {
-            covering(key).is_none()
-                && !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key))
+        let categorical =
+            |key: &str| !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key));
+        let branch_key = self
+            .branch_key()
+            .filter(|key| covering(key).is_none() && categorical(key));
+        let tip_key = self.tip_key().filter(|key| {
+            covering(key).is_none() && Some(*key) != self.branch_key() && categorical(key)
         });
         let mut order: Vec<&str> = branch_key.into_iter().collect();
         for column in self.trait_columns.iter().filter(|column| worded(column)) {
@@ -2249,6 +2364,7 @@ impl TreeTrack {
                 order.push(&column.key);
             }
         }
+        order.extend(tip_key);
         let stride = (colors / order.len().max(1)).max(1);
         // A start a column chose or was dealt from its sheet, then the one a
         // strip of the joined sheet would take, then a stretch of this tree's
@@ -2275,38 +2391,80 @@ impl TreeTrack {
                 })
                 .unwrap_or(0)
         };
-        let columns: Vec<Dealt<'_>> = self
-            .trait_columns
-            .iter()
-            .map(|column| Dealt {
-                levels: &column.levels,
-                first: start(&column.key),
-                colors: &column.colors,
-            })
-            .collect();
-        // Branches coloured by a key of the sheet with no strip of it deal the
-        // palette as that strip would, in the order the sheet gives the
-        // levels and in the colours chosen for them, so a lineage is one
+        // Branches or tips coloured by a key of the sheet with no strip of it
+        // deal the palette as that strip would, in the order the sheet gives
+        // the levels and in the colours chosen for them, so a lineage is one
         // colour whether its strip is drawn or not. They took the order the
-        // tree meets the levels in, and L1 was blue in one figure of a set and
-        // ochre in the next; and they took none of the colours chosen, so a
-        // country given one of its own was that colour in the strip beside a
-        // matrix and a palette colour along the branches of the tree above.
-        let branches = match self.branch_key() {
-            Some(key) => match covering(key) {
-                Some(index) => columns[index],
-                None => {
-                    let dealing = self.sheet_dealing.get(key);
-                    Dealt {
-                        levels: dealing.map_or(&[][..], |dealing| dealing.levels.as_slice()),
-                        first: start(key),
-                        colors: dealing.map_or(&[][..], |dealing| dealing.colors.as_slice()),
-                    }
-                }
-            },
-            None => Dealt::default(),
+        // tree meets the levels in, and L1 was blue in one figure of a set
+        // and ochre in the next; and they took none of the colours chosen, so
+        // a country given one of its own was that colour in the strip beside
+        // a matrix and a palette colour along the branches of the tree above.
+        let unstriped = |key: &str| {
+            let dealing = self.sheet_dealing.get(key);
+            Dealt {
+                levels: dealing.map_or(&[][..], |dealing| dealing.levels.as_slice()),
+                first: start(key),
+                colors: dealing.map_or(&[][..], |dealing| dealing.colors.as_slice()),
+                taken: Default::default(),
+            }
         };
-        // The node glyphs take the colours no strip and no branch was dealt
+        let mut keys: Vec<(&str, Dealt<'_>)> = Vec::new();
+        if let Some(key) = branch_key {
+            keys.push((key, unstriped(key)));
+        }
+        for column in &self.trait_columns {
+            keys.push((
+                &column.key,
+                Dealt {
+                    levels: &column.levels,
+                    first: start(&column.key),
+                    colors: &column.colors,
+                    taken: Default::default(),
+                },
+            ));
+        }
+        if let Some(key) = tip_key {
+            keys.push((key, unstriped(key)));
+        }
+        let worded_key = |key: &str| {
+            self.trait_columns
+                .iter()
+                .find(|column| column.key == key)
+                .map_or(categorical(key), worded)
+        };
+        crate::track::traits::apart(
+            &mut keys,
+            colors,
+            |key, dealt| worded_key(key).then(|| rectangular::tree_domain(&self.tree, key, dealt)),
+            |key| {
+                self.trait_columns
+                    .iter()
+                    .any(|column| column.key == key && column.first.is_some())
+            },
+        );
+        let mut keys = keys.into_iter();
+        let branched = branch_key.and_then(|_| keys.next()).map(|(_, dealt)| dealt);
+        let columns: Vec<Dealt<'_>> = keys
+            .by_ref()
+            .take(self.trait_columns.len())
+            .map(|(_, dealt)| dealt)
+            .collect();
+        let tipped = tip_key.and_then(|_| keys.next()).map(|(_, dealt)| dealt);
+        let of_key = |key: Option<&str>, own: Option<Dealt<'a>>| -> Dealt<'a> {
+            match key {
+                Some(key) => match covering(key) {
+                    Some(index) => columns[index],
+                    None => own.unwrap_or_else(|| unstriped(key)),
+                },
+                None => Dealt::default(),
+            }
+        };
+        let branches = of_key(self.branch_key(), branched);
+        let tips = match self.tip_key() {
+            Some(key) if covering(key).is_none() && Some(key) == self.branch_key() => branches,
+            key => of_key(key, tipped),
+        };
+        // The node glyphs take the colours no strip, branch or tip was dealt
         // first, and only then the ones they were. They took the palette from
         // its start, so a pie's first key was the colour of the first lineage
         // beside it, and a key saying `a` in the colour of `L1` reads as `L1`.
@@ -2324,9 +2482,9 @@ impl TreeTrack {
                     }
                 }
             }
-            if let Some(key) = self.branch_key() {
-                if !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key)) {
-                    for (_, index) in rectangular::tree_domain(&self.tree, key, branches).keyed() {
+            for (key, dealt) in [(self.branch_key(), branches), (self.tip_key(), tips)] {
+                if let Some(key) = key.filter(|key| categorical(key)) {
+                    for (_, index) in rectangular::tree_domain(&self.tree, key, dealt).keyed() {
                         used.insert(index % palette);
                     }
                 }
@@ -2339,6 +2497,7 @@ impl TreeTrack {
         Dealing {
             columns,
             branches,
+            tips,
             glyphs,
         }
     }
@@ -2390,6 +2549,7 @@ impl TreeTrack {
             })
             .fold(0.0f64, f64::max)
             + 6.0
+            + self.tip_room(theme)
     }
 
     /// The line under a time axis its unit is written on, where it has one.
@@ -2552,8 +2712,42 @@ impl TreeTrack {
         // paints and whether it was chosen by name, to find two strips that
         // paint two things one colour, and the key of each column of such a
         // pair.
-        let mut painted: Vec<(String, &str, String, &str, bool)> = Vec::new();
-        let mut shared: Vec<(String, [&str; 2], bool)> = Vec::new();
+        let mut painted: Vec<(String, String, String, String, bool)> = Vec::new();
+        let mut shared: Vec<(String, [String; 2], bool)> = Vec::new();
+        // Each colour one key of the figure paints, against the ones painted
+        // before it, which is what a pair of them shares.
+        let mut share = |label: &str, key: &str, domain: &TraitDomain| {
+            for (level, color, chose) in domain.painted(theme) {
+                let other = painted
+                    .iter()
+                    .find(|(_, named, had, _, _)| *had == color && named != label);
+                if let Some((was, named, _, before_key, before)) = other {
+                    shared.push((
+                        format!("{named} {was} and {label} {level}"),
+                        [before_key.clone(), key.to_string()],
+                        *before || chose,
+                    ));
+                }
+                painted.push((level, label.to_string(), color, key.to_string(), chose));
+            }
+        };
+        // Branches coloured by a key no column covers paint their values in
+        // colours a column could share, and so do tips coloured by a key
+        // nothing else colours, after the columns.
+        let covered = |key: &str| {
+            self.trait_columns
+                .iter()
+                .any(|column| column.key == key && column.scale == TraitScale::Categorical)
+        };
+        let categorical =
+            |key: &str| !rectangular::is_continuous(&rectangular::branch_values(&self.tree, key));
+        if let Some(key) = self
+            .branch_key()
+            .filter(|key| !covered(key) && carried(key) && categorical(key))
+        {
+            let domain = rectangular::tree_domain(&self.tree, key, dealing.branches);
+            share(key, key, &domain);
+        }
         for (column, dealt) in self.trait_columns.iter().zip(&dealing.columns) {
             let domain = rectangular::tree_domain(&self.tree, &column.key, *dealt);
             let levels = domain.keyed().len();
@@ -2586,18 +2780,32 @@ impl TreeTrack {
             if style != TraitStyle::Strip || column.scale != TraitScale::Categorical {
                 continue;
             }
-            for (level, color, chose) in domain.painted(theme) {
-                let other = painted
-                    .iter()
-                    .find(|(_, named, had, _, _)| *had == color && *named != column.label.as_str());
-                if let Some((was, named, _, key, before)) = other {
-                    shared.push((
-                        format!("{named} {was} and {} {level}", column.label),
-                        [key, &column.key],
-                        *before || chose,
-                    ));
-                }
-                painted.push((level, &column.label, color, &column.key, chose));
+            share(&column.label, &column.key, &domain);
+        }
+        if let Some(painted_tips) = self
+            .tip_paint(theme)
+            .filter(|tips| !tips.continuous && !covered(tips.key))
+        {
+            let key = painted_tips.key;
+            let levels = painted_tips.domain.keyed().len();
+            if painted_tips.shaped {
+                said.push(if levels > most {
+                    format!("{key}: {levels} values, and shapes and colours tell {most} apart")
+                } else {
+                    match painted_tips.domain.chosen_clash(theme) {
+                        Some([first, second, color]) => format!(
+                            "{key}: {first} and {second} are both {color}, so each tip is a shape as well"
+                        ),
+                        None => self.with_recolour(
+                            format!(
+                                "{key}: {levels} values for {colors} colours, so each tip is a shape as well"
+                            ),
+                            key,
+                        ),
+                    }
+                });
+            } else if Some(key) != self.branch_key() {
+                share(key, key, &painted_tips.domain);
             }
         }
         if let Some((first, keys, chose)) = shared.first() {
@@ -2609,7 +2817,7 @@ impl TreeTrack {
             // Either column of the pair parts them, given colours of its own.
             let key = keys
                 .iter()
-                .find(|key| self.sheet_dealing.contains_key(**key))
+                .find(|key| self.sheet_dealing.contains_key(key.as_str()))
                 .unwrap_or(&keys[0]);
             let warning = format!("{first} are one colour{others}");
             // A colour chosen by name made the pair, and choosing colours is
@@ -2962,9 +3170,10 @@ impl TreeTrack {
             }
         }
 
+        let painted = self.tip_paint(ctx.theme);
         if self.show_tips {
             let size = self.tip_size(ctx.theme);
-            let names_at = area.right() + glyph_x + 4.0;
+            let names_at = area.right() + glyph_x + 4.0 + self.tip_room(ctx.theme);
             for (row, node) in scene.terminals.iter().enumerate() {
                 let middle = area.y + self.row_height / 2.0 + row as f64 * self.row_height;
                 // A leader from the branch to the name it belongs to. Without
@@ -2991,14 +3200,32 @@ impl TreeTrack {
                     }
                 }
                 let name = terminal_label(&self.tree, *node, self.folded(), &self.fold_names);
+                let ink = painted.as_ref().map_or_else(
+                    || ctx.theme.muted.clone(),
+                    |painted| painted.ink(&self.tree, *node, self.folded(), ctx.theme),
+                );
                 ctx.svg.text(
                     names_at,
                     middle + size * 0.35,
                     &name,
-                    &ctx.theme.muted,
+                    &ink,
                     size,
                     crate::svg::Anchor::Start,
                 );
+            }
+        }
+        // Over the leaders and the ends of the branches, on the tips alone:
+        // a folded clade is its triangle, coloured by what its tips agree on.
+        if let Some(painted) = &painted {
+            for (row, node) in scene.terminals.iter().enumerate() {
+                let (Some(placement), true) =
+                    (scene.placements[*node], self.tree.nodes()[*node].is_leaf())
+                else {
+                    continue;
+                };
+                let middle = area.y + self.row_height / 2.0 + row as f64 * self.row_height;
+                let ends = scene.x(area, placement.depth);
+                painted.point(ctx, &self.tree, *node, (ends, middle));
             }
         }
         draw_trait_columns(
@@ -3030,6 +3257,8 @@ struct Dealing<'a> {
     columns: Vec<Dealt<'a>>,
     /// The key the branches are coloured by.
     branches: Dealt<'a>,
+    /// The key the tips are coloured by.
+    tips: Dealt<'a>,
     /// The palette in the order the node glyphs take it: the colours nothing
     /// else was dealt first. Empty where there are no glyphs.
     glyphs: Vec<usize>,
@@ -3042,6 +3271,92 @@ impl Dealing<'_> {
             0 => index,
             len => self.glyphs[index % len],
         }
+    }
+}
+
+/// How the tips are painted where [`TreeTrack::tip_color_by`] colours them,
+/// worked out once a drawing.
+struct TipPaint<'a> {
+    key: &'a str,
+    /// The values over the whole tree, dealt as the key is everywhere in
+    /// the figure.
+    domain: TraitDomain,
+    continuous: bool,
+    /// Whether two values some tip holds are one colour, which draws every
+    /// point as its value's shape as well, as a strip of them is drawn.
+    shaped: bool,
+}
+
+impl TipPaint<'_> {
+    /// The colour a value is painted and the shape its point takes, or
+    /// `None` for no value.
+    fn paint(
+        &self,
+        value: Option<&AnnotationValue>,
+        theme: &Theme,
+    ) -> Option<(String, crate::style::Symbol)> {
+        if self.continuous {
+            let fraction = self.domain.fraction(value)?;
+            return Some((
+                mix(&theme.muted, &theme.accent, fraction),
+                crate::style::Symbol::Circle,
+            ));
+        }
+        Some(self.level(self.domain.category(value)?, theme))
+    }
+
+    /// The colour and the shape of the level dealt `index`.
+    fn level(&self, index: usize, theme: &Theme) -> (String, crate::style::Symbol) {
+        let shape = if self.shaped {
+            theme.symbol(index)
+        } else {
+            crate::style::Symbol::Circle
+        };
+        (self.domain.paint(index, theme), shape)
+    }
+
+    /// The ink a terminal's name is written in: its value's colour, or the
+    /// names' own where it holds none, as a folded clade whose tips differ.
+    fn ink(&self, tree: &Tree, node: usize, collapsed: &BTreeSet<usize>, theme: &Theme) -> String {
+        let value = rectangular::row_annotation(tree, node, self.key, collapsed);
+        self.paint(value, theme)
+            .map_or_else(|| theme.muted.clone(), |(color, _)| color)
+    }
+
+    /// Draws the point at the end of a tip's branch at `(x, y)`, its value in
+    /// its tooltip as a strip's cell says it.
+    fn point(&self, ctx: &mut DrawContext<'_>, tree: &Tree, node: usize, (x, y): (f64, f64)) {
+        let value = rectangular::inherited_annotation(tree, node, self.key);
+        let name = tree.nodes()[node].name.as_deref().unwrap_or_default();
+        let title = match value {
+            Some(value) => format!("{name}; {} {value}", self.key),
+            None => format!("{name}; {} missing", self.key),
+        };
+        ctx.svg.begin_titled(&title);
+        let radius = ctx.theme.tokens.marker_radius;
+        match self.paint(value, ctx.theme) {
+            Some((color, shape)) => ctx.svg.symbol_ringed(
+                x,
+                y,
+                radius,
+                shape,
+                &color,
+                ctx.theme.surface(),
+                ctx.theme.tokens.hairline,
+            ),
+            None => {
+                let edge = ctx.theme.tokens.stroke;
+                ctx.svg.circle_ringed(
+                    x,
+                    y,
+                    radius - edge,
+                    ctx.theme.surface(),
+                    &ctx.theme.muted,
+                    edge,
+                );
+            }
+        }
+        ctx.svg.end_group();
     }
 }
 

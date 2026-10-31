@@ -8,6 +8,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The branches, the strips and the tips one figure colours by its sheet are
+  dealt the palette in that order, each after the first from the colours the
+  ones before it left, where its values fit in them, from where its own
+  stretch starts. Each column of words took a stretch by its place in the
+  sheet, a third of six colours where the sheet has three such columns, so
+  four lineages ran past theirs into the next column's and a lineage and a
+  host were one colour while two of the six painted nothing. A column that
+  does not fit in what is left is dealt its stretch as before, and the tree
+  says which two values share a colour, now between its branches, its strips
+  and its tips alike. A column given its first colour by hand keeps it, and a
+  value given a colour of its own takes none of the palette's. Strips beside
+  a matrix, an alignment or a cohort are dealt the same way.
 - Bold and semibold text is measured at least as wide as Helvetica-Bold draws
   it, which is the face Arial sets a bold label in and the one a PDF sets it
   in. Nine characters, `& ? B K L ^ i j l`, were measured at Inter's narrower
@@ -461,6 +473,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--tip-color-by KEY` colours each tip of a phylogeny, a point at the end of
+  its branch and its name, by a column of its `--traits` sheet or an
+  annotation the file carries, through `TreeTrack::tip_color_by`. A value is
+  the colour of its strip and of branches coloured by it, takes the colours
+  `--colors` gives it, and is keyed with a point unless a strip or the
+  branches of the same key key it; a tip the sheet says nothing of is an open
+  ring, a key of numbers is a ramp, and more values than colours draw each
+  point as a shape as well and say so under the tree. Nothing coloured a tip:
+  the branches could say the lineage and a strip the country, and colouring
+  the tips themselves took a strip beside them and a colour typed for each
+  value.
 - `--panel-columns N` lays the panels of several places `N` to a row, in the
   order the places are written, through `Panels::columns` and
   `Panels::row_major`, each panel at its `--width` and the key in the room

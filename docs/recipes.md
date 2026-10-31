@@ -543,8 +543,9 @@ tree laid on calendar time.
 To root the tree first, `reroot_outgroup(["A01", "A02"])` roots it on a named
 outgroup, and leaves it alone unless the names form exactly one clade;
 `reroot_midpoint()` roots it halfway along its longest tip-to-tip path. From
-the command line, `--tree` takes `--color-by`, `--support-style both`,
-`--threshold` and `--no-scale-bar`; branch labels are in the library.
+the command line, `--tree` takes `--color-by`, `--tip-color-by`,
+`--support-style both`, `--threshold` and `--no-scale-bar`; branch labels are
+in the library.
 
 ### Two trees face to face
 

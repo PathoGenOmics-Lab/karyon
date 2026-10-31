@@ -310,6 +310,7 @@ takes.
 | `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn; `--frequencies`, as the frequency a lineage is flagged at | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair; no lineage flagged |
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
+| `--tip-color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | no point at the tips, and their names in the ink of the text |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
 | `--support-from <KEY>` | an annotation of numbers on the clades, as `posterior` in a BEAST tree or `prob` in a MrBayes one | `--tree` | the internal labels, as a bootstrap writes them |
 | `--mutations <KEY>` | the annotation the changes are kept under; needs `--carrying` | `--tree` | no changes read |
@@ -508,10 +509,14 @@ karyon: --matrix samples.tsv has no column called linage; it has lineage, host, 
 ```
 
 Each column of words starts on a stretch of the palette's six colours of its
-own. A column of more than six values is drawn in shapes as well, and one that
-runs past its stretch shares colours with the column after it; a tree says
-either under it. `--colors` gives the values colours of your own, the ones
-your field already knows them by:
+own, and a column after the first whose values fit in the colours the ones
+before it left takes those instead, so two columns share no colour while the
+palette has room for both; a tree's branches and tips, coloured by
+`--color-by` and `--tip-color-by`, are columns too. A column of more than six
+values is drawn in shapes as well, and one that does not fit in what is left
+shares colours with a column before it; a tree says either under it.
+`--colors` gives the values colours of your own, the ones your field already
+knows them by:
 
 ```bash
 karyon tree.nwk --traits samples.tsv --columns lineage,country \
@@ -559,6 +564,11 @@ karyon --tree big.nwk --max-rows 60 \
   too, so a lineage comes out as a coloured clade. A column of the sheet takes
   the colours `--colors` gives it; an annotation of the Newick keeps the
   palette.
+- `--tip-color-by` colours each tip, a point at the end of its branch and its
+  name, by a column of the sheet or an annotation, so the branches can say the
+  lineage while the tips say the country. A value is the colour of its strip
+  and of branches coloured by it, and a tip the sheet says nothing of is an
+  open ring.
 - `--support-style` makes support values readable without hovering, and
   `--threshold` hides the ones below it.
 - A phylogram draws a scale bar, a rule in its own branch-length units, and
@@ -587,8 +597,8 @@ karyon --tree tree.nwk --mutations mutations --carrying S:D614G
 happened, which is every tip that carries it, and colours by the answer unless
 `--color-by` says otherwise. A change that arose twice marks both clades.
 
-A clade, tip, change or `--color-by` key the tree does not hold is refused with
-what it does hold, rather than drawing the whole tree:
+A clade, tip, change, `--color-by` or `--tip-color-by` key the tree does not
+hold is refused with what it does hold, rather than drawing the whole tree:
 
 ```text
 $ karyon --tree tree.nwk --focus ERR9
