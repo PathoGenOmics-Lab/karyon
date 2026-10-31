@@ -55,7 +55,7 @@
 //! kept, as the PDF's title and subject and as the alternative text of the one
 //! tagged figure on the page, which is where a screen reader looks for them.
 //! The file is not compressed. Most figures come out about the size of their
-//! SVG, with 5 to 30 kilobytes for each face, and one of many dots up to four
+//! SVG, with 4 to 30 kilobytes for each face, and one of many dots up to four
 //! times it, since a circle is four curves where the SVG writes one element:
 //! the association scan the guide shows, 1,748 circles, is 3.9 times its SVG.
 

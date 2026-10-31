@@ -754,8 +754,8 @@ generates starting with `prefix`, for nesting it inside another SVG by hand.
 `to_pdf()` returns a `Pdf`: its `bytes`, from `%PDF` to `%%EOF`, and its
 `notes`, each way the page differs from the SVG it was converted from, for a
 person to read. The notes are empty for everything the crate draws unless a
-label holds a character no base font has, such as a sample name in Cyrillic,
-which is drawn as a question mark and named.
+label holds a character none of the embedded faces has, such as a sample name
+in Chinese, which is drawn as a question mark and named.
 
 ```rust
 use karyon::{plot, Pdf};
@@ -770,8 +770,8 @@ let pdf = Pdf::from_svg(&figure.to_svg()).expect("a root <svg> with a size");
 ```
 
 The PDF is read from the SVG rather than drawn a second time, its text is set
-in Helvetica, Courier and Symbol with no font embedded, and a pixel is three
-quarters of a point. [How the PDF is made](../how-it-works/pdf.md) says what
+in Liberation Sans and Liberation Mono, each embedded as a subset of the letters
+the figure uses, and a pixel is three quarters of a point. [How the PDF is made](../how-it-works/pdf.md) says what
 that keeps and what it changes.
 
 ## Panels: several drawings on one sheet

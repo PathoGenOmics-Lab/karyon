@@ -55,40 +55,48 @@ whole figure smaller rather than part of it.
 
 ## Text
 
-The SVG asks for Inter and JetBrains Mono, and the PDF sets its text in the
-standard faces every reader has, and embeds none of them:
+The SVG asks for Inter and JetBrains Mono, and the PDF sets its text in three
+faces it carries itself, each embedded in the file as a subset of the letters
+the figure draws:
 
 | The SVG's text | The PDF's |
 |:--|:--|
-| the default stack, and any other that is not monospaced or serif | Helvetica |
-| weight 600 and up, and `bold` | Helvetica-Bold |
-| the monospaced stack: coordinates, sequence, accessions | Courier |
-| a serif stack | Times |
-| ω, ≤, ≥, ≈, → and the rest of Greek and mathematics | Symbol |
+| the default stack, and any other that is not monospaced | Liberation Sans |
+| weight 600 and up, and `bold` | Liberation Sans Bold |
+| the monospaced stack: coordinates, sequence, accessions | Liberation Mono |
 
-No font is embedded. The file names each face, and the reader draws it with a
-copy of its own made to Adobe's widths, Arial in Acrobat on Windows and Nimbus
-Sans in Ghostscript, so the letters differ a little from one reader to the
-next and where each label sits does not. The text stays text: it can be
-searched, copied and read aloud, and the file stays small. What it costs is a
-preflight check that wants every font embedded, which [Checking a
-PDF](#checking-a-pdf) meets. A character none of those fonts has, such as a
-sample name in Cyrillic or Chinese, is drawn as a question mark, and the
-command line says which characters on standard error, as `Pdf::notes` does in
-Rust. The document's title and description keep every character either way.
+Greek, the arrows and the relations karyon writes, ω, →, ≤, ≥ and ≈, come from
+the same face as the letters around them. A serif stack, and a bold monospaced
+one, ask for a face the PDF does not carry; karyon writes neither, and an SVG of
+your own that does is set in the nearest of the three, with a note.
+
+Each face is written as a composite font over one TrueType font holding only the
+glyphs the page uses, with their widths and a map from each glyph back to its
+character, so every reader draws the same letters, the text stays text, to be
+searched, copied and read aloud, and a preflight check that wants every font
+embedded finds them all, as [Checking a PDF](#checking-a-pdf) shows. The faces
+are the Liberation fonts 2.00.1, which the crate carries in `fonts/` under the
+SIL Open Font License; a PDF made with them is yours, under whatever terms you
+choose. A subset is 4 to 30 kilobytes, so a figure's PDF is about that much
+larger for each face it uses. A character none of the faces has, such as a
+sample name in Chinese or Arabic, is drawn as a question mark, and the command
+line says which characters on standard error, as `Pdf::notes` does in Rust. The
+document's title and description keep every character either way.
 
 Where a label sits was settled before the PDF existed, by the widths karyon
-measures text with. Those are never narrower than Helvetica, nor than
-Helvetica-Bold for bold text, for printable ASCII and for the characters beyond
-it that karyon writes itself: the ellipsis, the en dash, the superscript two,
-the multiplication sign and the middle dot, and ω, ≤, ≥, ≈ and →, which the
-PDF sets in Symbol and holds to Symbol's widths. For the monospaced stack they
-are Courier's exactly. A label that fitted in the SVG therefore fits in the
-PDF, and every label is anchored with Adobe's own widths, so one anchored at
-its end still ends where the SVG ended it. A character karyon does not write, such as an accented letter in a sample
-name, is measured at six tenths of an em, and Helvetica draws an accented
-capital wider than that, an Ö at 778 thousandths, so a label of them can still
-run a little past its room at the end it is not anchored by.
+measures text with, and Liberation is drawn to the widths of Helvetica and
+Arial, and Liberation Mono to Courier's. The measure is never narrower than
+Liberation Sans, nor than Liberation Sans Bold for bold text, for printable
+ASCII and for the characters beyond it that karyon writes itself: the ellipsis,
+the en dash, the superscript two, the multiplication sign and the middle dot,
+and ω, ≤, ≥, ≈ and →. For the monospaced stack it is Liberation Mono's 600
+thousandths of an em exactly. A label that fitted in the SVG therefore fits in
+the PDF, and every label is anchored with the widths of the face that draws it,
+so one anchored at its end still ends where the SVG ended it. A character
+karyon does not write, such as an accented letter in a sample name, is measured
+at six tenths of an em, and Liberation Sans draws an accented capital wider than
+that, an Ö at 778 thousandths, so a label of them can still run a little past
+its room at the end it is not anchored by.
 
 ## Fades
 
@@ -106,19 +114,19 @@ which macOS Preview draws with, and left out by Inkscape's import.
   and description are kept, as the PDF's title and subject and as the
   alternative text of the one tagged figure on the page, which is where a
   screen reader looks.
-- **The faces.** Helvetica and Courier, named and not embedded, not Inter and
+- **The faces.** Liberation Sans and Liberation Mono, embedded, not Inter and
   JetBrains Mono, as above.
 - **Size on disk.** The file is not compressed. Most figures come out about
-  the size of their SVG, and a figure of many dots up to four times it, since
-  each circle is four curves: the [association scan](../your-data/scan.md) is
-  3.7 times its SVG.
+  the size of their SVG, with the subsets of the faces on top, and a figure of
+  many dots up to four times it, since each circle is four curves: the
+  [association scan](../your-data/scan.md) is 3.9 times its SVG.
 
 ## No PNG
 
 There is no PNG writer, and a name ending in `.png` is refused. A raster needs a
-rasterizer, which needs glyph outlines, a megabyte of font data, and a few
-thousand lines of anti-aliasing, stroking and compositing, for something every
-PDF and SVG tool already does with hinted text:
+rasterizer, which turns glyph outlines into pixels and takes a few thousand
+lines of anti-aliasing, stroking and compositing, for something every PDF and
+SVG tool already does with hinted text:
 
 ```bash
 pdftoppm -png -singlefile -r 300 rpoB.pdf rpoB
@@ -133,22 +141,12 @@ gs -o /dev/null -sDEVICE=nullpage rpoB.pdf
 pdftotext rpoB.pdf -
 ```
 
-`pdffonts` lists Helvetica, Helvetica-Bold, Courier and Symbol, none embedded.
-Ghostscript marks anything it had to repair with a line of `****`, and has no
-such line for a sound file; leave out its `-q`, which hides those lines along
-with the rest. `pdftotext` gives the labels back. Some local copies of poppler
-draw Helvetica-Bold as the regular weight when the machine has no face for it,
-which is the machine and not the file: Ghostscript, Quartz and Chrome draw it
-bold.
-
-A journal's upload check, and the PDF/X and PDF/A standards that printers and
-archives hold a file to, want every font embedded, and they flag a karyon PDF
-as it comes, or turn it away: `pdffonts` shows `no` under `emb` for every
-face. Ghostscript writes a copy with each face embedded, as a subset of the
-letters the figure uses and drawn to the same widths, and `pdffonts` lists
-them as embedded afterwards, as `RUGQAK+Helvetica-Bold` with `yes` under both
-`emb` and `sub`:
-
-```bash
-gs -o embedded.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress rpoB.pdf
-```
+`pdffonts` lists each face the figure uses, Liberation Sans, Liberation Sans
+Bold and Liberation Mono, as a `CID TrueType` font with a subset tag before its
+name, such as `AECRZT+LiberationSans`, and `yes` under `emb`, `sub` and `uni`:
+embedded, a subset, and mapped back to the text. That is what a journal's
+upload check, and the font check of the PDF/X and PDF/A standards that printers
+and archives hold a file to, want of every font. Ghostscript marks anything it
+had to repair with a line of `****`, and has no such line for a sound file;
+leave out its `-q`, which hides those lines along with the rest. `pdftotext`
+gives the labels back, Greek and arrows included.

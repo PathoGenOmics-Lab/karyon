@@ -869,11 +869,7 @@ FIGURE OPTIONS
                          written as PDF and any other as SVG; one ending in
                          .png, .eps or another format is refused, and the
                          message names a tool that makes it from one of them.
-                         A PDF's text is in the standard Helvetica and
-                         Courier, named and not embedded, which a journal's
-                         check for embedded fonts flags; gs -o out.pdf
-                         -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress fig.pdf
-                         writes a copy with them embedded
+                         A PDF embeds the Liberation faces its text is set in
     -h, --help
     -V, --version
 
@@ -1370,25 +1366,24 @@ mod tests {
         assert!(heatmap.contains("Drawn over a place"), "{heatmap}");
     }
 
-    /// A PDF names Helvetica and Courier and embeds neither, which a
-    /// journal's font check flags, and `-o` said only that a name ending in
-    /// .pdf is written as PDF: a figure made for a paper met it at upload.
+    /// A PDF named Helvetica and Courier and embedded neither, which a
+    /// journal's font check flags, and `-o` said so with the Ghostscript line
+    /// that embedded them. The faces are embedded now, so the help says that
+    /// and leaves the workaround out.
     #[test]
-    fn the_help_on_a_pdf_says_its_faces_are_not_embedded() {
+    fn the_help_on_a_pdf_says_its_faces_are_embedded() {
         let (_, output) = entries(section("FIGURE OPTIONS"))
             .into_iter()
             .find(|(flag, _)| *flag == "-o")
             .expect("an entry for -o");
         let said = output.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(
-            said.contains("Helvetica and Courier, named and not embedded"),
+            said.contains("A PDF embeds the Liberation faces its text is set in"),
             "{said}"
         );
-        assert!(said.contains("embedded fonts flags"), "{said}");
-        assert!(
-            said.contains("-sDEVICE=pdfwrite -dPDFSETTINGS=/prepress"),
-            "{said}"
-        );
+        for gone in ["not embedded", "Helvetica", "pdfwrite"] {
+            assert!(!said.contains(gone), "{gone}: {said}");
+        }
         for line in output.lines() {
             assert!(line.chars().count() <= 80, "wider than a terminal: {line}");
         }

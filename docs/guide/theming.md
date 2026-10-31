@@ -258,7 +258,7 @@ viewer's machine's business. So `karyon::svg::text_width(text, font_size)`
 measures every character as the wider of the two designs, measured one
 character at a time: text never runs past its room in either, and in the
 narrower one it has a little to spare. `text_width_strong` does the same for
-semibold and bold text, which Inter and Helvetica-Bold set wider, and
+semibold and bold text, which Inter and Arial Bold set wider, and
 `mono_width` measures the monospaced stack at six tenths of an em a character.
 One flat width per character would under-reserve a run of capitals by about a
 fifth, which is exactly what a column of sample accessions is. The characters
@@ -280,12 +280,14 @@ assert!((text_width("ERR1234567", theme.label_font_size) - 69.52).abs() < 1e-9);
 assert_eq!(fit_text("NC_000962.3 read depth", 84.0, 12.0), "NC_000962\u{2026}");
 ```
 
-A PDF sets its text in the fonts every reader has rather than in the stack, and
-`font_family` decides only which: a monospaced stack is Courier, one that opens
-with a serif face or ends in `serif` is Times, and anything else Helvetica. The
-measure above is never narrower than Helvetica, nor the strong one than
-Helvetica-Bold, for printable ASCII and every character karyon writes beyond
-it, so a label laid out for the SVG fits on the page too; [How the PDF is
+A PDF sets its text in the three faces it embeds rather than in the stack, and
+`font_family` decides only which: a monospaced stack is Liberation Mono, and
+anything else Liberation Sans, or Liberation Sans Bold at a weight of 600 and
+up. A serif stack and a bold monospaced one are set in the nearest of the three,
+with a note, since the PDF carries no face for them. The measure above is never
+narrower than Liberation Sans, nor the strong one than Liberation Sans Bold, for
+printable ASCII and every character karyon writes beyond it, so a label laid
+out for the SVG fits on the page too; [How the PDF is
 made](../how-it-works/pdf.md#text) has the one exception, a character from
 your own data such as an accented capital.
 

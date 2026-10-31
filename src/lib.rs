@@ -69,10 +69,10 @@
 //!
 //! Every drawing has `to_pdf` and `save_pdf` beside `to_svg` and `save_svg`,
 //! and [`Pdf::from_svg`] is what they call: the SVG the writer wrote is read
-//! back and written as a one-page PDF, in the fonts every reader has. It is a
-//! conversion rather than a second way of drawing, so a track written outside
-//! the crate gets its PDF for nothing. The [`pdf`] module says what carries
-//! over and what does not.
+//! back and written as a one-page PDF, with the faces its text is set in
+//! embedded. It is a conversion rather than a second way of drawing, so a
+//! track written outside the crate gets its PDF for nothing. The [`pdf`]
+//! module says what carries over and what does not.
 //!
 //! # Neither layer draws what the other cannot
 //!

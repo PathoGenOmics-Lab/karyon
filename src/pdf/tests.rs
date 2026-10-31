@@ -406,6 +406,44 @@ fn each_face_a_page_uses_is_embedded_once_as_a_subset() {
     assert!(!text(&convert(&svg)).contains("/Font"));
 }
 
+/// The two pages that describe a PDF said, plainly, that it named its faces
+/// and embedded none, with the Ghostscript line that embedded them, because
+/// two readers had met a preflight over it. They are held to the other side
+/// now: each names the faces the writer embeds, says they are embedded and
+/// how `pdffonts` shows it, and offers no workaround for what is not there.
+#[test]
+fn the_pages_on_the_pdf_say_its_faces_are_embedded() {
+    const GUIDE: &str = include_str!("../../docs/guide/cli.md");
+    const HOW: &str = include_str!("../../docs/how-it-works/pdf.md");
+    let flat = |text: &str| {
+        text.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    };
+    for (page, said) in [("cli.md", flat(GUIDE)), ("pdf.md", flat(HOW))] {
+        for needed in [
+            "liberation sans",
+            "liberation sans bold",
+            "liberation mono",
+            "embedded",
+            "pdffonts",
+            "`yes` under `emb`",
+        ] {
+            assert!(said.contains(needed), "{page} does not say {needed}");
+        }
+        for gone in [
+            "none of them is embedded",
+            "no font is embedded",
+            "`no` under `emb`",
+            "-sdevice=pdfwrite",
+            "helvetica-bold for",
+        ] {
+            assert!(!said.contains(gone), "{page} still says {gone}");
+        }
+    }
+}
+
 /// The subset is the face with every glyph the page does not draw emptied:
 /// the glyphs of the text, `.notdef`, and what a composite glyph is built
 /// from, here the e and the acute of an é, and no other.

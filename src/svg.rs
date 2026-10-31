@@ -1040,9 +1040,9 @@ pub fn escape(text: &str) -> String {
 /// for a run of capitals by about a fifth, which is precisely what a column of
 /// sample accessions is, and a label that overruns its room gets clipped.
 ///
-/// The faces it is measured against include Helvetica, so it is never
-/// narrower than the PDF's Helvetica either, nor than Symbol for the Greek
-/// letter and the relations a PDF sets in Symbol. Beyond printable ASCII the
+/// The faces it is measured against include Helvetica and Arial, whose
+/// widths Liberation Sans shares, so it is never narrower than the face a PDF
+/// sets the text in either. Beyond printable ASCII the
 /// characters karyon writes itself, such as the ellipsis, the multiplication
 /// sign and omega, have widths of their own. Any other falls back to six
 /// tenths of an em, a little wider than most accented lowercase letters draw
@@ -1060,8 +1060,8 @@ pub fn text_width(text: &str, font_size: f64) -> f64 {
 ///
 /// Titles and track names are set heavier than the numbers around them, and
 /// measured as the light weight they ran up to a twentieth past their room.
-/// Never narrower than Helvetica-Bold, which is what Arial draws a bold label
-/// with and what a PDF sets one in.
+/// Never narrower than Helvetica-Bold, whose widths Arial Bold and
+/// Liberation Sans Bold share, the face a PDF sets a bold label in.
 pub fn text_width_strong(text: &str, font_size: f64) -> f64 {
     measure(text, font_size, true)
 }
@@ -1194,17 +1194,18 @@ const STRONG_WIDTHS: [u16; 95] = [
 /// at the regular weight and set strong, in thousandths of an em.
 ///
 /// Each is the widest of Inter (at 400, and at the 700 a semibold is drawn
-/// at), of Arial as a browser draws it, and of the face a PDF sets it in:
-/// Helvetica or Helvetica-Bold for the five WinAnsi has, and Symbol, which has
-/// no bold, for omega, the three relations and the arrow. Arial is the widest
-/// for the middle dot, 333 where Helvetica's is 278, for the arrow, and for
-/// omega set bold. Inter's were measured as the ASCII tables were, in a
-/// browser at 1000 pixels from the font the documentation site serves; that
-/// font leaves out the relations and the arrow, which were measured from the
-/// same font cut down to them. Given the 600 any other character is, a label
-/// cut short could run four tenths of an em past its room, since Helvetica and
-/// Arial draw the ellipsis a whole em wide, and an arrow or an omega could
-/// overrun as well.
+/// at), of Arial as a browser draws it, which is also how wide Liberation
+/// Sans draws it in a PDF, and of the face a PDF set it in before it embedded
+/// Liberation: Helvetica or Helvetica-Bold for the five WinAnsi has, and
+/// Symbol, which has no bold, for omega, the three relations and the arrow.
+/// Arial is the widest for the middle dot, 333 where Helvetica's is 278, for
+/// the arrow, and for omega set bold. Inter's were measured as the ASCII
+/// tables were, in a browser at 1000 pixels from the font the documentation
+/// site serves; that font leaves out the relations and the arrow, which were
+/// measured from the same font cut down to them. Given the 600 any other
+/// character is, a label cut short could run four tenths of an em past its
+/// room, since Helvetica and Arial draw the ellipsis a whole em wide, and an
+/// arrow or an omega could overrun as well.
 pub(crate) const BEYOND_ASCII: [(char, u16, u16); 10] = [
     ('\u{00b2}', 442, 460),   // superscript two: Inter, Inter
     ('\u{00b7}', 333, 334),   // middle dot: Arial, Inter
@@ -1487,8 +1488,9 @@ mod tests {
     fn beyond_ascii_is_the_widest_face_that_draws_it() {
         // Measured in Chrome with canvas measureText at 1000 pixels: Inter at
         // 400 and at 700, where the site's semibold is drawn, then Arial at
-        // the same two; last the widths Adobe gives the face a PDF sets each
-        // in, Helvetica and Helvetica-Bold, or Symbol from omega on.
+        // the same two; last the widths Adobe gives the face a PDF set each
+        // in before it embedded Liberation, Helvetica and Helvetica-Bold, or
+        // Symbol from omega on.
         let measured = [
             (
                 '\u{2026}',
