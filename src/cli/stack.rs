@@ -7537,8 +7537,9 @@ fn spanned(span: Option<(u64, u64)>) -> String {
 }
 
 /// The first and the last position a track's file gives on `sequence`, as
-/// the file writes them; None where its format keeps no position karyon
-/// finds without reading it as a track.
+/// the file writes them: the first start, and the last end of a row that is
+/// a stretch or the last position of one that is a point. None where its
+/// format keeps no position karyon finds without reading it as a track.
 fn rows_span(kind: Kind, text: &str, sequence: &str) -> Option<(u64, u64)> {
     if kind == Kind::Manhattan {
         return read::point::association_span(text, sequence);
@@ -7550,15 +7551,45 @@ fn rows_span(kind: Kind, text: &str, sequence: &str) -> Option<(u64, u64)> {
         if cols.len() < column.width || cols[column.name].trim() != sequence {
             continue;
         }
-        let at = column
-            .position
-            .iter()
-            .find_map(|at| cols.get(*at)?.trim().parse::<u64>().ok());
-        if let Some(at) = at {
-            span = Some(span.map_or((at, at), |(first, last)| (first.min(at), last.max(at))));
+        let start = column.position.iter().find_map(|at| {
+            let start = cols.get(*at)?.trim().parse::<u64>().ok()?;
+            Some((*at, start))
+        });
+        if let Some((at, start)) = start {
+            let end = row_end(kind, &cols, at)
+                .filter(|end| *end >= start)
+                .unwrap_or(start);
+            span = Some(span.map_or((start, end), |(first, last)| {
+                (first.min(start), last.max(end))
+            }));
         }
     }
     span
+}
+
+/// Where a row of a track's file ends, for the formats whose rows are
+/// stretches rather than points: the column after the start, as BED and the
+/// formats built on it, a GFF3's fifth column and an InterProScan table
+/// write it. A coverage table of four columns is a bedGraph, and one of
+/// three is `samtools depth`, whose third column is a depth and not an end.
+/// `at` is the column the start was read from.
+fn row_end(kind: Kind, cols: &[&str], at: usize) -> Option<u64> {
+    let stretches = match kind {
+        Kind::Coverage | Kind::Windows | Kind::Dynseq => cols.len() >= 4,
+        Kind::Junctions
+        | Kind::Methylation
+        | Kind::Ideogram
+        | Kind::CopyNumber
+        | Kind::Heatmap
+        | Kind::Features
+        | Kind::Clades
+        | Kind::Domains => true,
+        _ => false,
+    };
+    if !stretches {
+        return None;
+    }
+    cols.get(at + 1)?.trim().parse().ok()
 }
 
 /// The sequences a file's rows are on, each once with how many rows it has,
@@ -7604,9 +7635,14 @@ fn rename_for(held: &[(String, usize)], figure: &str, alone: bool) -> Option<(St
     if held.iter().any(|(name, _)| name == figure) {
         return None;
     }
+    // A name with its `chr` taken off, and the mitochondrion's two
+    // spellings, `M` as UCSC writes it and `MT` as Ensembl does, as one.
     let bare = |name: &str| {
         let lower = name.to_ascii_lowercase();
-        lower.strip_prefix("chr").unwrap_or(&lower).to_string()
+        match lower.strip_prefix("chr").unwrap_or(&lower) {
+            "m" => "mt".to_string(),
+            rest => rest.to_string(),
+        }
     };
     let spelled: Vec<&String> = held
         .iter()
@@ -11340,8 +11376,9 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         .unwrap_err()
         .to_string();
         assert!(
-            error
-                .ends_with("though the file holds 1 on 1, at 0; if 1 is chr1, add --rename 1=chr1"),
+            error.ends_with(
+                "though the file holds 1 on 1, from 0 to 10; if 1 is chr1, add --rename 1=chr1"
+            ),
             "{error}"
         );
         // Read from a pipe, there is nothing to read twice.
@@ -11354,6 +11391,73 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         assert_eq!(
             error,
             "--variants standard input: no variants in the region"
+        );
+    }
+
+    /// Where a file's rows lie runs from the first start to the last end:
+    /// a row that is a stretch ends where its end column says, and one that
+    /// is a point at its position. An interval read by its start alone was
+    /// said to lie at 700,000 where it ran on to 900,000.
+    #[test]
+    fn where_the_rows_lie_runs_to_the_end_of_the_last() {
+        let said = |line: &str, file: &str, text: &str| {
+            let error = drawn_from(line, &[(file, text)]).unwrap_err().to_string();
+            let (_, after) = error.split_once("though the file holds ").unwrap();
+            after.to_string()
+        };
+        for (line, file, text, wanted) in [
+            (
+                "chr2:759,900-763,100 f.bed",
+                "f.bed",
+                "chr1\t700000\t900000\tgeneA\n",
+                "1 on chr1, from 700,000 to 900,000",
+            ),
+            (
+                "chr2:759,900-763,100 f.gff3",
+                "f.gff3",
+                "##gff-version 3\nchr1\t.\tgene\t700001\t900000\t.\t+\t.\tID=g1\n",
+                "1 on chr1, from 700,001 to 900,000",
+            ),
+            (
+                "chr2:1-1000 d.bedgraph",
+                "d.bedgraph",
+                "chr1\t0\t4411532\t5\n",
+                "1 on chr1, from 0 to 4,411,532",
+            ),
+            (
+                "chr2:1-1000 --windows w.bedgraph",
+                "w.bedgraph",
+                "chr1\t0\t100\t5\nchr1\t100\t200\t7\n",
+                "2 on chr1, from 0 to 200",
+            ),
+            // A table of samtools depth: the third column is a depth.
+            (
+                "chr2:1-1000 --coverage d.depth",
+                "d.depth",
+                "chr1\t100\t3000\nchr1\t101\t3000\n",
+                "2 on chr1, from 100 to 101",
+            ),
+            // Calls are points.
+            (
+                "chr2:1-1000 c.vcf",
+                "c.vcf",
+                "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                 chr1\t100\t.\tA\tG\t.\t.\t.\nchr1\t250\t.\tA\tG\t.\t.\t.\n",
+                "2 on chr1, from 100 to 250",
+            ),
+        ] {
+            assert_eq!(said(line, file, text), wanted, "{line}");
+        }
+        // The mitochondrion is M to one tool and MT to another.
+        let error = drawn_from(
+            "MT:1-1000 m.bedgraph",
+            &[("m.bedgraph", "chrM\t100\t200\t5\n")],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.ends_with("from 100 to 200; if chrM is MT, add --rename chrM=MT"),
+            "{error}"
         );
     }
 
@@ -12784,6 +12888,9 @@ chr2\t300\t.\tA\tG\t.\t.\t.
             ("contig_3", "CP012345.1"),
             ("1", "chr1"),
             ("chrX", "X"),
+            ("chrM", "MT"),
+            ("MT", "chrM"),
+            ("chrMT", "chrM"),
         ] {
             assert_eq!(
                 one(held, figure),

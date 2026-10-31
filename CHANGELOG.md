@@ -1685,17 +1685,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   committed figure moves.
 - A window a file holds nothing in is refused offering the one sequence the
   file names as a `--rename` only where neither name is a chromosome's
-  number, and saying where on that sequence the rows lie, as the file writes
-  their positions. `NC_000962.3:759,900-763,100 genetic_map.txt` offered
-  `if 1 is NC_000962.3, add --rename 1=NC_000962.3`, and followed, it drew
-  another genome's chromosome 1 flat across the window and exited 0; it
-  reads `though the file holds 60 on 1, from 604,401 to 899,401`. A number,
-  `1`, `12`, `chr1` or `X`, says nothing of whose chromosome it is, so it is
-  offered for its own spelling with a `chr` more or less and never for an
-  accession, a word or another number, nor any of those for it: a VCF's
-  `chr1` is no longer offered for a window on `chr2`. A word is still offered
-  for an accession, as `Chromosome` for `NC_000962.3`, and one accession for
-  another. No committed figure moves.
+  number, and saying where on that sequence the rows lie, from the first
+  start to the last end, as the file writes them: a BED row from 700,000 to
+  900,000 is said to run that far, and a point, as a call or a line of
+  `samtools depth`, lies at its position. `NC_000962.3:759,900-763,100
+  genetic_map.txt` offered `if 1 is NC_000962.3, add --rename
+  1=NC_000962.3`, and followed, it drew another genome's chromosome 1 flat
+  across the window and exited 0; it reads `though the file holds 60 on 1,
+  from 604,401 to 899,401`. A number, `1`, `12`, `chr1` or `X`, says nothing
+  of whose chromosome it is, so it is offered for its own spelling with a
+  `chr` more or less and never for an accession, a word or another number,
+  nor any of those for it: a VCF's `chr1` is no longer offered for a window
+  on `chr2`. The mitochondrion's `M` and `MT` are one spelling, so `chrM` is
+  offered for `MT`. A word is still offered for an accession, as
+  `Chromosome` for `NC_000962.3`, and one accession for another. No
+  committed figure moves.
 - A figure placed on a gene's name whose annotation draws the gene once for
   several transcripts says so on standard error, once, naming the flag:
   `NOVA1: 3 transcripts drawn as one model; --isoforms after genes.gtf.gz
