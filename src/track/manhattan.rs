@@ -120,6 +120,8 @@ pub struct ManhattanTrack {
     lead_name: Option<String>,
     linkage: BTreeMap<u64, f64>,
     recombination: Vec<(u64, u64, f64)>,
+    /// What the figure writes under the band.
+    footnotes: Vec<String>,
 }
 
 impl ManhattanTrack {
@@ -144,7 +146,17 @@ impl ManhattanTrack {
             lead_name: None,
             linkage: BTreeMap::new(),
             recombination: Vec::new(),
+            footnotes: Vec::new(),
         }
+    }
+
+    /// Adds a sentence the figure writes under the band, for what a reader
+    /// of the figure has to know to read the scan right: the recombination
+    /// rate under it drawn flat because the whole window lies inside one
+    /// interval of its map. See [`Track::footnotes`].
+    pub fn footnote(mut self, sentence: impl Into<String>) -> Self {
+        self.footnotes.push(sentence.into());
+        self
     }
 
     /// Colours every point by its linkage with a lead variant, as a
@@ -469,6 +481,15 @@ impl Track for ManhattanTrack {
         (self.show_scale && !self.points.is_empty())
             .then_some(self.title.as_deref())
             .flatten()
+    }
+
+    fn footnotes(
+        &self,
+        _region: &crate::region::Region,
+        _px_per_bp: f64,
+        _theme: &Theme,
+    ) -> Vec<String> {
+        self.footnotes.clone()
     }
 
     /// How many variants in view the linkage gives no r² for, where the

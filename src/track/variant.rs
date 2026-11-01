@@ -12,7 +12,10 @@
 //! styles, so [`VariantStyle`] is worth choosing again whenever the number of
 //! marks changes by an order of magnitude. The ring is what keeps two marks a
 //! base apart reading as two: it is drawn in the background colour, so a head
-//! in front of another head still has an edge.
+//! in front of another head still has an edge. Two heads closer than a head
+//! is wide are one blot all the same, and are moved apart along the band, on
+//! stems that rise at their calls and lean over to them; a head that touches
+//! none stays where its call is.
 //!
 //! # Only lollipops carry a tooltip
 //!
@@ -45,11 +48,11 @@
 //! figures that have to agree on what red means must be given their variants in
 //! one order, or one order of categories through
 //! [`VariantTrack::category_order`], which fixes each category's slot whatever
-//! the window holds. The command line hands it the categories in view ranked
-//! from the most damaging consequence to the least, so a category's colour
-//! does not hang on which call happens to come first in the window, and in a
-//! figure of several places the categories of every panel, ranked together,
-//! so a category is one colour across the figure.
+//! the window holds. The command line hands it the categories of every call
+//! of the file ranked from the most damaging consequence to the least, so a
+//! category's colour does not hang on which call happens to come first in
+//! the window, nor move in a zoom that leaves out a more damaging one, and
+//! is one colour across the panels of a figure of several places.
 //!
 //! [`VariantTrack::uniform_color`] paints every call one colour instead, as a
 //! figure whose calls are to match a colour already used elsewhere asks. The
@@ -66,6 +69,7 @@ use crate::style::{legible_ticks, Emphasis, QuantitativeAxis, Symbol};
 use crate::svg::Anchor;
 use crate::theme::Theme;
 use crate::track::axis::group_thousands;
+use crate::track::genotype::spelled;
 use crate::track::{DrawContext, Legend, Track};
 
 /// How a variant track is drawn.
@@ -91,6 +95,10 @@ pub struct Variant {
     /// Group this variant belongs to, which decides its colour and its legend
     /// entry. Typically the consequence, the lineage or the sample.
     pub category: Option<String>,
+    /// The reference allele and the alternate allele this call is of, as a
+    /// VCF's `REF` and `ALT` spell them, which its tooltip writes as `C>T`
+    /// and, zoomed to a few pixels a base, the alternate beside its head.
+    pub alleles: Option<(String, String)>,
 }
 
 impl Variant {
@@ -100,7 +108,15 @@ impl Variant {
             pos,
             value: None,
             category: None,
+            alleles: None,
         }
+    }
+
+    /// Sets the reference allele and the alternate one, as `REF` and `ALT`
+    /// spell them.
+    pub fn alleles(mut self, reference: impl Into<String>, alternate: impl Into<String>) -> Self {
+        self.alleles = Some((reference.into(), alternate.into()));
+        self
     }
 
     /// Sets the value driving the stem height, for example an allele frequency.
@@ -546,6 +562,31 @@ impl Track for VariantTrack {
         // are two different claims.
         let mut drawn: BTreeSet<(i64, usize)> = BTreeSet::new();
 
+        // Where each lollipop's head is drawn: at its call, but for heads that
+        // would cover each other, which are moved apart along the band.
+        let heads: Vec<(f64, f64)> = self
+            .variants
+            .iter()
+            .filter(|variant| ctx.region.contains(variant.pos))
+            .map(|variant| {
+                let top = variant
+                    .value
+                    .filter(|value| value.is_finite())
+                    .map_or(baseline - stem_room, y_of);
+                (ctx.scale.x_center(variant.pos), top)
+            })
+            .collect();
+        let moved = if self.style == VariantStyle::Lollipop {
+            apart(&heads, radius, band.x, band.right())
+        } else {
+            Vec::new()
+        };
+        // Zoomed until the reference's bases are letters, a head with room
+        // on its right has its alternate allele written there.
+        let lettered = ctx.scale.px_per_bp() >= crate::track::sequence::LETTER_PX;
+        let letter_size = ctx.theme.font_size - 1.0;
+        let mut at = 0;
+
         for variant in &self.variants {
             if !ctx.region.contains(variant.pos) {
                 continue;
@@ -586,20 +627,33 @@ impl Track for VariantTrack {
                         .value
                         .filter(|value| value.is_finite())
                         .map_or(baseline - stem_room, y_of);
+                    let head = moved.get(at).copied().unwrap_or(x);
                     // A lollipop is a stem and a head, and the group is what
                     // makes the two of them one thing. A tooltip on half of a
                     // mark is worse than none.
                     ctx.svg
                         .begin_titled(&tooltip(variant, self.title.as_deref()));
-                    ctx.svg
-                        .line(x, baseline, x, top, color, ctx.theme.tokens.stroke);
+                    if (head - x).abs() < 1e-9 {
+                        ctx.svg
+                            .line(x, baseline, x, top, color, ctx.theme.tokens.stroke);
+                    } else {
+                        // A head moved off its call stands on a stem that
+                        // rises at the call and leans over to it at the
+                        // last, so the stem still says where the call is.
+                        let knee = (top + 2.0 * radius).min(baseline);
+                        ctx.svg.polyline(
+                            &[(x, baseline), (x, knee), (head, top)],
+                            color,
+                            ctx.theme.tokens.stroke,
+                        );
+                    }
                     // The ring is what keeps two variants a base apart reading
                     // as two variants instead of one blob.
                     let symbol = slot
                         .and_then(|index| palette.get(index))
                         .map_or(Symbol::Circle, |(_, symbol)| *symbol);
                     ctx.svg.symbol_ringed(
-                        x,
+                        head,
                         top,
                         radius,
                         symbol,
@@ -607,7 +661,38 @@ impl Track for VariantTrack {
                         ctx.theme.surface(),
                         ctx.theme.tokens.hairline,
                     );
+                    let written = variant
+                        .alleles
+                        .as_ref()
+                        .map(|(_, alternate)| alternate.as_str())
+                        .filter(|alternate| lettered && written_beside(alternate));
+                    if let Some(alternate) = written {
+                        let width = crate::svg::text_width(alternate, letter_size);
+                        let beside = Beside {
+                            radius,
+                            size: letter_size,
+                            width,
+                            right: band.right(),
+                        };
+                        if beside.has_room(at, &heads, &moved) {
+                            // A base in the colour the reference's letter of
+                            // it is drawn in, and more than one in the ink.
+                            let ink = match alternate.as_bytes() {
+                                [base] => ctx.theme.bases.of(*base),
+                                _ => &ctx.theme.foreground,
+                            };
+                            ctx.svg.text(
+                                head + radius + 1.5,
+                                top + letter_size * 0.35,
+                                alternate,
+                                ink,
+                                letter_size,
+                                Anchor::Start,
+                            );
+                        }
+                    }
                     ctx.svg.end_group();
+                    at += 1;
                 }
             }
         }
@@ -618,12 +703,153 @@ impl Track for VariantTrack {
     }
 }
 
+/// Whether an alternate allele is written beside its head: a few bases, three
+/// at most, of the letters a sequence is spelled in. A longer one, or a
+/// symbolic allele such as `<DEL>`, is named in the tooltip alone.
+fn written_beside(alternate: &str) -> bool {
+    (1..=3).contains(&alternate.len()) && alternate.bytes().all(|b| b.is_ascii_alphabetic())
+}
+
+/// The room a head's alternate allele needs on its right.
+struct Beside {
+    radius: f64,
+    size: f64,
+    width: f64,
+    right: f64,
+}
+
+impl Beside {
+    /// Whether the allele beside head `at` of `heads`, their calls' centres,
+    /// drawn at `drawn`, stays in the band and clear of every other head and
+    /// stem: a mark whose head is lower than the letters passes under them,
+    /// and any other in their way is crossed by them.
+    fn has_room(&self, at: usize, heads: &[(f64, f64)], drawn: &[f64]) -> bool {
+        let (x, top) = (drawn[at], heads[at].1);
+        let (from, to) = (x + self.radius + 1.0, x + self.radius + 2.0 + self.width);
+        if to > self.right {
+            return false;
+        }
+        let bottom = top + self.size * 0.4;
+        !heads
+            .iter()
+            .zip(drawn)
+            .enumerate()
+            .any(|(other, ((stem, high), head))| {
+                let across = (head + self.radius > from && head - self.radius < to)
+                    || (*stem >= from - 1.0 && *stem <= to + 1.0);
+                other != at && across && high - self.radius < bottom
+            })
+    }
+}
+
+/// Where each head of `heads`, their centres in the order they are drawn,
+/// is drawn across a band from `left` to `right`, so no two of them cover
+/// each other.
+///
+/// Two heads whose centres are closer than a head is wide were one mark: a
+/// call at 761,110 of 0.50 and one four bases on of 0.53 drew two heads of
+/// four pixels a pixel apart, and the figure said nothing. Heads that touch,
+/// and those that touch them, are laid in a row a head and a pixel apart,
+/// in the order of their calls, centred where their calls are on average,
+/// and kept inside the band; a head that touches none stays where it was, so
+/// a figure with no heads that touch is drawn as it always was. A row moved
+/// onto another head takes that one in and is laid out again. Heads too many
+/// for the band to hold in a row are left where they are, which is the
+/// density ticks are for, and so is a band so crowded that a head has
+/// thousands of others within a head's width of it: two hundred thousand
+/// calls over four megabases were twenty times as slow to draw, looking at
+/// every pair of heads, for rows no band could hold.
+fn apart(heads: &[(f64, f64)], radius: f64, left: f64, right: f64) -> Vec<f64> {
+    let mut drawn: Vec<f64> = heads.iter().map(|(x, _)| *x).collect();
+    let width = 2.0 * radius;
+    // The pairs of heads within a head's width of each other across the
+    // band, which the rounds below look at each of.
+    const MOST_PAIRS: usize = 1_000_000;
+    let mut across = drawn.clone();
+    across.sort_by(f64::total_cmp);
+    let mut pairs = 0usize;
+    let mut reach = 0;
+    for (at, x) in across.iter().enumerate() {
+        reach = reach.max(at);
+        while reach + 1 < across.len() && across[reach + 1] - x < width {
+            reach += 1;
+        }
+        pairs += reach - at;
+        if pairs > MOST_PAIRS {
+            return drawn;
+        }
+    }
+    let mut group: Vec<usize> = (0..heads.len()).collect();
+    fn root(group: &mut [usize], mut at: usize) -> usize {
+        while group[at] != at {
+            group[at] = group[group[at]];
+            at = group[at];
+        }
+        at
+    }
+    let pitch = width + 1.0;
+    // A row moved onto a head takes it in, so the groups only grow, and a
+    // few rounds settle every figure a lollipop is drawn for.
+    for _ in 0..16 {
+        let mut order: Vec<usize> = (0..heads.len()).collect();
+        order.sort_by(|a, b| drawn[*a].total_cmp(&drawn[*b]));
+        let mut joined = false;
+        for (from, &a) in order.iter().enumerate() {
+            for &b in &order[from + 1..] {
+                let dx = drawn[b] - drawn[a];
+                if dx >= width {
+                    break;
+                }
+                let dy = heads[b].1 - heads[a].1;
+                if dx.hypot(dy) < width {
+                    let (ra, rb) = (root(&mut group, a), root(&mut group, b));
+                    if ra != rb {
+                        group[ra] = rb;
+                        joined = true;
+                    }
+                }
+            }
+        }
+        if !joined {
+            break;
+        }
+        let mut members: std::collections::BTreeMap<usize, Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for at in 0..heads.len() {
+            let top = root(&mut group, at);
+            members.entry(top).or_default().push(at);
+        }
+        for mut row in members.into_values().filter(|row| row.len() > 1) {
+            let span = (row.len() - 1) as f64 * pitch;
+            if span > right - left - width {
+                continue;
+            }
+            row.sort_by(|a, b| {
+                heads[*a]
+                    .0
+                    .total_cmp(&heads[*b].0)
+                    .then(heads[*a].1.total_cmp(&heads[*b].1))
+                    .then(a.cmp(b))
+            });
+            let middle = row.iter().map(|at| heads[*at].0).sum::<f64>() / row.len() as f64;
+            let first = (middle - span / 2.0)
+                .max(left + radius)
+                .min(right - radius - span);
+            for (index, at) in row.iter().enumerate() {
+                drawn[*at] = first + index as f64 * pitch;
+            }
+        }
+    }
+    drawn
+}
+
 /// What a reader hovering one mark is told.
 ///
 /// The noun first, then the position in the 1-based form the ruler under it
-/// prints, then what kind of event it is and what number it carried. The last
-/// two are optional in the data and neither is invented when it is absent: a
-/// mark with nothing but a position says nothing but its noun and a position.
+/// prints and the change, `C>T`, where the call carries its alleles, then
+/// what kind of event it is and what number it carried. All but the position
+/// are optional in the data and none is invented when it is absent: a mark
+/// with nothing but a position says nothing but its noun and a position.
 ///
 /// The noun is there because every tooltip in the crate is `what it is, where
 /// it is`, and a mark that opened on a bare `31,218,401` was the one glyph on
@@ -643,6 +869,15 @@ fn tooltip(variant: &Variant, measure: Option<&str>) -> String {
         "variant, {}",
         group_thousands(variant.pos.saturating_add(1))
     );
+    // The change, `C>T`, after the place it is at, each allele spelled to
+    // twelve characters and counted past them, as a genotype's tooltip
+    // spells it: an indel's REF can run to thousands of bases.
+    if let Some((reference, alternate)) = &variant.alleles {
+        text.push(' ');
+        text.push_str(&spelled(reference));
+        text.push('>');
+        text.push_str(&spelled(alternate));
+    }
     if let Some(category) = variant.category.as_deref() {
         if !category.is_empty() {
             text.push_str(", ");
@@ -1040,6 +1275,200 @@ mod tests {
         );
         assert!(svg.contains("<title>variant, 761,156, synonymous, value 0.55</title>"));
         assert!(groups_balance(&svg));
+    }
+
+    /// The heads of a document's lollipops, each with the title of its mark
+    /// and where its stem stands at the foot of the band.
+    fn heads(svg: &str) -> Vec<(String, f64, f64, f64)> {
+        svg.split("<g><title>variant, ")
+            .skip(1)
+            .map(|mark| {
+                let title = mark[..mark.find("</title>").unwrap()].to_string();
+                let number = |after: &str, key: &str| -> f64 {
+                    let rest = &after[after.find(&format!("{key}=\"")).unwrap() + key.len() + 2..];
+                    rest[..rest.find('"').unwrap()].parse().unwrap()
+                };
+                let stem = match mark.find("points=\"") {
+                    Some(at) if at < mark.find("<circle").unwrap() => {
+                        let points = &mark[at + 8..];
+                        points[..points.find(',').unwrap()].parse().unwrap()
+                    }
+                    _ => number(mark, "x1"),
+                };
+                let circle = &mark[mark.find("<circle").unwrap()..];
+                (title, stem, number(circle, "cx"), number(circle, "cy"))
+            })
+            .collect()
+    }
+
+    /// Two heads closer than a head is wide are moved apart along the band,
+    /// each on a stem that rises at its call and leans over to it, and each
+    /// named at its call: a call at 761,110 of 0.50 and one four bases on of
+    /// 0.53 were two heads a pixel apart, one mark. A head that touches
+    /// neither stays where it is, on a straight stem.
+    #[test]
+    fn heads_that_would_cover_each_other_are_moved_apart() {
+        let svg = Figure::new(Region::parse("NC_1:759,456-763,676").unwrap())
+            .show_region_label(false)
+            .push(
+                VariantTrack::new(vec![
+                    Variant::new(761_109).value(0.50).category("missense"),
+                    Variant::new(761_113).value(0.53).category("missense"),
+                    Variant::new(762_000).value(0.52).category("missense"),
+                ])
+                .show_legend(false),
+            )
+            .to_svg();
+        let drawn = heads(&svg);
+        assert_eq!(drawn.len(), 3, "{svg}");
+        let (first, second, alone) = (&drawn[0], &drawn[1], &drawn[2]);
+        assert!(first.0.starts_with("761,110,"), "{first:?}");
+        assert!(second.0.starts_with("761,114,"), "{second:?}");
+        // Apart by a head and a pixel, in the order of the calls, about
+        // where the two calls are.
+        // Written to a thousandth of a pixel.
+        assert!((second.2 - first.2 - 9.0).abs() < 2e-3, "{drawn:?}");
+        assert!(first.2 < first.1 && second.2 > second.1, "{drawn:?}");
+        assert!(((first.2 + second.2) / 2.0 - (first.1 + second.1) / 2.0).abs() < 2e-3);
+        assert!(svg.matches("<polyline").count() == 2, "{svg}");
+        // The third is where its call is.
+        assert_eq!(alone.1, alone.2, "{alone:?}");
+        assert!(groups_balance(&svg));
+    }
+
+    /// Heads that touch none stay exactly where they were, on a straight
+    /// stem: a figure with no heads that collide is drawn as it always was.
+    #[test]
+    fn heads_that_touch_none_are_where_their_calls_are() {
+        let calls = vec![
+            Variant::new(761_109).value(0.10),
+            Variant::new(761_113).value(0.90),
+            Variant::new(761_600).value(0.50),
+        ];
+        let svg = Figure::new(Region::parse("NC_1:759,456-763,676").unwrap())
+            .show_region_label(false)
+            .push(VariantTrack::new(calls).show_legend(false))
+            .to_svg();
+        assert!(!svg.contains("<polyline"), "{svg}");
+        for (title, stem, x, _) in heads(&svg) {
+            assert_eq!(stem, x, "{title}");
+        }
+    }
+
+    /// Heads laid in a row take in a head the row reaches, and are laid out
+    /// again with it; a row kept inside the band; and heads too many for the
+    /// band to hold in a row left where they are.
+    #[test]
+    fn a_row_of_heads_takes_in_what_it_reaches_and_stays_in_the_band() {
+        // Three at one height, the third far enough from the first two to
+        // touch only the row they are moved into.
+        let moved = apart(
+            &[(100.0, 50.0), (101.0, 50.0), (110.0, 50.0)],
+            4.0,
+            0.0,
+            400.0,
+        );
+        let middle = (100.0 + 101.0 + 110.0) / 3.0;
+        for (at, expected) in moved.iter().zip([middle - 9.0, middle, middle + 9.0]) {
+            assert!((at - expected).abs() < 1e-9, "{moved:?}");
+        }
+        // At the left edge the row starts a head's half inside it.
+        let edge = apart(&[(1.0, 50.0), (2.0, 50.0)], 4.0, 0.0, 400.0);
+        assert_eq!(edge, [4.0, 13.0]);
+        // Far apart in height, they do not touch.
+        let tall = apart(&[(100.0, 10.0), (100.5, 90.0)], 4.0, 0.0, 400.0);
+        assert_eq!(tall, [100.0, 100.5]);
+        // Fifty in a band of a hundred pixels cannot be a row.
+        let crowd: Vec<(f64, f64)> = (0..50).map(|i| (50.0 + i as f64 * 0.1, 50.0)).collect();
+        let left = apart(&crowd, 4.0, 0.0, 100.0);
+        assert_eq!(left, crowd.iter().map(|(x, _)| *x).collect::<Vec<_>>());
+        // Nor can twenty thousand over half a band of a thousand, and a band
+        // that crowded is left as it is without looking at each of its pairs,
+        // the two touching heads far from the crowd with it.
+        let mut throng: Vec<(f64, f64)> = (0..20_000)
+            .map(|i| (i as f64 * 0.025, 50.0 + (i % 7) as f64))
+            .collect();
+        throng.extend([(900.0, 50.0), (901.0, 50.0)]);
+        let left = apart(&throng, 4.0, 0.0, 1_000.0);
+        assert_eq!(left, throng.iter().map(|(x, _)| *x).collect::<Vec<_>>());
+    }
+
+    /// A mark says the change it is, after where it is: `761,139 C>T`. An
+    /// allele longer than twelve bases is its first twelve and how many more,
+    /// as a genotype's tooltip spells it.
+    #[test]
+    fn a_mark_says_its_change_after_where_it_is() {
+        let long = "ACGTACGTACGTACGTACGT";
+        let svg = Figure::new(Region::parse("chr1:761,001-761,300").unwrap())
+            .show_region_label(false)
+            .push(
+                VariantTrack::new(vec![
+                    Variant::new(761_138)
+                        .value(0.62)
+                        .category("missense_variant")
+                        .alleles("C", "T"),
+                    Variant::new(761_200).alleles(long, "A"),
+                ])
+                .axis_title("AF")
+                .show_legend(false),
+            )
+            .to_svg();
+        assert!(
+            svg.contains("<title>variant, 761,139 C&gt;T, missense_variant, AF 0.62</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>variant, 761,201 ACGTACGTACGT+8&gt;A</title>"),
+            "{svg}"
+        );
+    }
+
+    /// Zoomed until a base is a letter wide, a head with room on its right
+    /// has its alternate allele written there, a base in the colour of its
+    /// letter; not over a wider window, not where another mark stands in the
+    /// way, and not for an allele longer than three bases or one with no
+    /// bases to it.
+    #[test]
+    fn at_a_letter_a_base_a_head_with_room_writes_its_alternate() {
+        let theme = Theme::light();
+        let calls = vec![
+            Variant::new(761_109).value(0.35).alleles("A", "T"),
+            Variant::new(761_138).value(0.62).alleles("C", "G"),
+            // A taller call a base on stands where the letter would go.
+            Variant::new(761_139).value(0.90).alleles("C", "A"),
+            Variant::new(761_150).value(0.20).alleles("C", "<DEL>"),
+            Variant::new(761_160).value(0.20).alleles("C", "CAAAA"),
+        ];
+        let drawn = |window: &str| {
+            Figure::new(Region::parse(window).unwrap())
+                .show_region_label(false)
+                .push(VariantTrack::new(calls.clone()).show_legend(false))
+                .to_svg()
+        };
+        let letters = |svg: &str| -> Vec<(String, String)> {
+            svg.split("<text ")
+                .skip(1)
+                .filter_map(|text| {
+                    let fill = text.split("fill=\"").nth(1)?.split('"').next()?;
+                    let body = text.split_once('>')?.1.split("</text>").next()?;
+                    Some((body.to_string(), fill.to_string()))
+                })
+                .filter(|(body, _)| {
+                    body.len() <= 5 && body.chars().all(|c| c.is_ascii_alphabetic())
+                })
+                .collect()
+        };
+        let near = drawn("chr1:761,101-761,170");
+        assert_eq!(
+            letters(&near),
+            [
+                ("T".to_string(), theme.bases.of(b'T').to_string()),
+                ("A".to_string(), theme.bases.of(b'A').to_string()),
+            ],
+            "{near}"
+        );
+        let far = drawn("chr1:760,001-763,000");
+        assert!(letters(&far).is_empty(), "{far}");
     }
 
     #[test]

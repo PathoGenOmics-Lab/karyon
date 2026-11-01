@@ -1547,6 +1547,104 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A recombination rate drawn flat because the whole window lies inside one
+  interval of its map says so under its track, on the figure, as well as on
+  the terminal: `genetic_map.txt: the window lies inside one interval of the
+  map, 759,401 to 764,400, so its one rate, 0.41 cM/Mb, is drawn flat across
+  it`. Said on the terminal alone, a figure of a map laid over a window of
+  another genome under a `--rename` was handed in with a flat line nothing
+  on it explained. A scan with `--with-recombination` writes it under the
+  scan. `CoverageTrack::footnote` and `ManhattanTrack::footnote` are new, and
+  write a sentence under the band through `Track::footnotes`, as the cells a
+  genotype track pools are counted. No committed figure moves.
+- A call's tooltip says the change it is after where it is, `variant,
+  761,139 C>T, missense_variant, AF 0.62`, where it said `variant, 761,139,
+  missense_variant, AF 0.62` and the bases were only in the file.
+  `Variant::alleles` is new, and the reader of a VCF or a BCF gives each call
+  its `REF` and its own `ALT`; an allele longer than twelve bases is written
+  as its first twelve and how many more, `ACGTACGTACGT+8>A`, as a genotype's
+  tooltip writes it. Zoomed until a base is a letter wide, a lollipop with
+  room on its right has its alternate allele written there, a base in the
+  colour the reference's letter of it is drawn in, where it is three bases
+  or fewer and no other head or stem stands in the way. `reads.svg` and
+  `reads-dark.svg` on the site move, in their tooltips alone.
+- Lollipop heads closer than a head is wide are moved apart along the band,
+  into a row a head and a pixel apart, in the order of their calls and
+  centred where the calls are, each on a stem that rises at its call and
+  leans over to its head at the last; a tooltip still names its call. A
+  call at 761,110 of 0.50 and one four bases on of 0.53 drew two heads of
+  four pixels at (399.9, 95.3) and (400.7, 93.5), one mark, and nothing was
+  said. A row moved onto another head takes it in and is laid out again,
+  and is kept inside the band. Heads that touch none stay exactly where
+  they were, so a figure with no heads that collide is drawn as before, and
+  heads too many for the band to hold in a row are left as they are, the
+  density ticks are for, as is a whole band where more than a million pairs
+  of heads lie within a head of each other: two hundred thousand calls over
+  four megabases, laid out pair by pair, took 6.3 s to draw where they take
+  0.3 s. `gallery.svg` and its copy on the site move, its calls of no value
+  side by side.
+- A consequence keeps its colour at every zoom of a file of calls: the
+  colours are dealt from every call of the file, on every sequence, ranked
+  from the most damaging down, rather than from the calls in view.
+  `NC_000962.3:760,300-760,330 calls.vcf.gz`, thirty bases holding one
+  synonymous call, keyed it `#1634c2`, the first colour, where the figure of
+  the whole gene keyed it `#e63f9f`, under its missense calls; both key it
+  `#e63f9f` now. A bgzipped VCF or a BCF drawn a window at a time through its
+  index is read to its end for this where it is no larger than 8 MB, so it
+  deals as the same file read whole does; a larger one ranks the calls in
+  view, as before, since reading every call of a cohort's file to draw one
+  gene is the read its index spares. `--color` still deals its four shapes
+  to the consequences in view. `read::point::ranked_file` ranks a VCF's
+  text the same way for the library. No committed figure moves.
+- A genotype pixel whose sites a sample was called differently at is cut
+  into thin stripes stacked down the row, a stripe a site with the first on
+  top, each in the colour of that sample's call there, as long as the row
+  has a pixel of its height for each; more sites than that keep their shade.
+  In a cohort of one copy a sample, an alternate call at 763,290 and a
+  reference call at 763,295 were one mid-grey cell, which on paper is a
+  mixed call, and nothing on the page said which site carried the
+  alternate. The key then names the calls' states rather than a ramp. The
+  figure says under the track how many cells pool calls that differ and
+  names a window that draws them apart, as `7 cells pool calls that differ
+  from more than one site, drawn a stripe a site with the first on top;
+  NC_000962.3:762,701-763,700 draws them apart`, and the command line prints
+  it too. Every pooled run of eight sites or fewer is named in a tooltip,
+  whatever it carries: a no call pooled with a reference call beside it was
+  a pale cell with nothing to say which site it was. The line is written by
+  `Track::footnotes`, new, which the figure reserves room for under a band
+  and writes broken to the width of the plot, outside the band, with a
+  shade's edges stopping above it; `Figure::footnotes` gathers them for a
+  caller who also says them. A tree's warnings are broken and set by the
+  same code, in its own band as before. `genotypes.svg` and
+  `genotypes-dark.svg` on the site move, striped where they pooled and
+  counted under the rows.
+- A coverage track draws a pixel that holds more than one value as the
+  spread between them, as a genome browser draws whiskers, wherever no
+  `--aggregate` is written: the profile, its line and the fill under it or
+  its bar, runs along the lowest value under the pixel, and a flat pale wash
+  of the same colour stands on it up to the highest. A pixel was drawn at
+  the most of its values, so across a whole genome a half megabase of no
+  copies, 0.18 in its bedGraph, was drawn at 60.5, the depth beside it,
+  right above a copy-number track drawing no copies there. There the line
+  now falls to the floor under a wash that stays at sixty, and a spike is a
+  pale column over the line. A pixel of one value adds nothing, so a figure
+  whose pixels each hold one, as at a few pixels a base, is drawn as it was,
+  and one whose pixels pool differs only by the wash and by its line
+  following the lowest. The key names the two, `lowest value in a
+  pixel` swatched as the track is drawn and `highest value in a pixel` as
+  the wash, wherever a pixel is drawn this way. `--aggregate max`, `mean` or
+  `min` draws one value a pixel as before, and `karyon help` now says what
+  is drawn without it; a ring still takes the most. In the library
+  `CoverageTrack::aggregate` is the same choice, and a track given none
+  draws the spread. A bigWig drawn from a zoom level is read for the least
+  of each bin as well as its most, so a pixel reaches down as far as the
+  values as written take it. `example-genomewide.svg`,
+  `example-gene-models.svg`, `example-ideogram.svg`, `example-regulation.svg`,
+  `example-split.svg`, `example-structural.svg`, `example-visual-system.svg`
+  and `gallery.svg`, and their copies on the site, move, each depth along
+  its lowest values under a pale wash, and so do `reads.svg`, `genome.svg`
+  and `genome-copies.svg` on the site, light and dark, which gain the two
+  keys.
 - A squiggle's note on bases too narrow for their letters says how many of
   the read's bases the window it names holds, and the command line adds how
   wide a figure of the whole read letters every one: `sample:1-304 letters
