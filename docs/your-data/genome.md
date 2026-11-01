@@ -101,7 +101,8 @@ its line and the stretch it carries twice stands outside it, and `--same-scale`
 puts both rings on one reach. The genes sit on the outer half of their ring for
 the forward strand and the inner half for the reverse, and the calls are coloured
 by their consequence. The key under the circle names each ring, outside in, and
-so does each ring when you point at it.
+so does each ring when you point at it. A plasmid drawn from its annotation
+alone, its genes as arrows, has [a page of its own](plasmid.md).
 
 | To | Write |
 |:--|:--|

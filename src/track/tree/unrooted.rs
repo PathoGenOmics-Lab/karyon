@@ -314,6 +314,9 @@ pub(super) struct UnrootedGeometry {
     pub(super) my: f64,
     /// Whether anything needs the tips gathered onto a shared circle.
     pub(super) ringed: bool,
+    /// How far a name starts from the end of its branch, where it hangs
+    /// there: past the point, where the tips are coloured.
+    pub(super) hang: f64,
 }
 
 impl UnrootedGeometry {
@@ -328,9 +331,11 @@ impl UnrootedGeometry {
                 .map(|node| text_width(&name(node), size))
                 .fold(0.0f64, f64::max)
                 + 6.0
+                + track.tip_room(theme)
         } else {
             4.0
         };
+        let hang = 3.0 + track.tip_room(theme);
         let gap = theme.tokens.legend_gap.clamp(1.0, 4.0);
         let ring_room = if track.trait_columns.is_empty() {
             0.0
@@ -373,6 +378,7 @@ impl UnrootedGeometry {
                 mx,
                 my,
                 ringed,
+                hang,
             }
         };
         if ringed {
@@ -393,7 +399,7 @@ impl UnrootedGeometry {
                 .filter_map(|node| {
                     let (x, y) = scene.positions[*node]?;
                     let angle = scene.angles[*node].unwrap_or(0.0);
-                    let reach = text_width(&name(node), size) + 6.0;
+                    let reach = text_width(&name(node), size) + 6.0 + track.tip_room(theme);
                     Some((x, y, angle.cos() * reach, angle.sin() * reach))
                 })
                 .collect()
@@ -491,6 +497,7 @@ impl UnrootedGeometry {
             mx,
             my,
             ringed,
+            hang,
         }
     }
 
@@ -515,7 +522,7 @@ impl UnrootedGeometry {
         }
         let (x, y) = scene.positions[node].unwrap_or((0.0, 0.0));
         let (px, py) = self.node((x, y));
-        (px + angle.cos() * 3.0, py + angle.sin() * 3.0)
+        (px + angle.cos() * self.hang, py + angle.sin() * self.hang)
     }
 
     pub(super) fn node(&self, point: (f64, f64)) -> (f64, f64) {
@@ -728,12 +735,27 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
 
     draw_unrooted_trait_rings(track, ctx, &scene, &geometry);
 
+    let painted = track.tip_paint(ctx.theme);
+    // A point at the end of each tip's branch, under the names.
+    if let Some(painted) = &painted {
+        for node in &scene.terminals {
+            let (Some(raw), true) = (scene.positions[*node], track.tree.nodes()[*node].is_leaf())
+            else {
+                continue;
+            };
+            painted.point(ctx, &track.tree, *node, geometry.node(raw));
+        }
+    }
     if track.show_tips {
         let size = ctx.theme.font_size - 1.0;
         for node in &scene.terminals {
             let angle = geometry.outward(&scene, *node);
             let (x, y) = geometry.tip_anchor(&scene, *node, angle);
             let right = angle.cos() >= 0.0;
+            let ink = painted.as_ref().map_or_else(
+                || ctx.theme.muted.clone(),
+                |painted| painted.ink(&track.tree, *node, track.folded(), ctx.theme),
+            );
             ctx.svg.text_rotated(
                 (x, y + size * 0.32),
                 if right {
@@ -742,7 +764,7 @@ pub(super) fn draw_unrooted_track(track: &TreeTrack, ctx: &mut DrawContext<'_>) 
                     angle.to_degrees() + 180.0
                 },
                 &terminal_label(&track.tree, *node, track.folded(), &track.fold_names),
-                &ctx.theme.muted,
+                &ink,
                 size,
                 if right {
                     crate::svg::Anchor::Start

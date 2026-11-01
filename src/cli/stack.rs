@@ -1752,7 +1752,7 @@ fn ring_of(
     };
     // The file's name, as a band is called in its gutter. A reference is
     // drawn as its GC skew, which is what its ring says.
-    let label = spec.label.clone().or_else(|| match spec.kind {
+    let mut label = spec.label.clone().or_else(|| match spec.kind {
         Kind::Sequence => default_label(spec).map(|stem| format!("{stem} GC skew")),
         _ => default_label(spec),
     });
@@ -1844,13 +1844,19 @@ fn ring_of(
                 .iter()
                 .filter(|feature| feature.name.is_some())
                 .count();
-            let reverse = features
+            // The strands of the genes, which are what a strand's colour
+            // paints: anything else is drawn in the muted ink.
+            let genes: Vec<&crate::Feature> = features
+                .iter()
+                .filter(|feature| feature.is_genic())
+                .collect();
+            let reverse = genes
                 .iter()
                 .any(|feature| feature.strand == crate::Strand::Reverse);
-            let unknown = features
+            let unknown = genes
                 .iter()
                 .any(|feature| feature.strand == crate::Strand::Unknown);
-            let forward = features
+            let forward = genes
                 .iter()
                 .any(|feature| feature.strand == crate::Strand::Forward);
             // The colours a band of features paints, a strand each: the
@@ -1868,6 +1874,35 @@ fn ring_of(
                 if reverse {
                     legend = legend.key("reverse strand, inner half", below.clone());
                 }
+            }
+            // What is not a gene, keyed by what the annotation calls it, in
+            // one entry, since one ink paints them all.
+            let mut others: Vec<&str> = Vec::new();
+            for feature in features.iter().filter(|feature| !feature.is_genic()) {
+                if let Some(kind) = feature.kind.as_deref() {
+                    if !others.contains(&kind) {
+                        others.push(kind);
+                    }
+                }
+            }
+            if !others.is_empty() {
+                legend = legend.key(others.join(", "), theme.muted.clone());
+            }
+            // Named after what it holds, where the annotation says: a file
+            // named after the sequence keyed the ring as the sequence, which
+            // is the name in the middle of the circle. A BED says nothing of
+            // what its rows are, and keeps the name of its file.
+            let holds = if !features.iter().any(|feature| feature.kind.is_some()) {
+                None
+            } else if !genes.is_empty() {
+                Some("genes".to_string())
+            } else if others.len() == 1 {
+                Some(others[0].to_string())
+            } else {
+                Some("features".to_string())
+            };
+            if spec.label.is_none() && holds.is_some() {
+                label = holds;
             }
             let mut ring = crate::FeatureRing::new(features)
                 .show_names(!spec.no_names && named <= NAMED_ON_A_RING);
@@ -5099,7 +5134,8 @@ fn colored_as_asked(invocation: &Invocation, files: &mut dyn Files) -> Result<()
                     .columns
                     .as_ref()
                     .map_or(true, |named| named.contains(column))
-                    || spec.color_by.as_ref() == Some(column))
+                    || spec.color_by.as_ref() == Some(column)
+                    || spec.tip_color_by.as_ref() == Some(column))
         });
         if !drawn {
             return Err(BuildError::ColorsUndrawn {
@@ -8617,37 +8653,45 @@ fn built(
             // the answer is coloured by unless the command said to colour by
             // something else.
             let coloured = spec.color_by.clone().or_else(|| spec.carrying.clone());
-            if let Some(key) = coloured {
-                // A key no node carries colours no branch, and the tree comes
-                // out as it would have without the flag. Looked for on every
-                // node rather than on the tips, since a branch takes its
-                // nearest annotated ancestor's value, and on the tree as it
-                // will be drawn: after `--focus` has cut it, and after the
-                // sheet and the carriers have been written onto it.
+            // A key no node carries colours no branch and no tip, and the tree
+            // comes out as it would have without the flag. Looked for on
+            // every node rather than on the tips, since a branch takes its
+            // nearest annotated ancestor's value, and on the tree as it will
+            // be drawn: after `--focus` has cut it, and after the sheet and
+            // the carriers have been written onto it.
+            let carried = |track: &TreeTrack, key: String| {
                 let tree = track.tree();
                 let nodes = 0..tree.nodes().len();
-                if !nodes
+                if nodes
                     .clone()
                     .any(|node| tree.annotation(node, &key).is_some())
                 {
-                    let keys: std::collections::BTreeSet<&str> = nodes
-                        .filter_map(|node| tree.annotations(node))
-                        .flat_map(|held| held.keys().map(String::as_str))
-                        .collect();
-                    let mut held: Vec<String> =
-                        keys.iter().take(24).map(|key| key.to_string()).collect();
-                    if keys.len() > held.len() {
-                        held.push(format!("and {} more", keys.len() - held.len()));
-                    }
-                    return Err(BuildError::Unnamed {
-                        track: "tree",
-                        path: path.clone(),
-                        what: "annotation",
-                        wanted: key,
-                        held,
-                    });
+                    return Ok(key);
                 }
+                let keys: std::collections::BTreeSet<&str> = nodes
+                    .filter_map(|node| tree.annotations(node))
+                    .flat_map(|held| held.keys().map(String::as_str))
+                    .collect();
+                let mut held: Vec<String> =
+                    keys.iter().take(24).map(|key| key.to_string()).collect();
+                if keys.len() > held.len() {
+                    held.push(format!("and {} more", keys.len() - held.len()));
+                }
+                Err(BuildError::Unnamed {
+                    track: "tree",
+                    path: path.clone(),
+                    what: "annotation",
+                    wanted: key,
+                    held,
+                })
+            };
+            if let Some(key) = coloured {
+                let key = carried(&track, key)?;
                 track = track.color_by(key);
+            }
+            if let Some(key) = spec.tip_color_by.clone() {
+                let key = carried(&track, key)?;
+                track = track.tip_color_by(key);
             }
             // Refused rather than said under the tree, as a colour key is: a
             // support style drawing nothing on a tree whose support the file
@@ -15205,6 +15249,49 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
         );
     }
 
+    /// `--tip-color-by` colours each tip by a column of the sheet, keyed
+    /// beside the branches' colours and apart from them, takes the colours
+    /// `--colors` gives the column, and is refused a key the tree does not
+    /// carry, with the keys it does.
+    #[test]
+    fn a_tree_s_tips_are_coloured_by_a_column_of_its_sheet() {
+        let tree = "((a:1,b:1):1,(c:1,d:1):1);";
+        let sheet = "sample\tlineage\thost\na\tL1\tcattle\nb\tL2\thuman\n\
+                     c\tL3\thuman\nd\tL4\tcattle\n";
+        let held = [("t.nwk", tree), ("s.tsv", sheet)];
+        let svg = drawn_from(
+            "--tree t.nwk --traits s.tsv --columns lineage --tip-color-by host",
+            &held,
+        )
+        .unwrap();
+        assert!(svg.contains("<title>a; host cattle</title>"), "{svg}");
+        let lineages: Vec<String> = ["L1", "L2", "L3", "L4"]
+            .iter()
+            .map(|level| key_colour(&svg, &format!("lineage: {level}")))
+            .collect();
+        for host in ["cattle", "human"] {
+            let colour = key_colour(&svg, &format!("host: {host}"));
+            assert!(
+                !lineages.contains(&colour),
+                "{host} is a lineage's {colour}"
+            );
+        }
+        let chosen = drawn_from(
+            "--tree t.nwk --traits s.tsv --columns lineage --tip-color-by host \
+             --colors host=human:#aa0000",
+            &held,
+        )
+        .unwrap();
+        assert_eq!(key_colour(&chosen, "host: human"), "#aa0000");
+        let refused = drawn_from("--tree t.nwk --traits s.tsv --tip-color-by hots", &held)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            refused.contains("hots") && refused.contains("host") && refused.contains("lineage"),
+            "{refused}"
+        );
+    }
+
     /// One sheet, one row name per row of every track that draws strips from
     /// a sheet, and the files each of those tracks reads.
     const STRIPPED: &[(&str, &str)] = &[
@@ -18833,6 +18920,51 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
         assert_eq!(rings[0].kind, Kind::Features);
     }
 
+    /// A ring of annotation is named for what it holds, and what is not a
+    /// gene is keyed by what the annotation calls it. A plasmid's GFF3 named
+    /// after the plasmid keyed its ring as the plasmid, the name already in
+    /// the middle of the circle, and its origin of transfer as a strand.
+    #[test]
+    fn a_ring_of_annotation_is_named_for_what_it_holds() {
+        let plasmid = "##gff-version 3\n##sequence-region pX 1 6200\n\
+                       pX\t.\tgene\t310\t1260\t.\t+\t.\tID=repA;Name=repA\n\
+                       pX\t.\tCDS\t310\t1260\t.\t+\t0\tParent=repA\n\
+                       pX\t.\tgene\t1700\t2560\t.\t-\t.\tID=bla;Name=bla\n\
+                       pX\t.\torigin_of_transfer\t5600\t5720\t.\t-\t.\tID=oriT;Name=oriT\n";
+        let repeats = "##gff-version 3\n##sequence-region pX 1 6200\n\
+                       pX\t.\trepeat_region\t100\t300\t.\t.\t.\tID=r1\n";
+        let bed = "pX\t309\t1260\trepA\t0\t+\n";
+        let more = [("pX.gff3", plasmid), ("rep.gff3", repeats), ("pX.bed", bed)];
+        let svg = circle("pX --circular pX.gff3", &more).unwrap();
+        assert!(svg.contains("<g><title>genes</title>"), "{svg}");
+        assert!(svg.contains(">genes</text>"), "{svg}");
+        // The sequence is named in the middle, and not again in the key.
+        assert!(!svg.contains("text-anchor=\"start\">pX</text>"), "{svg}");
+        // The origin is on the reverse strand, and only the genes are keyed
+        // by theirs.
+        let theme = Theme::light();
+        assert!(
+            svg.contains(&format!(
+                "<title>origin_of_transfer, colour {}</title>",
+                theme.muted
+            )),
+            "{svg}"
+        );
+        assert!(svg.contains(">forward strand, outer half</text>"));
+        assert!(svg.contains(">reverse strand, inner half</text>"));
+        let genes_only = circle("pX --circular pX.gff3 --no-names", &more).unwrap();
+        assert!(genes_only.contains("oriT, 5,600 to 5,720, reverse, origin_of_transfer"));
+        // Nothing but repeats is named after them; a BED says nothing of what
+        // its rows are and keeps its file's name; a label says what it says.
+        let svg = circle("pX:1-6,200 --circular rep.gff3", &more).unwrap();
+        assert!(svg.contains("<g><title>repeat_region</title>"), "{svg}");
+        assert!(!svg.contains(">no strand, outer half</text>"), "{svg}");
+        let svg = circle("pX:1-6,200 --circular pX.bed", &more).unwrap();
+        assert!(svg.contains("<g><title>pX</title>"), "{svg}");
+        let svg = circle("pX --circular pX.gff3 --label annotation", &more).unwrap();
+        assert!(svg.contains("<g><title>annotation</title>"), "{svg}");
+    }
+
     /// The key under the circle names each ring outside in, a line each, with
     /// what its colours mean, and `--no-legend` leaves it out.
     #[test]
@@ -19495,7 +19627,9 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
             .iter()
             .map(|item| match item {
                 crate::LegendItem::Key { label, .. } => label.as_str(),
-                crate::LegendItem::Ramp { label, .. } => label.as_str(),
+                crate::LegendItem::Ramp { label, .. } | crate::LegendItem::Steps { label, .. } => {
+                    label.as_str()
+                }
             })
             .collect();
         assert_eq!(said, ["above 0", "below 0"]);
@@ -19526,7 +19660,8 @@ chr1\t.\tCDS\t1201\t1300\t.\t+\t2\tID=c1;Name=abcA
                 .iter()
                 .map(|item| match item {
                     crate::LegendItem::Key { label, color, .. } => (label.clone(), color.clone()),
-                    crate::LegendItem::Ramp { label, .. } => (label.clone(), String::new()),
+                    crate::LegendItem::Ramp { label, .. }
+                    | crate::LegendItem::Steps { label, .. } => (label.clone(), String::new()),
                 })
                 .collect()
         };

@@ -234,6 +234,12 @@ pub struct Feature {
     /// own name: isoforms are named for themselves, and `NM_000546.6` alone
     /// does not say which gene it is.
     pub gene: Option<String>,
+    /// What the annotation calls the feature, as GFF3 and GTF write it in
+    /// their third column: `gene`, `CDS`, `origin_of_transfer`. `None` where
+    /// the file says nothing of it, as a BED row, which is drawn as a gene.
+    /// A ring of features draws the ones that are not genes or a part of
+    /// one apart; see [`Feature::is_genic`].
+    pub kind: Option<String>,
 }
 
 impl Feature {
@@ -254,6 +260,7 @@ impl Feature {
             coding: Vec::new(),
             transcripts: 0,
             gene: None,
+            kind: None,
         }
     }
 
@@ -314,6 +321,42 @@ impl Feature {
     pub fn gene(mut self, gene: impl Into<String>) -> Self {
         self.gene = Some(gene.into());
         self
+    }
+
+    /// Says what the annotation calls the feature, as `origin_of_transfer`.
+    pub fn kind(mut self, kind: impl Into<String>) -> Self {
+        self.kind = Some(kind.into());
+        self
+    }
+
+    /// Whether the feature is a gene, a transcript of one or a part of one,
+    /// which is read off its [`Feature::kind`]: a gene, a pseudogene or any
+    /// `_gene`, an mRNA, a transcript or any other RNA, a CDS or an exon. A
+    /// feature of no stated kind is taken for one, as every BED row is drawn.
+    /// The rest, an origin of replication or of transfer, a repeat, a
+    /// mobile element, a binding site, is something on the sequence that is
+    /// transcribed into nothing, and has no 3' end to point a head at.
+    ///
+    /// ```
+    /// use karyon::Feature;
+    ///
+    /// assert!(Feature::new(0, 900).kind("gene").is_genic());
+    /// assert!(Feature::new(0, 90).kind("tRNA").is_genic());
+    /// assert!(Feature::new(0, 900).is_genic());
+    /// assert!(!Feature::new(0, 120).kind("origin_of_transfer").is_genic());
+    /// ```
+    pub fn is_genic(&self) -> bool {
+        let Some(kind) = &self.kind else {
+            return true;
+        };
+        let kind = kind.to_ascii_lowercase();
+        matches!(
+            kind.as_str(),
+            "gene" | "pseudogene" | "cds" | "exon" | "mrna" | "transcript" | "operon"
+        ) || kind.ends_with("_gene")
+            || kind.ends_with("rna")
+            || kind.ends_with("_transcript")
+            || kind.ends_with("_exon")
     }
 
     /// Length in bases.

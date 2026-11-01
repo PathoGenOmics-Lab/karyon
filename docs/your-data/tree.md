@@ -31,6 +31,7 @@ are a few lines each in [Phylogenetics](../guide/phylogenetics.md#from-your-file
 | To | Write |
 |:--|:--|
 | Colour the branches too | `--color-by lineage` |
+| Colour the tips by another column, a point and a name each | `--tip-color-by host` |
 | Give the countries colours of your own, which keeps them a strip | `--colors 'country=China:#1b9e77,India:#d95f02,...'`, a colour for each of the seven |
 | Draw it as a circle | `--projection circular` |
 | Show the support values of 70 and over | `--support-style labels --threshold 70` |

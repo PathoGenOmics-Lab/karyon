@@ -8,6 +8,48 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A gene on a ring of `FeatureRing` wider than three degrees ends in a point
+  at its 3' end, the end of its span on the forward strand and its start on
+  the reverse, as a band of features draws its arrows: the point narrows to
+  the middle of the gene's half of the ring over one and three quarter times
+  that half's width, never more than a third of the arc, and across the
+  origin the gene is one shape. A gene showed its strand only by its colour and a few pixels
+  of radius. What the annotation calls something other than a gene, an
+  origin of replication or of transfer, a repeat, a mobile element, is an arc
+  with no point in the muted ink, with its kind in its tooltip, and the
+  command line keys it by that kind and keys the strands by the genes alone:
+  an `origin_of_transfer` was drawn and keyed as a forward gene. From the
+  command line a ring of annotation is named for what it holds, `genes`, or
+  the one kind it holds, rather than after its file, so a plasmid's GFF3
+  named after the plasmid no longer keys its ring as the sequence named in
+  the middle of the circle; a BED keeps its file's name, and `--label` says
+  what it says. A circle of no annotation, or of genes too short for a
+  point, as a chromosome's, is drawn as it was.
+- A scan coloured by its linkage with a lead, `--ld` or
+  `ManhattanTrack::linkage`, is drawn in LocusZoom's five bins of r² and its
+  colours, under 0.2 navy, to 0.4 light blue, to 0.6 green, to 0.8 orange
+  and from 0.8 red, keyed as five swatches titled `r² with` the lead's name;
+  the lead is LocusZoom's purple diamond with its name over it in the ink of
+  the text, and a variant with no r² a neutral grey, keyed `no r²` with its
+  count. One ramp from grey to the accent put an r² of 0.6 and one of 0.91 a
+  shade apart, where a reader of a regional plot looks for orange and red.
+  The five stand at 4:1 or more against the dark page as they are, so
+  neither theme changes them; on the white page the light blue, the green
+  and the orange stand at 2.1 to 2.5, as they do in LocusZoom.
+  `ManhattanTrack::linkage_colors(LinkageColors::Ramp)` keeps the ramp, its
+  open rings and its lead in the palette's second colour.
+- The branches, the strips and the tips one figure colours by its sheet are
+  dealt the palette in that order, each after the first from the colours the
+  ones before it left, where its values fit in them, from where its own
+  stretch starts. Each column of words took a stretch by its place in the
+  sheet, a third of six colours where the sheet has three such columns, so
+  four lineages ran past theirs into the next column's and a lineage and a
+  host were one colour while two of the six painted nothing. A column that
+  does not fit in what is left is dealt its stretch as before, and the tree
+  says which two values share a colour, now between its branches, its strips
+  and its tips alike. A column given its first colour by hand keeps it, and a
+  value given a colour of its own takes none of the palette's. Strips beside
+  a matrix, an alignment or a cohort are dealt the same way.
 - A copy number track given no `--ploidy` takes where balanced sits from its
   file, where the file says it, and says so on standard error: `tumour.cns:
   balanced taken as 2 copies, one of each of the two alleles its calls are
@@ -514,6 +556,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A page of the Your data guide for a plasmid or another circular sequence,
+  opening with `karyon pEX1 --circular pEX1.gff3`, its figure on the light
+  page and the dark one, and a table of the changes made most, linked from
+  the guide's index and from a whole sequence's circle. Its files,
+  `docs/data/pEX1.fa` and `pEX1.gff3`, a plasmid of 7,800 bases with genes on
+  both strands and its origins of replication and of transfer, are written by
+  `write_plasmid` in `make_data.py` with a seed of its own, so no other
+  example file changes, and `examples.zip` holds them. A circle could be
+  found only under the depth along a whole chromosome.
+- `Feature::kind` holds what an annotation calls a feature, as GFF3 and GTF
+  write it in their third column, which the readers now keep, and
+  `Feature::is_genic` says whether it is a gene, a transcript or a part of
+  one, or of no stated kind. `Polar::arrow` gives a ring's sector with its
+  3' end drawn to a point.
+- `LinkageColors`, how a scan coloured by linkage paints an r²: LocusZoom's
+  five bins, the default, or one ramp. `Legend::steps` and
+  `LegendItem::Steps` key a scale cut into steps under one name, each step a
+  swatch and the values it holds, its colour in its tooltip.
+- `--tip-color-by KEY` colours each tip of a phylogeny, a point at the end of
+  its branch and its name, by a column of its `--traits` sheet or an
+  annotation the file carries, through `TreeTrack::tip_color_by`. A value is
+  the colour of its strip and of branches coloured by it, takes the colours
+  `--colors` gives it, and is keyed with a point unless a strip or the
+  branches of the same key key it; a tip the sheet says nothing of is an open
+  ring, a key of numbers is a ramp, and more values than colours draw each
+  point as a shape as well and say so under the tree. Nothing coloured a tip:
+  the branches could say the lineage and a strip the country, and colouring
+  the tips themselves took a strip beside them and a colour typed for each
+  value.
 - `--panel-columns N` lays the panels of several places `N` to a row, in the
   order the places are written, through `Panels::columns` and
   `Panels::row_major`, each panel at its `--width` and the key in the room

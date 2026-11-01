@@ -1131,13 +1131,14 @@ impl Kind {
         matches!(self, Kind::Tree)
     }
 
-    /// Whether `--color-by`, `--support-style` and `--scale-bar` mean anything
-    /// here.
+    /// Whether `--color-by`, `--tip-color-by`, `--support-style` and
+    /// `--scale-bar` mean anything here.
     ///
-    /// All three are a phylogeny's own, and all three were reachable only from
-    /// the library until now: a branch coloured by an annotation, a support
-    /// value made visible, and a rule in the tree's own units rather than the
-    /// genomic ruler underneath it.
+    /// All four are a phylogeny's own, and the first three were reachable
+    /// only from the library until the command line took them: a branch or a
+    /// tip coloured by an annotation, a support value made visible, and a
+    /// rule in the tree's own units rather than the genomic ruler underneath
+    /// it.
     fn takes_tree_marks(self) -> bool {
         matches!(self, Kind::Tree)
     }
@@ -1865,6 +1866,9 @@ pub struct TrackSpec {
     pub focus: Option<Vec<String>>,
     /// `--color-by`, the annotation each branch takes its colour from.
     pub color_by: Option<String>,
+    /// `--tip-color-by`, the annotation each tip's point and name take
+    /// their colour from.
+    pub tip_color_by: Option<String>,
     /// `--support-from`, the annotation each clade's support is read from.
     pub support_from: Option<String>,
     /// `--support-style`, how a node's support value is shown.
@@ -1968,6 +1972,7 @@ impl TrackSpec {
             projection: None,
             focus: None,
             color_by: None,
+            tip_color_by: None,
             support_from: None,
             support_style: None,
             no_scale_bar: false,
@@ -2076,6 +2081,7 @@ impl TrackSpec {
             (self.projection.is_some(), "--projection"),
             (self.focus.is_some(), "--focus"),
             (self.color_by.is_some(), "--color-by"),
+            (self.tip_color_by.is_some(), "--tip-color-by"),
             (self.support_from.is_some(), "--support-from"),
             (self.support_style.is_some(), "--support-style"),
             (self.no_scale_bar, "--no-scale-bar"),
@@ -2388,6 +2394,7 @@ pub const FLAGS: &[&str] = &[
     "--max-rows",
     "--projection",
     "--color-by",
+    "--tip-color-by",
     "--support-from",
     "--support-style",
     "--highlight",
@@ -3356,6 +3363,17 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                     });
                 }
                 track.color_by = Some(key);
+            }
+            "--tip-color-by" => {
+                let key = value("--tip-color-by")?.clone();
+                let track = once(&mut tracks, &mut given, "--tip-color-by")?;
+                if !track.kind.takes_tree_marks() {
+                    return Err(ArgError::WrongTrack {
+                        flag: "--tip-color-by",
+                        track: track.kind.flag(),
+                    });
+                }
+                track.tip_color_by = Some(key);
             }
             "--support-from" => {
                 let key = value("--support-from")?.clone();
@@ -7025,16 +7043,18 @@ mod tests {
     #[test]
     fn the_three_marks_a_phylogeny_carries_land_only_on_a_phylogeny() {
         let it = draw(concat!(
-            "tree:1-1 --tree t.nwk --color-by lineage ",
+            "tree:1-1 --tree t.nwk --color-by lineage --tip-color-by country ",
             "--support-style both --threshold 0.9 --no-scale-bar"
         ));
         assert_eq!(it.tracks[0].color_by.as_deref(), Some("lineage"));
+        assert_eq!(it.tracks[0].tip_color_by.as_deref(), Some("country"));
         assert_eq!(it.tracks[0].support_style, Some(TreeSupport::Both));
         assert_eq!(it.tracks[0].threshold, Some(Threshold::At(0.9)));
         assert!(it.tracks[0].no_scale_bar);
 
         for flag in [
             "--color-by lineage",
+            "--tip-color-by country",
             "--support-style both",
             "--no-scale-bar",
         ] {
@@ -7562,8 +7582,8 @@ mod tests {
         let value = |kind: Kind, flag: &str| -> Option<&'static str> {
             Some(match flag {
                 "--label" | "--sample" | "--columns" | "--focus" | "--compare-to"
-                | "--highlight" | "--read" | "--modification" | "--color-by" | "--support-from"
-                | "--mutations" => "a",
+                | "--highlight" | "--read" | "--modification" | "--color-by" | "--tip-color-by"
+                | "--support-from" | "--mutations" => "a",
                 "--against" | "--with-tree" => "t.nwk",
                 "--with-sequence" => "ref.fa",
                 "--ld" => "lead.ld",

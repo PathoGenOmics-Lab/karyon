@@ -1772,7 +1772,7 @@ mod tests {
                 .iter()
                 .filter_map(|item| match item {
                     LegendItem::Key { label, .. } => Some(label.clone()),
-                    LegendItem::Ramp { .. } => None,
+                    LegendItem::Ramp { .. } | LegendItem::Steps { .. } => None,
                 })
                 .collect()
         };

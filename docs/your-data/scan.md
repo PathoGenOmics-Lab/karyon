@@ -63,14 +63,15 @@ karyon 1:661,000-861,000 gwas.assoc --ld lead.ld --threshold genome-wide \
 ```
 
 <figure class="k-start" markdown>
-![The markers of the peak coloured from grey to blue by their r-squared with the strongest, which is a diamond labelled with its name, three at the far end that the linkage file has no r-squared for drawn as open rings, and behind them a recombination rate with two hotspots, read off a scale on the right](../assets/start/locus.svg){ .k-light width="720" height="214" }
-![The same figure on the dark page](../assets/start/locus-dark.svg){ .k-dark width="720" height="214" }
+![The markers of the peak coloured by their r-squared with the strongest in five bins, navy and light blue at the edges, green and orange up the sides and red at the top, the strongest a purple diamond labelled with its name, three at the far end that the linkage file has no r-squared for drawn grey, and behind them a recombination rate with two hotspots, read off a scale on the right](../assets/start/locus.svg){ .k-light width="720" height="230" }
+![The same figure on the dark page](../assets/start/locus-dark.svg){ .k-dark width="720" height="230" }
 </figure>
 
 `lead.ld` is PLINK's linkage of the lead with its neighbours, as
 `plink --r2 --ld-snp snp00342 --ld-window-kb 100 --ld-window 99999
 --ld-window-r2 0` writes it, and the lead is called by the name the scan gives
-it. `genetic_map.txt` is a genetic map as HapMap writes one, laid over the
+it. The r² are LocusZoom's five bins in its colours, under 0.2 navy to 0.8 and
+over red, keyed under the scan with the lead's purple diamond. `genetic_map.txt` is a genetic map as HapMap writes one, laid over the
 scan by `--with-recombination` and read off the scale on the right; named on
 its own, it is drawn as a track of its own under the scan instead. A window
 that lies inside one interval of the map is drawn at that interval's one rate,

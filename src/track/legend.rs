@@ -107,6 +107,20 @@ pub enum LegendItem {
         /// scale of one hue.
         through: Option<(String, String)>,
     },
+    /// A scale cut into steps under one name, each step a colour and the
+    /// values it holds, in order: the five bins of linkage with a lead
+    /// variant, as LocusZoom draws them.
+    ///
+    /// One item rather than a key a step, so the name is written once and
+    /// the steps stay together on a row, read left to right as a ramp is.
+    Steps {
+        /// What the steps measure.
+        label: String,
+        /// Each step's colour and the values it holds, in order.
+        steps: Vec<(String, String)>,
+        /// How each swatch is drawn.
+        marker: Marker,
+    },
 }
 
 /// A key to what the colours in a figure mean.
@@ -253,6 +267,36 @@ impl Legend {
         self
     }
 
+    /// Adds a scale cut into steps, each `(colour, values)` in order, under
+    /// one name, each swatch drawn as `marker`.
+    ///
+    /// ```
+    /// use karyon::{Legend, LegendItem, Marker};
+    ///
+    /// let key = Legend::new().steps(
+    ///     "r² with rs123",
+    ///     [("#357ebd", "< 0.5"), ("#d43f3a", "≥ 0.5")],
+    ///     Marker::Dot,
+    /// );
+    /// assert!(matches!(&key.items()[0], LegendItem::Steps { steps, .. } if steps.len() == 2));
+    /// ```
+    pub fn steps(
+        mut self,
+        label: impl Into<String>,
+        steps: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+        marker: Marker,
+    ) -> Self {
+        self.items.push(LegendItem::Steps {
+            label: label.into(),
+            steps: steps
+                .into_iter()
+                .map(|(color, values)| (color.into(), values.into()))
+                .collect(),
+            marker,
+        });
+        self
+    }
+
     /// Sets the size of one swatch in pixels.
     pub fn swatch(mut self, size: f64) -> Self {
         self.swatch = size.max(2.0);
@@ -324,6 +368,13 @@ impl Legend {
                     + 3.0
                     + text_width(high, font)
             }
+            LegendItem::Steps { label, steps, .. } => {
+                text_width(label, font)
+                    + steps
+                        .iter()
+                        .map(|(_, values)| 5.0 + self.swatch + 3.0 + text_width(values, font))
+                        .sum::<f64>()
+            }
         }
     }
 
@@ -361,6 +412,89 @@ impl Legend {
         self.rows(width, font).len() as f64 * row
     }
 
+    /// Draws one swatch as `marker`, its left edge at `x` and its middle at
+    /// `middle`.
+    fn mark(
+        &self,
+        svg: &mut SvgWriter,
+        marker: Marker,
+        (x, middle): (f64, f64),
+        color: &str,
+        theme: &Theme,
+    ) {
+        match marker {
+            Marker::Box => svg.rect_rounded(
+                x,
+                middle - self.swatch / 2.0,
+                self.swatch,
+                self.swatch,
+                theme.corner_radius,
+                color,
+            ),
+            Marker::Dot => svg.circle(x + self.swatch / 2.0, middle, self.swatch / 2.5, color),
+            Marker::Symbol(symbol) => svg.symbol(
+                x + self.swatch / 2.0,
+                middle,
+                self.swatch / 2.5,
+                symbol,
+                color,
+            ),
+            Marker::Line => svg.line(
+                x,
+                middle,
+                x + self.swatch,
+                middle,
+                color,
+                (self.swatch / 4.0).max(1.5),
+            ),
+            Marker::ThinLine => svg.line(
+                x,
+                middle,
+                x + self.swatch,
+                middle,
+                color,
+                (self.swatch / 8.0).max(0.75),
+            ),
+            Marker::Area => {
+                svg.rect_rounded(
+                    x,
+                    middle - self.swatch / 2.0,
+                    self.swatch,
+                    self.swatch,
+                    theme.corner_radius,
+                    &wash(color, theme),
+                );
+                svg.rect_outline(
+                    x + 0.55,
+                    middle - self.swatch / 2.0 + 0.55,
+                    self.swatch - 1.1,
+                    self.swatch - 1.1,
+                    color,
+                    theme.tokens.stroke,
+                );
+            }
+            Marker::Outline => svg.rect_outline(
+                x + 0.75,
+                middle - self.swatch / 2.0 + 0.75,
+                self.swatch - 1.5,
+                self.swatch - 1.5,
+                color,
+                theme.tokens.strong_stroke,
+            ),
+            Marker::Ring => {
+                let edge = theme.tokens.stroke;
+                svg.circle_ringed(
+                    x + self.swatch / 2.0,
+                    middle,
+                    self.swatch / 2.5 - edge,
+                    theme.surface(),
+                    color,
+                    edge,
+                )
+            }
+        }
+    }
+
     /// Draws the legend into a rectangle whose top left is `(x, y)`.
     pub fn draw(&self, svg: &mut SvgWriter, x: f64, y: f64, width: f64, theme: &Theme) {
         if self.items.is_empty() {
@@ -396,79 +530,7 @@ impl Legend {
                         color,
                         marker,
                     } => {
-                        match marker {
-                            Marker::Box => svg.rect_rounded(
-                                at,
-                                middle - self.swatch / 2.0,
-                                self.swatch,
-                                self.swatch,
-                                theme.corner_radius,
-                                color,
-                            ),
-                            Marker::Dot => {
-                                svg.circle(at + self.swatch / 2.0, middle, self.swatch / 2.5, color)
-                            }
-                            Marker::Symbol(symbol) => svg.symbol(
-                                at + self.swatch / 2.0,
-                                middle,
-                                self.swatch / 2.5,
-                                *symbol,
-                                color,
-                            ),
-                            Marker::Line => svg.line(
-                                at,
-                                middle,
-                                at + self.swatch,
-                                middle,
-                                color,
-                                (self.swatch / 4.0).max(1.5),
-                            ),
-                            Marker::ThinLine => svg.line(
-                                at,
-                                middle,
-                                at + self.swatch,
-                                middle,
-                                color,
-                                (self.swatch / 8.0).max(0.75),
-                            ),
-                            Marker::Area => {
-                                svg.rect_rounded(
-                                    at,
-                                    middle - self.swatch / 2.0,
-                                    self.swatch,
-                                    self.swatch,
-                                    theme.corner_radius,
-                                    &wash(color, theme),
-                                );
-                                svg.rect_outline(
-                                    at + 0.55,
-                                    middle - self.swatch / 2.0 + 0.55,
-                                    self.swatch - 1.1,
-                                    self.swatch - 1.1,
-                                    color,
-                                    theme.tokens.stroke,
-                                );
-                            }
-                            Marker::Outline => svg.rect_outline(
-                                at + 0.75,
-                                middle - self.swatch / 2.0 + 0.75,
-                                self.swatch - 1.5,
-                                self.swatch - 1.5,
-                                color,
-                                theme.tokens.strong_stroke,
-                            ),
-                            Marker::Ring => {
-                                let edge = theme.tokens.stroke;
-                                svg.circle_ringed(
-                                    at + self.swatch / 2.0,
-                                    middle,
-                                    self.swatch / 2.5 - edge,
-                                    theme.surface(),
-                                    color,
-                                    edge,
-                                )
-                            }
-                        }
+                        self.mark(svg, *marker, (at, middle), color, theme);
                         svg.text(
                             at + self.swatch + 5.0,
                             baseline,
@@ -520,6 +582,25 @@ impl Legend {
                         }
                         svg.text(cursor, baseline, high, &theme.muted, font, Anchor::Start);
                     }
+                    LegendItem::Steps {
+                        label,
+                        steps,
+                        marker,
+                    } => {
+                        svg.text(at, baseline, label, &theme.muted, font, Anchor::Start);
+                        let mut cursor = at + text_width(label, font) + 5.0;
+                        // Each step its own tooltip, as a key is, with its
+                        // colour named: the name is the scale's, and the
+                        // values are the step's.
+                        for (color, values) in steps {
+                            svg.begin_titled(&format!("{label} {values}, colour {color}"));
+                            self.mark(svg, *marker, (cursor, middle), color, theme);
+                            cursor += self.swatch + 3.0;
+                            svg.text(cursor, baseline, values, &theme.muted, font, Anchor::Start);
+                            svg.end_group();
+                            cursor += text_width(values, font) + 5.0;
+                        }
+                    }
                 }
                 if titled {
                     svg.end_group();
@@ -549,7 +630,7 @@ fn item_title(item: &LegendItem) -> String {
                 format!("{label}, colour {color}")
             }
         }
-        LegendItem::Ramp { .. } => String::new(),
+        LegendItem::Ramp { .. } | LegendItem::Steps { .. } => String::new(),
     }
 }
 
@@ -657,6 +738,7 @@ mod tests {
     }
     use crate::figure::Figure;
     use crate::region::Region;
+    use crate::svg::escape;
 
     fn region() -> Region {
         Region::new("chr1", 0, 1_000).unwrap()
@@ -694,6 +776,46 @@ mod tests {
             middle.contains("fill=\"#eeeeee\""),
             "through the centre colour"
         );
+    }
+
+    /// A scale in steps writes its name once and each step's swatch and
+    /// values after it, each step with its colour in its tooltip, and takes
+    /// the room it draws in, on one row.
+    #[test]
+    fn steps_are_keyed_under_one_name_each_with_its_colour() {
+        let theme = Theme::light();
+        let steps = Legend::new().steps(
+            "r² with rs1",
+            [("#357ebd", "< 0.5"), ("#d43f3a", "≥ 0.5")],
+            Marker::Dot,
+        );
+        let svg = Figure::new(region())
+            .show_region_label(false)
+            .push(LegendTrack::new(steps.clone()))
+            .to_svg();
+        assert_eq!(svg.matches(">r² with rs1</text>").count(), 1, "{svg}");
+        for (color, values) in [("#357ebd", "< 0.5"), ("#d43f3a", "≥ 0.5")] {
+            let title = format!(
+                "<title>r² with rs1 {}, colour {color}</title>",
+                escape(values)
+            );
+            let at = svg
+                .find(&title)
+                .unwrap_or_else(|| panic!("no {title} in {svg}"));
+            let step = &svg[at..at + svg[at..].find("</g>").unwrap()];
+            assert!(step.contains("<circle") && step.contains(color), "{step}");
+            assert!(
+                step.contains(&format!(">{}</text>", escape(values))),
+                "{step}"
+            );
+        }
+        let font = theme.font_size - 1.0;
+        let wide = text_width("r² with rs1", font)
+            + 2.0 * (5.0 + 10.0 + 3.0)
+            + text_width("< 0.5", font)
+            + text_width("≥ 0.5", font);
+        assert!((steps.widest(font) - wide).abs() < 1e-9);
+        assert_eq!(steps.rows(wide, font).len(), 1);
     }
 
     /// A ring is keyed as a ring: an edge in the colour round a disc of the

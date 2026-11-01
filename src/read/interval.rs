@@ -1270,6 +1270,9 @@ pub(crate) fn gff3(cols: &[&str], at: usize) -> Result<Feature, ReadError> {
     // count started at zero.
     let mut feature = Feature::new(start - 1, end);
     let kind = cols.get(2).map_or("", |kind| kind.trim());
+    if !kind.is_empty() && kind != "." {
+        feature = feature.kind(kind);
+    }
     if let Some(name) = cols
         .get(8)
         .and_then(|attributes| gff3_name(attributes).or_else(|| gtf_name(kind, attributes)))
@@ -1896,11 +1899,40 @@ NC_000962.3\tRefSeq\tCDS\t763370\t767000\t.\t+\t0\tID=cds-2;Parent=gene-Rv0668
             Feature::new(759_806, 763_325)
                 .name("rpoB")
                 .strand(Strand::Forward)
+                .kind("gene")
         );
         // A gene longer than its CDS has an end that does not code, and not an
         // intron: one piece, drawn thinner past the CDS.
         assert!(genes[1].exons.is_empty());
         assert_eq!(genes[1].coding, [(763_369, 767_000)]);
+    }
+
+    /// A feature carries the type its row is written as, which a ring tells
+    /// a gene from an origin by; a BED row says none.
+    #[test]
+    fn a_feature_carries_the_kind_its_row_is_written_as() {
+        let text = "\
+##gff-version 3
+pX\tsynth\tgene\t310\t1260\t.\t+\t.\tID=repA;Name=repA
+pX\tsynth\tCDS\t310\t1260\t.\t+\t0\tParent=repA
+pX\tsynth\torigin_of_transfer\t5600\t5720\t.\t+\t.\tID=oriT;Name=oriT
+pX\tsynth\trepeat_region\t5800\t5900\t.\t.\t.\tID=rep1
+";
+        let found = read(text, "pX:1-6,000", None);
+        let kinds: Vec<(Option<&str>, bool)> = found
+            .iter()
+            .map(|feature| (feature.kind.as_deref(), feature.is_genic()))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                (Some("gene"), true),
+                (Some("origin_of_transfer"), false),
+                (Some("repeat_region"), false),
+            ]
+        );
+        let bed = read("pX\t309\t1260\trepA\t0\t+\n", "pX:1-6,000", None);
+        assert_eq!((bed[0].kind.as_deref(), bed[0].is_genic()), (None, true));
     }
 
     #[test]

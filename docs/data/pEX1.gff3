@@ -1,0 +1,14 @@
+##gff-version 3
+##sequence-region pEX1 1 7800
+pEX1	.	gene	401	1450	.	+	.	ID=repA;Name=repA
+pEX1	.	CDS	401	1450	.	+	0	Parent=repA;transl_table=11
+pEX1	.	origin_of_replication	1551	1650	.	.	.	ID=oriV;Name=oriV
+pEX1	.	gene	2101	2961	.	-	.	ID=bla;Name=bla
+pEX1	.	CDS	2101	2961	.	-	0	Parent=bla;transl_table=11
+pEX1	.	gene	3301	3924	.	-	.	ID=tetR;Name=tetR
+pEX1	.	CDS	3301	3924	.	-	0	Parent=tetR;transl_table=11
+pEX1	.	gene	4001	5200	.	+	.	ID=tetA;Name=tetA
+pEX1	.	CDS	4001	5200	.	+	0	Parent=tetA;transl_table=11
+pEX1	.	gene	5501	7003	.	+	.	ID=mobA;Name=mobA
+pEX1	.	CDS	5501	7003	.	+	0	Parent=mobA;transl_table=11
+pEX1	.	origin_of_transfer	7151	7260	.	+	.	ID=oriT;Name=oriT
