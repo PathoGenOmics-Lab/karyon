@@ -174,6 +174,13 @@ pub fn ranked(calls: &[Variant]) -> Vec<String> {
 /// assert_eq!(read::point::ranked_file(vcf), ["missense_variant", "synonymous_variant"]);
 /// ```
 pub fn ranked_file(text: &str) -> Vec<String> {
+    // `CSQ` is read in the order its header declares, as [`variants`] reads
+    // it, so the colours dealt from this ranking name what the calls name.
+    let declared = Vep::declared(text);
+    let consequence = |info: &str, alt: &str| match declared {
+        Some(order) => annotated(info, alt, order),
+        None => consequence(info, alt),
+    };
     let mut found: Vec<String> = Vec::new();
     for (_, row) in lines(text) {
         let fields = columns(row);
@@ -1449,6 +1456,19 @@ mod tests {
             ranked_file(vcf),
             ["stop_gained", "synonymous_variant", "deletion"]
         );
+    }
+
+    /// A file whose header puts VEP's fields in another order is ranked by
+    /// the consequences in it, not by the gene names where VEP's own order
+    /// would look for them.
+    #[test]
+    fn a_file_is_ranked_by_csq_in_the_order_its_header_declares() {
+        let vcf = "##INFO=<ID=CSQ,Number=.,Type=String,Description=\"Consequence annotations \
+                   from Ensembl VEP. Format: SYMBOL|Allele|Consequence|IMPACT\">\n\
+                   #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                   chr1\t100\t.\tC\tT\t.\t.\tCSQ=TP53|T|synonymous_variant|LOW\n\
+                   chr1\t200\t.\tG\tA\t.\t.\tCSQ=TP53|A|stop_gained|HIGH\n";
+        assert_eq!(ranked_file(vcf), ["stop_gained", "synonymous_variant"]);
     }
 
     /// One annotated call in rpoB, the position the whole conversion turns on.
