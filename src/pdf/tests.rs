@@ -107,6 +107,10 @@ fn every_element_the_svg_writer_writes_is_one_the_pdf_reads() {
         for bold in [false, true] {
             svg.text_haloed(10.0, 10.0, "rpoB", "#111111", "#ffffff", 9.0, anchor, bold);
         }
+        // A family and a weight, each as karyon writes it: the locus in the
+        // monospaced stack, and a track's name set semibold. Both on one
+        // label would ask for a bold monospaced face, which the PDF does not
+        // carry and says so, as a test of its own holds.
         svg.text_styled(
             10.0,
             10.0,
@@ -116,8 +120,21 @@ fn every_element_the_svg_writer_writes_is_one_the_pdf_reads() {
             anchor,
             TextStyle {
                 family: Some("JetBrains Mono, Liberation Mono, Menlo, Consolas, monospace"),
+                tracking: 0.03,
+                ..TextStyle::default()
+            },
+        );
+        svg.text_styled(
+            10.0,
+            10.0,
+            "depth",
+            "#111111",
+            9.0,
+            anchor,
+            TextStyle {
                 weight: Some(600),
                 tracking: 0.03,
+                ..TextStyle::default()
             },
         );
         svg.text_styled(
@@ -315,17 +332,13 @@ fn the_same_figure_writes_the_same_bytes() {
     }
 }
 
-/// A PDF names its faces and embeds none, which is what a journal's preflight
-/// meets: `pdffonts` lists every face with `no` under `emb`. Two readers wrote
-/// a PDF, one for a paper, with no word of it, since the guide said it in a
-/// clause, and one took the locus in Courier for a face gone missing. So
-/// the two pages that describe a PDF are held to saying, plainly, which faces
-/// it names and that none is embedded, what that means for a preflight, and
-/// the Ghostscript line that embeds them, against what the writer writes.
+/// A PDF that named its faces and embedded none met a journal's preflight
+/// with `no` under `emb` for every face. Each face a page uses is now in the
+/// file, once, as a subset: a composite font over one TrueType font with its
+/// widths, its outlines and a map back to the text, and nothing is named that
+/// a reader has to find for itself.
 #[test]
-fn the_faces_are_named_not_embedded_and_the_pages_on_the_pdf_say_so() {
-    const GUIDE: &str = include_str!("../../docs/guide/cli.md");
-    const HOW: &str = include_str!("../../docs/how-it-works/pdf.md");
+fn each_face_a_page_uses_is_embedded_once_as_a_subset() {
     let pdf = crate::plot("chr1:1-1000")
         .unwrap()
         .title("rpoB")
@@ -333,50 +346,175 @@ fn the_faces_are_named_not_embedded_and_the_pages_on_the_pdf_say_so() {
         .label("depth")
         .into_figure()
         .to_pdf();
-    let written = text(&pdf);
-    let named: Vec<&str> = written
-        .split("/BaseFont /")
-        .skip(1)
-        .filter_map(|rest| rest.split([' ', '>']).next())
+    let faces = embedded(&pdf);
+    let mut named: Vec<&str> = faces
+        .iter()
+        .map(|face| {
+            let (tag, name) = face.name.split_once('+').expect("a subset tag");
+            assert!(
+                tag.len() == 6 && tag.bytes().all(|byte| byte.is_ascii_uppercase()),
+                "{}",
+                face.name
+            );
+            name
+        })
         .collect();
-    for face in ["Helvetica", "Courier"] {
-        assert!(named.contains(&face), "{face} is not named: {named:?}");
+    named.sort_unstable();
+    assert_eq!(
+        named,
+        ["LiberationMono", "LiberationSans", "LiberationSans-Bold"]
+    );
+    let written = text(&pdf);
+    for (key, count) in [
+        ("/Subtype /Type0", 3),
+        ("/Encoding /Identity-H", 3),
+        ("/Subtype /CIDFontType2", 3),
+        ("/CIDToGIDMap /Identity", 3),
+        ("/Type /FontDescriptor", 3),
+        ("/FontFile2 ", 3),
+        ("/ToUnicode ", 3),
+        ("/Subtype /Type1", 0),
+        ("/BaseFont /Helvetica", 0),
+        ("/BaseFont /Courier", 0),
+        ("/BaseFont /Symbol", 0),
+    ] {
+        assert_eq!(written.matches(key).count(), count, "{key}");
     }
-    for embedding in ["/FontFile", "/FontDescriptor"] {
+    for face in &faces {
         assert!(
-            !written.contains(embedding),
-            "a face is embedded: {embedding}"
+            face.file.starts_with(&[0, 1, 0, 0]),
+            "{} is not TrueType",
+            face.name
         );
     }
 
+    // A face the page does not use is not written: a label in the regular
+    // weight alone embeds the regular face alone.
+    let mut svg = SvgWriter::new();
+    svg.text(10.0, 20.0, "rpoB", "#000", 10.0, Anchor::Start);
+    let pdf = convert(&svg.finish(100.0, 50.0, "none", "sans-serif"));
+    let faces = embedded(&pdf);
+    assert_eq!(faces.len(), 1);
+    assert!(
+        faces[0].name.ends_with("+LiberationSans"),
+        "{}",
+        faces[0].name
+    );
+    assert!(text(&pdf).contains("/Font << /F1 7 0 R >>"));
+    // And a page with no text embeds nothing.
+    let svg = SvgWriter::new().finish(100.0, 50.0, "#ffffff", "sans-serif");
+    assert!(!text(&convert(&svg)).contains("/Font"));
+}
+
+/// The two pages that describe a PDF said, plainly, that it named its faces
+/// and embedded none, with the Ghostscript line that embedded them, because
+/// two readers had met a preflight over it. They are held to the other side
+/// now: each names the faces the writer embeds, says they are embedded and
+/// how `pdffonts` shows it, and offers no workaround for what is not there.
+#[test]
+fn the_pages_on_the_pdf_say_its_faces_are_embedded() {
+    const GUIDE: &str = include_str!("../../docs/guide/cli.md");
+    const HOW: &str = include_str!("../../docs/how-it-works/pdf.md");
     let flat = |text: &str| {
         text.split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
             .to_lowercase()
     };
-    for (page, said, embedded) in [
-        ("cli.md", flat(GUIDE), "none of them is embedded"),
-        ("pdf.md", flat(HOW), "no font is embedded"),
-    ] {
-        assert!(
-            said.contains(embedded),
-            "{page} does not say no face is embedded"
-        );
-        for face in &named {
-            assert!(
-                said.contains(&face.to_lowercase()),
-                "{page} does not name {face}"
-            );
-        }
+    for (page, said) in [("cli.md", flat(GUIDE)), ("pdf.md", flat(HOW))] {
         for needed in [
-            "preflight",
-            "`no` under `emb`",
-            "gs -o embedded.pdf -sdevice=pdfwrite -dpdfsettings=/prepress",
+            "liberation sans",
+            "liberation sans bold",
+            "liberation mono",
+            "embedded",
+            "pdffonts",
+            "`yes` under `emb`",
         ] {
             assert!(said.contains(needed), "{page} does not say {needed}");
         }
+        for gone in [
+            "none of them is embedded",
+            "no font is embedded",
+            "`no` under `emb`",
+            "-sdevice=pdfwrite",
+            "helvetica-bold for",
+        ] {
+            assert!(!said.contains(gone), "{page} still says {gone}");
+        }
     }
+}
+
+/// The subset is the face with every glyph the page does not draw emptied:
+/// the glyphs of the text, `.notdef`, and what a composite glyph is built
+/// from, here the e and the acute of an é, and no other.
+#[test]
+fn the_subset_holds_exactly_the_glyphs_the_page_draws() {
+    let label = "caf\u{e9} 12";
+    let mut svg = SvgWriter::new();
+    svg.text(10.0, 20.0, label, "#000", 10.0, Anchor::Start);
+    let pdf = convert(&svg.finish(100.0, 50.0, "none", "sans-serif"));
+    let faces = embedded(&pdf);
+    assert_eq!(faces.len(), 1);
+    let source = text::Face::Sans.font();
+    let drawn: std::collections::BTreeSet<u16> = label
+        .chars()
+        .map(|c| source.glyph(c).expect("Liberation Sans has it"))
+        .collect();
+    let (e, acute) = (source.glyph('e').unwrap(), 118);
+    let mut kept = drawn.clone();
+    kept.extend([0, e, acute]);
+    assert_eq!(source.closure(drawn.iter().copied()), kept);
+
+    let file: &'static [u8] = Box::leak(faces[0].file.clone().into_boxed_slice());
+    let subset = font::Font::read(file).expect("the subset reads as TrueType");
+    assert_eq!(subset.glyph_count(), kept.last().unwrap() + 1);
+    for glyph in 0..subset.glyph_count() {
+        let expected: &[u8] = if kept.contains(&glyph) {
+            source.outline(glyph)
+        } else {
+            &[]
+        };
+        assert_eq!(subset.outline(glyph), expected, "glyph {glyph}");
+    }
+    // The widths are listed for the glyphs drawn and no others, and they are
+    // the face's.
+    let listed: Vec<(u16, u16)> = widths(&faces[0].widths);
+    let expected: Vec<(u16, u16)> = drawn
+        .iter()
+        .map(|glyph| (*glyph, source.width(*glyph)))
+        .collect();
+    assert_eq!(listed, expected);
+}
+
+/// What a reader copies, searches and reads aloud is the text, through the
+/// map from each glyph back to its character, in every face.
+#[test]
+fn the_text_copies_back_through_the_map_to_unicode() {
+    let labels = [
+        "\u{3c9} \u{2264} 0.05",
+        "\u{c5}lesund (r\u{b2} \u{2265} 0.8)",
+        "6 \u{2192} 3 crossings \u{b7} 6 linked\u{2026}",
+    ];
+    let mut svg = SvgWriter::new();
+    svg.text(10.0, 20.0, labels[0], "#000", 10.0, Anchor::Start);
+    svg.text_bold(10.0, 40.0, labels[1], "#000", 10.0, Anchor::Start);
+    svg.text_styled(
+        10.0,
+        60.0,
+        labels[2],
+        "#000",
+        10.0,
+        Anchor::Start,
+        TextStyle {
+            family: Some("JetBrains Mono, monospace"),
+            ..TextStyle::default()
+        },
+    );
+    let pdf = convert(&svg.finish(300.0, 80.0, "none", "sans-serif"));
+    assert!(pdf.notes.is_empty(), "{:?}", pdf.notes);
+    let faces = embedded(&pdf);
+    assert_eq!(faces.len(), 3);
+    assert_eq!(copied(&pdf, &faces), labels);
 }
 
 #[test]
@@ -430,7 +568,8 @@ fn one_label(anchor: Anchor, content_text: &str, size: f64) -> String {
 
 #[test]
 fn text_anchored_at_its_end_ends_at_its_x() {
-    // Helvetica's d, e, p and h are 556 thousandths of an em and t is 278,
+    // Liberation Sans draws d, e, p and h 556 thousandths of an em wide and
+    // t 278, as Helvetica does,
     // so "depth" at 11 pixels is 27.522 wide and ends at 100.
     assert!(one_label(Anchor::End, "depth", 11.0).contains("1 0 0 -1 72.478 50 Tm"));
     // r 333, p 556, o 556, B 667: 21.12 wide at 10, so it starts 10.56 left
@@ -456,11 +595,12 @@ fn a_spaced_label_is_measured_with_its_spacing() {
 #[test]
 fn a_logo_glyph_is_stretched_to_its_box() {
     let mut svg = SvgWriter::new();
-    // A is 722 in Helvetica-Bold: 14.44 at 20 pixels, asked to fill 7.22.
+    // A is 722 in Liberation Sans Bold: 14.44 at 20 pixels, asked to fill
+    // 7.22.
     svg.glyph(10.0, 40.0, 7.22, 20.0, "A", "#109648");
     let stream = content(&convert(&svg.finish(50.0, 50.0, "none", "sans-serif")));
     assert!(stream.contains("50 Tz\n"), "{stream}");
-    assert!(stream.contains("/F1 20 Tf\n(A) Tj"), "{stream}");
+    assert!(stream.contains("/F1 20 Tf\n<0024> Tj"), "{stream}");
 }
 
 #[test]
@@ -497,7 +637,7 @@ fn a_haloed_label_is_stroked_under_its_fill() {
 }
 
 #[test]
-fn omega_and_less_or_equal_are_set_in_symbol_and_the_ellipsis_in_winansi() {
+fn omega_less_or_equal_and_the_ellipsis_are_set_in_the_label_s_own_face() {
     let mut svg = SvgWriter::new();
     svg.text(
         10.0,
@@ -505,31 +645,65 @@ fn omega_and_less_or_equal_are_set_in_symbol_and_the_ellipsis_in_winansi() {
         "\u{3c9} \u{2264} 1\u{2026} 2\u{d7}",
         "#000",
         10.0,
-        Anchor::Start,
+        Anchor::End,
     );
     let pdf = convert(&svg.finish(100.0, 50.0, "none", "sans-serif"));
     let stream = content(&pdf);
-    assert!(stream.contains("/F1 10 Tf\n(w) Tj\n"), "{stream}");
-    assert!(stream.contains("/F1 10 Tf\n(\\243) Tj\n"), "{stream}");
-    assert!(stream.contains("( 1\\205 2\\327) Tj"), "{stream}");
-    let written = text(&pdf);
-    assert!(written.contains("/BaseFont /Symbol >>"), "{written}");
-    assert!(written.contains("/BaseFont /Helvetica /Encoding /WinAnsiEncoding"));
+    // One face, one run: omega, a space, less or equal, a space, one, the
+    // ellipsis, a space, two and the multiplication sign.
+    assert!(
+        stream.contains("/F1 10 Tf\n<037B0003084C0003001407EE000300150099> Tj\n"),
+        "{stream}"
+    );
+    // 781, 278, 549, 278, 556, 1000, 278, 556 and 584 thousandths: 48.6
+    // pixels at 10, so the label starts that far left of where it ends.
+    assert!(stream.contains("1 0 0 -1 -38.6 20 Tm"), "{stream}");
+    assert_eq!(embedded(&pdf).len(), 1);
     assert!(pdf.notes.is_empty(), "{:?}", pdf.notes);
 }
 
 #[test]
-fn a_character_no_builtin_font_has_is_a_question_mark_and_a_note() {
+fn a_character_no_embedded_face_has_is_a_question_mark_and_a_note() {
     let mut svg = SvgWriter::new();
     svg.describe("\u{4e2d} sample", "");
     svg.text(10.0, 20.0, "\u{4e2d}", "#000", 10.0, Anchor::Start);
     svg.text(10.0, 30.0, "a\u{4e2d}", "#000", 10.0, Anchor::Start);
     let pdf = convert(&svg.finish(100.0, 50.0, "none", "sans-serif"));
-    assert!(content(&pdf).contains("(?) Tj"));
+    assert!(content(&pdf).contains("<0022> Tj"));
     assert_eq!(pdf.notes.len(), 1, "{:?}", pdf.notes);
     assert!(pdf.notes[0].contains("U+4E2D"), "{:?}", pdf.notes);
+    assert!(
+        pdf.notes[0].contains("none of the faces"),
+        "{:?}",
+        pdf.notes
+    );
     // The title keeps the character, since a PDF string can hold any.
     assert!(text(&pdf).contains("/Title <FEFF4E2D002000730061006D0070006C0065>"));
+    // Hebrew is in the face, and is marked rather than drawn backwards.
+    let mut svg = SvgWriter::new();
+    svg.text(10.0, 20.0, "\u{5d0} \u{4e2d}", "#000", 10.0, Anchor::Start);
+    let pdf = convert(&svg.finish(100.0, 50.0, "none", "sans-serif"));
+    assert_eq!(pdf.notes.len(), 2, "{:?}", pdf.notes);
+    assert!(
+        pdf.notes[1].contains("U+05D0) is written right to left"),
+        "{:?}",
+        pdf.notes
+    );
+}
+
+/// A serif stack and a bold monospaced one ask for faces the PDF does not
+/// carry. karyon writes neither, and an SVG of someone else's that does is
+/// set in the nearest face there is, with a note.
+#[test]
+fn a_face_the_pdf_does_not_carry_is_set_in_the_nearest_and_said() {
+    let svg = r##"<svg width="100" height="40"><text x="1" y="10" font-family="Georgia, serif">a</text><text x="1" y="20" font-family="Georgia, serif">b</text><text x="1" y="30" font-family="monospace" font-weight="bold">c</text></svg>"##;
+    let pdf = convert(svg);
+    assert_eq!(pdf.notes.len(), 2, "{:?}", pdf.notes);
+    assert!(pdf.notes[0].contains("serif"), "{:?}", pdf.notes);
+    assert!(pdf.notes[1].contains("Liberation Mono"), "{:?}", pdf.notes);
+    let names: Vec<String> = embedded(&pdf).into_iter().map(|face| face.name).collect();
+    assert_eq!(names.len(), 2);
+    assert!(names[0].ends_with("+LiberationSans") && names[1].ends_with("+LiberationMono"));
 }
 
 #[test]
@@ -785,7 +959,7 @@ fn what_the_converter_does_not_read_is_named_once() {
     // The rest is drawn: both rectangles, and the text before the tspan.
     let stream = content(&pdf);
     assert_eq!(stream.matches("0 0 5 5 re\nf\n").count(), 2, "{stream}");
-    assert!(stream.contains("(a) Tj"), "{stream}");
+    assert!(stream.contains("<0044> Tj"), "{stream}");
 }
 
 #[test]
@@ -820,7 +994,7 @@ fn a_length_in_any_absolute_unit_is_read_by_the_drawing_as_by_the_page() {
     );
     assert!(pdf.notes.is_empty(), "{:?}", pdf.notes);
     let stream = content(&pdf);
-    assert!(stream.contains("/F1 40 Tf\n(Hi) Tj"), "{stream}");
+    assert!(stream.contains("/F1 40 Tf\n<002B004C> Tj"), "{stream}");
     assert!(stream.contains("100 0 37.795 37.795 re\nf\n"), "{stream}");
 }
 
@@ -846,81 +1020,280 @@ fn a_length_measured_against_a_box_or_a_font_is_named_rather_than_dropped() {
 
 /// Every character the measure has a width of its own for: printable ASCII,
 /// and the characters beyond it that karyon writes.
-fn measured_characters() -> Vec<String> {
+fn measured_characters() -> Vec<char> {
     (0x20u8..0x7f)
         .map(char::from)
         .chain(crate::svg::BEYOND_ASCII.iter().map(|(c, _, _)| *c))
-        .map(String::from)
         .collect()
 }
 
-/// How wide the PDF draws `letter` in `face`, or in Symbol where `face` has
-/// no such character.
-fn drawn(letter: &str, face: text::Face) -> f64 {
+/// How wide the PDF draws `letter` in `face`, in thousandths of an em.
+fn drawn(letter: char, face: text::Face) -> f64 {
     let mut missing = Vec::new();
-    let width = text::runs(letter, face, &mut missing)
-        .iter()
-        .map(|run| run.width)
-        .sum();
-    assert!(missing.is_empty(), "{letter:?} has no base font");
-    width
+    let set = text::runs(&letter.to_string(), face, &mut missing);
+    assert!(missing.is_empty(), "{letter:?} is in no embedded face");
+    assert!(
+        set.iter().all(|run| run.face == face),
+        "{letter:?} is not in {face:?}"
+    );
+    set.iter().map(|run| run.width).sum()
 }
 
-/// The PDF sets regular text in Helvetica, and the layout was made with
-/// [`text_width`](crate::svg::text_width): a measure narrower than Helvetica
-/// for any character would let a label that fitted in the SVG run past its
-/// room on the page. Omega and the relations are set in Symbol, and held to
-/// Symbol's widths.
+/// The layout was made with Adobe's widths for Helvetica and Helvetica-Bold,
+/// and Courier's 600, which is what a PDF set its text in before it embedded
+/// its faces, with Symbol's for the five characters WinAnsi lacks. Liberation
+/// is drawn to the same widths, so a label sits where it sat. Every character
+/// karyon measures is held to that here, from the faces' own `hmtx` rounded
+/// to thousandths as Adobe's are, and the three that differ are named with
+/// both widths: the middle dot, which Liberation draws as Arial does rather
+/// than as Helvetica does, and omega and the arrow, which are Liberation's
+/// own rather than Symbol's. The tests after this one hold the layout's
+/// measure to be at least as wide as each, which it is, so no table changes.
 #[test]
-fn the_regular_measure_is_never_narrower_than_helvetica() {
-    let characters = measured_characters();
-    assert_eq!(characters.len(), 95 + 10);
-    for letter in &characters {
-        let measured = crate::svg::text_width(letter, 1000.0);
-        let drawn = drawn(letter, text::Face::Helvetica);
+fn the_embedded_faces_draw_every_measured_character_at_the_layout_s_widths() {
+    // Each that differs, with Adobe's regular and bold widths and then
+    // Liberation Sans's and Liberation Sans Bold's.
+    let differs = [
+        ('\u{b7}', (278, 278), (333, 333)),
+        ('\u{3c9}', (686, 686), (781, 845)),
+        ('\u{2192}', (987, 987), (1000, 1000)),
+    ];
+    let mut checked = 0;
+    for c in measured_characters() {
+        let adobe = match metrics::winansi(c) {
+            Some(byte) => {
+                let at = usize::from(byte - 32);
+                (metrics::HELVETICA[at], metrics::HELVETICA_BOLD[at])
+            }
+            // Symbol has one weight.
+            None => {
+                let (_, width) = metrics::SYMBOL
+                    .iter()
+                    .find(|(known, _)| *known == c)
+                    .unwrap_or_else(|| panic!("{c:?} has no Adobe width"));
+                (*width, *width)
+            }
+        };
+        let width = |face: text::Face| {
+            let font = face.font();
+            font.width(
+                font.glyph(c)
+                    .unwrap_or_else(|| panic!("{c:?} is not in {face:?}")),
+            )
+        };
+        let liberation = (width(text::Face::Sans), width(text::Face::SansBold));
+        match differs.iter().find(|(known, _, _)| *known == c) {
+            Some((_, was, is)) => assert_eq!((adobe, liberation), (*was, *is), "{c:?}"),
+            None => assert_eq!(liberation, adobe, "{c:?}: Liberation against Adobe"),
+        }
+        assert_eq!(width(text::Face::Mono), 600, "{c:?} in Liberation Mono");
+        checked += 1;
+    }
+    assert_eq!(checked, 95 + 10);
+}
+
+/// The PDF sets regular text in Liberation Sans, and the layout was made
+/// with [`text_width`](crate::svg::text_width): a measure narrower than the
+/// face for any character would let a label that fitted in the SVG run past
+/// its room on the page.
+#[test]
+fn the_regular_measure_is_never_narrower_than_liberation_sans() {
+    for letter in measured_characters() {
+        let measured = crate::svg::text_width(&letter.to_string(), 1000.0);
+        let drawn = drawn(letter, text::Face::Sans);
         assert!(
             measured >= drawn - 1e-9,
-            "{letter:?} is measured {measured} and Helvetica draws it {drawn}"
+            "{letter:?} is measured {measured} and Liberation Sans draws it {drawn}"
         );
     }
 }
 
-/// Bold and semibold text is set in Helvetica-Bold and measured with
+/// Bold and semibold text is set in Liberation Sans Bold and measured with
 /// [`text_width_strong`](crate::svg::text_width_strong), which must not be
 /// the narrower of the two for any character, or a bold panel letter "B" runs
 /// past the room made for it.
 #[test]
-fn the_strong_measure_is_never_narrower_than_helvetica_bold() {
-    for letter in &measured_characters() {
-        let measured = crate::svg::text_width_strong(letter, 1000.0);
-        let drawn = drawn(letter, text::Face::HelveticaBold);
+fn the_strong_measure_is_never_narrower_than_liberation_sans_bold() {
+    for letter in measured_characters() {
+        let measured = crate::svg::text_width_strong(&letter.to_string(), 1000.0);
+        let drawn = drawn(letter, text::Face::SansBold);
         assert!(
             measured >= drawn - 1e-9,
-            "{letter:?} is measured {measured} and Helvetica-Bold draws it {drawn}"
+            "{letter:?} is measured {measured} and Liberation Sans Bold draws it {drawn}"
         );
     }
 }
 
-/// The monospaced stack is set in Courier, every glyph of which is 600
-/// thousandths of an em, and measured at the same 600 by
-/// [`mono_width`](crate::svg::mono_width). Characters Courier cannot set go
-/// to Symbol at Symbol's widths, so only those it can are held to it.
+/// The monospaced stack is set in Liberation Mono, every glyph of which is
+/// 600 thousandths of an em, and measured at the same 600 by
+/// [`mono_width`](crate::svg::mono_width), omega and the relations included.
 #[test]
-fn the_monospaced_measure_is_courier() {
+fn the_monospaced_measure_is_liberation_mono() {
     let stack = "JetBrains Mono, Liberation Mono, Menlo, Consolas, monospace";
-    assert_eq!(text::Face::choose(stack, "normal"), text::Face::Courier);
-    let courier: Vec<String> = measured_characters()
-        .into_iter()
-        .filter(|letter| letter.chars().all(|c| text::winansi(c).is_some()))
-        .collect();
-    // The ten beyond ASCII less omega, the three relations and the arrow.
-    assert_eq!(courier.len(), 95 + 5);
-    for letter in &courier {
-        let measured = crate::svg::mono_width(letter, 1000.0);
-        let drawn = drawn(letter, text::Face::Courier);
+    assert_eq!(
+        text::Face::choose(stack, "normal"),
+        (text::Face::Mono, None)
+    );
+    for letter in measured_characters() {
+        let measured = crate::svg::mono_width(&letter.to_string(), 1000.0);
+        let drawn = drawn(letter, text::Face::Mono);
         assert!(
             (measured - drawn).abs() < 1e-9 && (drawn - 600.0).abs() < 1e-9,
-            "{letter:?} is measured {measured} and Courier draws it {drawn}"
+            "{letter:?} is measured {measured} and Liberation Mono draws it {drawn}"
         );
     }
+}
+
+/// One embedded face, read back out of the file.
+struct Embedded {
+    /// The name the page gives it, subset tag and all.
+    name: String,
+    /// What is between the brackets of its `/W`.
+    widths: String,
+    /// Its `/FontFile2`.
+    file: Vec<u8>,
+    /// Its `/ToUnicode`, from glyph to text.
+    unicode: std::collections::BTreeMap<u16, String>,
+}
+
+/// Where `needle` next is in `haystack`, from `from` on.
+fn find(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    haystack
+        .get(from..)?
+        .windows(needle.len())
+        .position(|window| window == needle)
+        .map(|at| from + at)
+}
+
+/// Object `number`'s dictionary, as text.
+fn dictionary(pdf: &Pdf, number: usize) -> String {
+    let start = find(&pdf.bytes, format!("\n{number} 0 obj\n").as_bytes(), 0)
+        .unwrap_or_else(|| panic!("no object {number}"));
+    let end = find(&pdf.bytes, b"\nendobj", start).expect("its end");
+    let body = String::from_utf8_lossy(&pdf.bytes[start..end]);
+    body[..body.find("\nstream\n").unwrap_or(body.len())].to_string()
+}
+
+/// The object `key` refers to in `dictionary`, as in `/FontFile2 12 0 R`.
+fn reference(dictionary: &str, key: &str) -> usize {
+    let after =
+        &dictionary[dictionary.find(key).unwrap_or_else(|| panic!("no {key}")) + key.len()..];
+    after
+        .trim_start_matches([' ', '['])
+        .split(' ')
+        .next()
+        .and_then(|number| number.parse().ok())
+        .unwrap_or_else(|| panic!("no number after {key}"))
+}
+
+/// Object `number`'s stream, by the length its dictionary gives.
+fn object_stream(pdf: &Pdf, number: usize) -> Vec<u8> {
+    let length = reference(&dictionary(pdf, number), "/Length ");
+    let start = find(&pdf.bytes, format!("\n{number} 0 obj\n").as_bytes(), 0).unwrap();
+    let begin = find(&pdf.bytes, b"stream\n", start).unwrap() + b"stream\n".len();
+    pdf.bytes[begin..begin + length].to_vec()
+}
+
+/// Every composite font in the file, in the order the page numbers them.
+fn embedded(pdf: &Pdf) -> Vec<Embedded> {
+    let marker = b"/Subtype /Type0 /BaseFont /";
+    let mut faces = Vec::new();
+    let mut from = 0;
+    while let Some(at) = find(&pdf.bytes, marker, from) {
+        from = at + marker.len();
+        // The object's number is on the line before its dictionary.
+        let opened = pdf.bytes[..at]
+            .windows(7)
+            .rposition(|window| window == b" 0 obj\n")
+            .expect("the font's object");
+        let line = pdf.bytes[..opened]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .unwrap()
+            + 1;
+        let number: usize = String::from_utf8_lossy(&pdf.bytes[line..opened])
+            .parse()
+            .expect("the font's object number");
+        let font = dictionary(pdf, number);
+        let name = font[font.find("/BaseFont /").unwrap() + 11..]
+            .split(' ')
+            .next()
+            .unwrap()
+            .to_string();
+        let descendant = dictionary(pdf, reference(&font, "/DescendantFonts"));
+        let widths = descendant[descendant.find("/W [").expect("/W") + 4..]
+            .split(" /CIDToGIDMap")
+            .next()
+            .unwrap()
+            .trim_end_matches(']')
+            .to_string();
+        let descriptor = dictionary(pdf, reference(&descendant, "/FontDescriptor"));
+        let file = object_stream(pdf, reference(&descriptor, "/FontFile2"));
+        let map = object_stream(pdf, reference(&font, "/ToUnicode"));
+        let map = String::from_utf8(map).expect("a CMap is text");
+        let mut unicode = std::collections::BTreeMap::new();
+        // Every line of a pair, less the one range of codes there is.
+        let pairs = map
+            .lines()
+            .filter(|line| line.starts_with('<') && *line != "<0000> <FFFF>");
+        for line in pairs {
+            let (glyph, text) = line.split_once("> <").expect("a pair");
+            let glyph = u16::from_str_radix(&glyph[1..], 16).expect("a glyph");
+            let units: Vec<u16> = text
+                .trim_end_matches('>')
+                .as_bytes()
+                .chunks(4)
+                .map(|unit| u16::from_str_radix(std::str::from_utf8(unit).unwrap(), 16).unwrap())
+                .collect();
+            unicode.insert(glyph, String::from_utf16(&units).expect("UTF-16"));
+        }
+        faces.push(Embedded {
+            name,
+            widths,
+            file,
+            unicode,
+        });
+    }
+    faces
+}
+
+/// The glyphs a `/W` array lists, each with its width.
+fn widths(array: &str) -> Vec<(u16, u16)> {
+    let mut listed = Vec::new();
+    for group in array.split(']').filter(|group| !group.trim().is_empty()) {
+        let (first, list) = group.split_once('[').expect("a first glyph and its widths");
+        let first: u16 = first.trim().parse().unwrap();
+        for (at, width) in list.split_whitespace().enumerate() {
+            listed.push((first + at as u16, width.parse().unwrap()));
+        }
+    }
+    listed
+}
+
+/// The text of each label, as a reader copies it: every glyph the content
+/// stream draws, through the map of the face it is drawn in.
+fn copied(pdf: &Pdf, faces: &[Embedded]) -> Vec<String> {
+    let stream = content(pdf);
+    let mut labels = Vec::new();
+    let mut face = 0;
+    for line in stream.lines() {
+        if line == "BT" {
+            labels.push(String::new());
+        } else if let Some(rest) = line.strip_prefix("/F").filter(|_| line.ends_with(" Tf")) {
+            face = rest.split(' ').next().unwrap().parse::<usize>().unwrap() - 1;
+        } else if let Some(hex) = line
+            .strip_suffix("> Tj")
+            .and_then(|line| line.strip_prefix('<'))
+        {
+            for glyph in hex.as_bytes().chunks(4) {
+                let glyph = u16::from_str_radix(std::str::from_utf8(glyph).unwrap(), 16).unwrap();
+                let text = faces[face]
+                    .unicode
+                    .get(&glyph)
+                    .expect("every glyph is mapped");
+                labels.last_mut().expect("inside BT").push_str(text);
+            }
+        }
+    }
+    labels
 }

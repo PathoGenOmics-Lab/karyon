@@ -8,6 +8,34 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A PDF embeds the faces its text is set in. It named Helvetica, Courier and
+  Symbol and embedded none, so `pdffonts` showed `no` under `emb` for every face
+  and a journal's preflight flagged the file or turned it away, and the guide
+  and `-o`'s help offered a Ghostscript line to embed them, which neither offers
+  now. Text is now set in Liberation Sans, Liberation Sans Bold and Liberation
+  Mono 2.00.1, which the crate carries in `fonts/` under the SIL Open Font
+  License, each written as a subset of the glyphs the figure draws, with its
+  widths and a map back to the text, so `pdffonts` shows `yes` under `emb`,
+  `sub` and `uni` and the text still copies and searches. The crate's licence is
+  `MIT AND OFL-1.1`, since it carries them. Liberation is drawn to the widths of
+  Helvetica, Arial and Courier, and a test holds every character karyon measures
+  to Adobe's: three differ, the middle dot at 333 thousandths where Helvetica's
+  is 278, and ω and → at 781, 845 bold, and 1000, where Symbol's were 686 and
+  987, and the layout already measured each at least that wide, so nothing is
+  laid out afresh and no committed figure changes. A label anchored at its end
+  or middle that holds one of the three is set from a little further left, 0.74
+  px for an ω at 7.82 px, so it still sits where the SVG puts it. ω, ≤, ≥, ≈ and
+  → come from the label's own face, bold in a bold label, rather than from
+  Symbol; Cyrillic, and Latin letters beyond Western Europe's such as Polish ł
+  or Vietnamese ạ, are drawn where they were question marks; and a character
+  Liberation does not have is a question mark named in `Pdf::notes`, as Chinese,
+  Arabic and Hebrew were, the last now because a PDF would draw it backwards,
+  and so are 37 of the signs Symbol drew, such as ∈, ⇒ and ∀, none of which
+  karyon writes. A serif stack and a bold monospaced one, which karyon never
+  writes, are set in Liberation Sans and Liberation Mono with a note. A figure
+  grows by 4 to 30 kilobytes for each face it uses, about 28 kilobytes for most
+  of the examples; the playground's wasm does not carry the fonts and is 13
+  bytes larger.
 - A gene on a ring of `FeatureRing` wider than three degrees ends in a point
   at its 3' end, the end of its span on the forward strand and its start on
   the reverse, as a band of features draws its arrows: the point narrows to

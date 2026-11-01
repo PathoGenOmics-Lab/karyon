@@ -179,6 +179,12 @@ A plotting library is meant to be a dependency, and a copyleft one cannot be
 used by a tool that is not itself copyleft. The formats it sits beside are
 permissive for the same reason: noodles and rust-bio are both MIT.
 
+The crate also carries the three Liberation faces a PDF embeds, in
+[fonts/](fonts/), under the SIL Open Font License 1.1, which is why its
+licence is written `MIT AND OFL-1.1`. The OFL lets them ship inside any program
+with their notice and licence, which [fonts/LICENSE](fonts/LICENSE) is, and
+puts no terms on the PDFs made with them.
+
 ---
 <h2 id="contributors" align="center">
 

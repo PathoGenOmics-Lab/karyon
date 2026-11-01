@@ -848,25 +848,16 @@ size Inkscape and `rsvg-convert` give the SVG, so a figure 900 pixels wide is
 675 points, about 9.4 inches. The hover titles of the SVG are not carried,
 since a page has nowhere to hover.
 
-The text is set in the standard faces every PDF reader carries, Helvetica and
-Helvetica-Bold for words and Courier for coordinates and sequence, with Symbol
-for ω and ≤, rather than in the Inter and JetBrains Mono the SVG asks for, and
-none of them is embedded. The file names each face, and the reader draws it
-with a copy of its own made to the same widths, Arial in one and Nimbus Sans
-in another, so the letters differ a little from reader to reader and the
-layout does not. A character none of those fonts has, such as a sample name in
-Cyrillic, is drawn as a question mark, and the command says which on standard
-error; the figure is still written.
-
-For a paper, that is what a preflight check meets: `pdffonts rpoB.pdf` lists
-every font with `no` under `emb`, and a journal's upload check that wants each
-font embedded, as the PDF/X and PDF/A standards of printers and archives do,
-flags the file or turns it away. Ghostscript writes a copy with the faces
-embedded, drawn to the same widths, which `pdffonts` then lists as embedded:
-
-```bash
-gs -o embedded.pdf -sDEVICE=pdfwrite -dPDFSETTINGS=/prepress rpoB.pdf
-```
+The text is set in Liberation Sans and Liberation Sans Bold for words and
+Liberation Mono for coordinates and sequence, rather than in the Inter and
+JetBrains Mono the SVG asks for, and each face the figure uses is embedded in
+the file, as a subset of the letters it draws. Liberation is drawn to the
+widths of Helvetica, Arial and Courier, so every reader draws the same letters
+in the same places, and the font check of a journal's preflight finds every
+font embedded: `pdffonts rpoB.pdf` shows `yes` under `emb` and `sub` for each.
+The text stays text, to be searched and copied. A character none of those faces
+has, such as a sample name in Chinese or Arabic, is drawn as a question mark,
+and the command says which on standard error; the figure is still written.
 
 [How the PDF is made](../how-it-works/pdf.md) has the rest.
 

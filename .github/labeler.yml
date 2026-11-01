@@ -133,11 +133,16 @@ readers:
 # wrote, element for element, so a change to either is a change to how a figure
 # is drawn, and it was split into files by what it reads (path data, colours,
 # text) rather than moved out of this label.
+#
+# fonts/ is the three Liberation faces that writer embeds a subset of, with
+# their licence. It holds no code, and a change to it is still a change to how
+# every PDF's letters are drawn.
 rendering:
   - changed-files:
       - any-glob-to-any-file:
           - "src/*.rs"
           - "src/pdf/**"
+          - "fonts/**"
 
 # examples/ and assets/ are here rather than anywhere else because neither is
 # code the crate ships. Every example writes one of the committed SVG figures,
