@@ -269,6 +269,50 @@ def write_genome_copies():
                 out.write(f"{chrom}\t{start}\t{end}\t{max(0.0, depth):.2f}\n")
 
 
+def write_plasmid():
+    # A plasmid of 7,800 bases, its sequence and its annotation, as Bakta or
+    # Prokka writes a plasmid: genes over their CDS on both strands, a
+    # divergent pair among them, and an origin of replication and one of
+    # transfer, which are not genes. Each half of the sequence from the
+    # origin of replication leans to G on one strand and to C on the other,
+    # so its GC skew turns over at the origin and opposite it. It keeps a
+    # seed of its own, so the files above stay as they are when this changes.
+    rng = random.Random(20261031)
+    name, length = "pEX1", 7800
+    origin = 1600
+    bases = []
+    for at in range(1, length + 1):
+        leading = (at - origin) % length < length // 2
+        g, c = (0.33, 0.17) if leading else (0.17, 0.33)
+        bases.append(rng.choices("GCAT", weights=[g, c, 0.25, 0.25])[0])
+    with open(path(f"{name}.fa"), "w") as out:
+        out.write(f">{name}\n")
+        for at in range(0, length, 60):
+            out.write("".join(bases[at:at + 60]) + "\n")
+    genes = [
+        ("repA", 401, 1450, "+"),
+        ("bla", 2101, 2961, "-"),
+        ("tetR", 3301, 3924, "-"),
+        ("tetA", 4001, 5200, "+"),
+        ("mobA", 5501, 7003, "+"),
+    ]
+    others = [
+        ("oriV", "origin_of_replication", 1551, 1650, "."),
+        ("oriT", "origin_of_transfer", 7151, 7260, "+"),
+    ]
+    rows = [(start, f"{name}\t.\tgene\t{start}\t{end}\t.\t{strand}\t.\tID={gene};Name={gene}\n"
+                    f"{name}\t.\tCDS\t{start}\t{end}\t.\t{strand}\t0\t"
+                    f"Parent={gene};transl_table=11\n")
+            for gene, start, end, strand in genes]
+    rows += [(start, f"{name}\t.\t{kind}\t{start}\t{end}\t.\t{strand}\t.\tID={feature};Name={feature}\n")
+             for feature, kind, start, end, strand in others]
+    with open(path(f"{name}.gff3"), "w") as out:
+        out.write("##gff-version 3\n")
+        out.write(f"##sequence-region {name} 1 {length}\n")
+        for _, row in sorted(rows):
+            out.write(row)
+
+
 def write_samples():
     # Forty samples in four lineages, a tree of them with branch lengths and
     # support, a second tree that disagrees in two places, a sample sheet in
@@ -605,7 +649,8 @@ def write_zip():
              "sampleB.bedgraph", "lineages.tsv", "reproduction.tsv", "fel.csv",
              "reads.slow5", "moves.sam", "depths.tsv", "linkage.ld", "epistasis.tsv",
              "lead.ld", "genetic_map.txt", "trait.assoc", "cohort.vcf.gz",
-             "cohort.vcf.gz.tbi", "tumour.bedgraph", "tumour.cns"]
+             "cohort.vcf.gz.tbi", "tumour.bedgraph", "tumour.cns", "pEX1.fa",
+             "pEX1.gff3"]
     with zipfile.ZipFile(path("examples.zip"), "w", zipfile.ZIP_DEFLATED) as out:
         for name in names:
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
@@ -637,6 +682,7 @@ def main():
     write_trait_scan()
     write_cohort()
     write_genome_copies()
+    write_plasmid()
     write_zip()
 
 

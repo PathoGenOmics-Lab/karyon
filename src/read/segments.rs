@@ -39,6 +39,16 @@
 //! since it is what the caller concluded rather than what this arithmetic
 //! would infer.
 //!
+//! # Where balanced sits, where the file says it
+//!
+//! A table of called copies says more than one of ratios. Split between two
+//! alleles, every call is a count of each, and balanced is one copy of each.
+//! Written as totals alone, the copies most of the sequences carry are the
+//! state the caller found most of the time, which is where a ladder of them is
+//! read from. [`balanced`] says which, or that the table does not say, for a
+//! caller given no ploidy; one given a ploidy passes it to [`copy_numbers`]
+//! as before, and the file is not asked.
+//!
 //! # Every sequence at once
 //!
 //! [`genome_copy_numbers`] reads the same tables with no window, each segment
@@ -352,6 +362,116 @@ pub fn samples(text: &str) -> Result<Vec<String>, ReadError> {
     Ok(named)
 }
 
+/// Where balanced sits on a ladder of copies, as a segment table says it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Balanced {
+    /// Each call is split between two alleles, so balanced is one copy of
+    /// each: two.
+    Alleles,
+    /// The whole number of copies the largest share of the table's bases
+    /// carries.
+    Commonest(f64),
+    /// The table writes copies, and no one number of them above nought
+    /// carries more of its bases than every other: two numbers carry as
+    /// many, or nothing is called.
+    Undecided,
+    /// The table writes log ratios and no copies. A log2 of nought is
+    /// balanced at whatever ploidy the ratio was taken against, and that is
+    /// not in the file.
+    Ratios,
+}
+
+impl Balanced {
+    /// The copies balanced sits at, or `None` where the table does not say.
+    pub fn copies(self) -> Option<f64> {
+        match self {
+            Balanced::Alleles => Some(2.0),
+            Balanced::Commonest(copies) => Some(copies),
+            Balanced::Undecided | Balanced::Ratios => None,
+        }
+    }
+}
+
+/// Where balanced sits, as the table itself says it, for `sample` where it
+/// names several: [`Balanced::Alleles`] where any segment's call is split
+/// between two alleles, else the number of copies the most bases carry,
+/// across every sequence the table names.
+///
+/// The copies are counted whole, as the rungs of a ladder are: a total of
+/// 2.1 called over a stretch is a stretch at two. A table of log ratios
+/// alone says nothing of where balanced sits, and neither does one where two
+/// numbers of copies carry exactly as many bases, or where the most bases
+/// carry none: a ladder balanced at nought has nothing below it to call a
+/// loss.
+///
+/// A row this cannot read is passed over, since [`copy_numbers`] refuses it
+/// by its line once the table is read.
+///
+/// # Errors
+///
+/// An empty table, and a header naming none of the shapes this module
+/// reads.
+///
+/// ```
+/// use karyon::read::segments::{balanced, Balanced};
+///
+/// let totals = "chromosome\tstart\tend\tcn\n1\t0\t900\t2\n1\t900\t1000\t3\n";
+/// assert_eq!(balanced(totals, None)?, Balanced::Commonest(2.0));
+/// let ratios = "chromosome\tstart\tend\tlog2\n1\t0\t900\t0.0\n";
+/// assert_eq!(balanced(ratios, None)?.copies(), None);
+/// # Ok::<(), karyon::read::ReadError>(())
+/// ```
+pub fn balanced(text: &str, sample: Option<&str>) -> Result<Balanced, ReadError> {
+    let mut rows = lines(text);
+    let (at, head) = rows.next().ok_or_else(|| {
+        ReadError::whole("a segment table begins with a header and this file is empty")
+    })?;
+    let layout = layout(&columns(head), at)?;
+    let split = layout.major.zip(layout.minor);
+    if split.is_none() && layout.total.is_none() {
+        return Ok(Balanced::Ratios);
+    }
+
+    // Bases carried at each whole number of copies, in a map so that ties
+    // are found in one place whatever order the file gives the segments in.
+    let mut carried: std::collections::BTreeMap<u64, u128> = std::collections::BTreeMap::new();
+    for (_, line) in rows {
+        let cols = columns(line);
+        if let (Some(index), Some(wanted)) = (layout.sample, sample) {
+            if cols.get(index).map(|named| named.trim()) != Some(wanted) {
+                continue;
+            }
+        }
+        if let Some((major, minor)) = split {
+            if number(cols.get(major)).is_some() && number(cols.get(minor)).is_some() {
+                return Ok(Balanced::Alleles);
+            }
+        }
+        let Some(copies) = layout.total.and_then(|total| number(cols.get(total))) else {
+            continue;
+        };
+        let coordinate = |index: usize| cols.get(index)?.trim().parse::<u64>().ok();
+        let (Some(start), Some(end)) = (coordinate(layout.start), coordinate(layout.end)) else {
+            continue;
+        };
+        // A table counting from one writes both ends inside the segment.
+        let bases = match layout.shape {
+            Shape::Cns => end.saturating_sub(start),
+            Shape::Ascat | Shape::Seg => end.saturating_sub(start).saturating_add(1),
+        };
+        if copies >= 0.0 && bases > 0 {
+            *carried.entry(copies.round() as u64).or_default() += u128::from(bases);
+        }
+    }
+
+    let most = carried.values().copied().max().unwrap_or(0);
+    let mut at_most = carried.iter().filter(|(_, bases)| **bases == most);
+    Ok(match (at_most.next(), at_most.next()) {
+        (Some((&copies, _)), None) if copies > 0 => Balanced::Commonest(copies as f64),
+        _ => Balanced::Undecided,
+    })
+}
+
 /// Finds each column this reader needs, or says the header is none of the
 /// shapes it knows.
 fn layout(head: &[&str], at: usize) -> Result<Layout, ReadError> {
@@ -632,6 +752,67 @@ S1\t1\t1\t2000\t5\t-1.0
         // Two samples in one band are refused here as over a window.
         let error = genome_copy_numbers(seg, 2.0, None).unwrap_err();
         assert!(error.reason.contains("2 samples"), "{error}");
+    }
+
+    /// Where balanced sits, read off the table: two where calls are split
+    /// between two alleles, else the whole number of copies most bases
+    /// carry, over every sequence and only the sample asked for; nothing
+    /// for log ratios, a tie, or a genome mostly at nought.
+    #[test]
+    fn balanced_is_two_alleles_or_the_copies_most_of_the_genome_carries() {
+        // CNVkit with a VCF: the split is there, so two, whatever the totals.
+        assert_eq!(balanced(CNS, None).unwrap(), Balanced::Alleles);
+        assert_eq!(Balanced::Alleles.copies(), Some(2.0));
+        let ascat = "\
+sample\tchr\tstartpos\tendpos\tnMajor\tnMinor
+T1\tchr8\t1\t2000000\t2\t0
+";
+        assert_eq!(balanced(ascat, None).unwrap(), Balanced::Alleles);
+        // Columns for a split that no row fills say nothing of one.
+        let unsplit = "\
+chromosome\tstart\tend\tcn\tcn1\tcn2
+chr1\t0\t100\t3\tNA\tNA
+chr1\t100\t150\t2\tNA\tNA
+";
+        assert_eq!(balanced(unsplit, None).unwrap(), Balanced::Commonest(3.0));
+        // Weighed by bases, not by rows, across sequences, and counted whole:
+        // three short rows at four and 2.2 over most of two sequences.
+        let totals = "\
+chromosome\tstart\tend\tcn
+chr1\t0\t10\t4
+chr1\t10\t20\t4
+chr1\t20\t30\t4
+chr1\t30\t5000\t2.2
+chr2\t0\t3000\t1.9
+chr3\t0\t9000\tNA
+";
+        assert_eq!(balanced(totals, None).unwrap(), Balanced::Commonest(2.0));
+        // One sample of several, and the other is not counted.
+        let samples = "\
+sample\tchromosome\tstart\tend\tcn
+A\tchr1\t0\t100\t1
+B\tchr1\t0\t900\t3
+A\tchr2\t0\t50\t2
+";
+        assert_eq!(
+            balanced(samples, Some("A")).unwrap(),
+            Balanced::Commonest(1.0)
+        );
+        // A `.seg` of ratios says nothing, a tie says nothing, and a genome
+        // mostly at nought has nothing below its balance to call a loss.
+        let seg = "ID\tchrom\tloc.start\tloc.end\tseg.mean\nS1\tchr8\t1\t2000000\t0.0\n";
+        assert_eq!(balanced(seg, None).unwrap(), Balanced::Ratios);
+        let tied = "chromosome\tstart\tend\tcn\nchr1\t0\t500\t2\nchr1\t500\t1000\t3\n";
+        assert_eq!(balanced(tied, None).unwrap(), Balanced::Undecided);
+        let nought = "chromosome\tstart\tend\tcn\nchr1\t0\t900\t0\nchr1\t900\t1000\t2\n";
+        assert_eq!(balanced(nought, None).unwrap().copies(), None);
+        // ASCAT counts both ends: 1-100 and 101-199 are 100 and 99 bases.
+        let ends = "\
+sample\tchr\tstartpos\tendpos\ttotal_cn
+T1\tchr8\t1\t100\t3
+T1\tchr8\t101\t199\t2
+";
+        assert_eq!(balanced(ends, None).unwrap(), Balanced::Commonest(3.0));
     }
 
     #[test]

@@ -76,6 +76,47 @@ impl Association {
     }
 }
 
+/// How a scan coloured by its linkage with a lead variant paints an r².
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LinkageColors {
+    /// Five bins in LocusZoom's colours, which is how a regional plot is
+    /// read: r² under 0.2 navy, to 0.4 light blue, to 0.6 green, to 0.8
+    /// orange, and 0.8 or more red, a variant with no r² a neutral grey and
+    /// the lead a purple diamond. The colours are LocusZoom's on both themes:
+    /// each stands at 4:1 or more against the dark page, the light blue, the
+    /// green and the orange at 2.1 to 2.5 against the white one, as in
+    /// LocusZoom's own plots, and a reader who knows the plot reads red as
+    /// travelling with the lead on either.
+    #[default]
+    LocusZoom,
+    /// One ramp, from a grey where linkage is weak to the theme's accent where
+    /// it is strong, a variant with no r² an open ring and the lead a diamond
+    /// in the palette's second colour. For a reader who wants the r² itself
+    /// rather than its bin.
+    Ramp,
+}
+
+/// LocusZoom's colours for its five bins of r², low to high, each with the
+/// least r² it holds.
+const LOCUSZOOM: [(f64, &str); 5] = [
+    (0.0, "#357ebd"),
+    (0.2, "#46b8da"),
+    (0.4, "#5cb85c"),
+    (0.6, "#eea236"),
+    (0.8, "#d43f3a"),
+];
+
+/// The words a key gives each of the five bins, in their order.
+const LOCUSZOOM_BINS: [&str; 5] = ["< 0.2", "0.2–0.4", "0.4–0.6", "0.6–0.8", "≥ 0.8"];
+
+/// LocusZoom's purple for the lead variant, which none of the five bins is
+/// near.
+const LOCUSZOOM_LEAD: &str = "#9632b8";
+
+/// A grey of no hue for a variant with no r², which none of the five bins is
+/// near either and which neither page mistakes for its own ink.
+const LOCUSZOOM_UNKNOWN: &str = "#aaaaaa";
+
 /// Points scored by significance, with a threshold line.
 ///
 /// The x axis is genomic, so this draws one chromosome or one region of one.
@@ -119,7 +160,10 @@ pub struct ManhattanTrack {
     lead: Option<u64>,
     lead_name: Option<String>,
     linkage: BTreeMap<u64, f64>,
+    linkage_colors: LinkageColors,
     recombination: Vec<(u64, u64, f64)>,
+    /// What the figure writes under the band.
+    footnotes: Vec<String>,
 }
 
 impl ManhattanTrack {
@@ -143,8 +187,19 @@ impl ManhattanTrack {
             lead: None,
             lead_name: None,
             linkage: BTreeMap::new(),
+            linkage_colors: LinkageColors::default(),
             recombination: Vec::new(),
+            footnotes: Vec::new(),
         }
+    }
+
+    /// Adds a sentence the figure writes under the band, for what a reader
+    /// of the figure has to know to read the scan right: the recombination
+    /// rate under it drawn flat because the whole window lies inside one
+    /// interval of its map. See [`Track::footnotes`].
+    pub fn footnote(mut self, sentence: impl Into<String>) -> Self {
+        self.footnotes.push(sentence.into());
+        self
     }
 
     /// Colours every point by its linkage with a lead variant, as a
@@ -153,9 +208,10 @@ impl ManhattanTrack {
     ///
     /// A peak is a tower of variants inherited with one another, and which of
     /// them travel with the lead is what says whether a second tower beside it
-    /// is the same signal or another one. The lead is a diamond with its
-    /// position over it; a point whose linkage is not known stays grey, which
-    /// is not the colour of an r² of nought.
+    /// is the same signal or another one. The r² are drawn in LocusZoom's five
+    /// bins unless [`ManhattanTrack::linkage_colors`] asks for a ramp. The
+    /// lead is a diamond with its position over it, and a point whose linkage
+    /// is not known is drawn apart, in a colour no r² is given.
     pub fn linkage(mut self, lead: u64, linkage: impl IntoIterator<Item = (u64, f64)>) -> Self {
         self.lead = Some(lead);
         self.linkage = linkage
@@ -163,6 +219,24 @@ impl ManhattanTrack {
             .filter(|(_, r2)| r2.is_finite())
             .map(|(pos, r2)| (pos, r2.clamp(0.0, 1.0)))
             .collect();
+        self
+    }
+
+    /// Chooses how the r² of each point with the lead are painted: LocusZoom's
+    /// five bins, the default, or one ramp.
+    ///
+    /// ```
+    /// use karyon::{Association, Figure, LinkageColors, ManhattanTrack, Region};
+    ///
+    /// let scan = vec![Association::new(1_000, 3.0), Association::new(2_000, 9.0)];
+    /// let binned = ManhattanTrack::new(scan.clone()).linkage(2_000, [(1_000, 0.9)]);
+    /// let ramped = binned.clone().linkage_colors(LinkageColors::Ramp);
+    /// let draw = |track| Figure::new(Region::new("chr1", 0, 3_000).unwrap()).push(track).to_svg();
+    /// assert!(draw(binned).contains("#d43f3a"));
+    /// assert!(!draw(ramped).contains("#d43f3a"));
+    /// ```
+    pub fn linkage_colors(mut self, colors: LinkageColors) -> Self {
+        self.linkage_colors = colors;
         self
     }
 
@@ -212,9 +286,10 @@ impl ManhattanTrack {
         Some((axis, top))
     }
 
-    /// The colour the recombination rate is drawn in: a hue of its own, since
-    /// the points are grey to the accent by their linkage and a hit is the
-    /// second colour, and lightened, since it is read behind them.
+    /// The colour the recombination rate is drawn in: the palette's third,
+    /// since a hit is the second and the points coloured by their linkage
+    /// take the accent at the end of the ramp, and lightened, since it is
+    /// read behind them. A line, where every linkage colour is a point.
     fn rate_color(theme: &Theme) -> String {
         mix(theme.color(2), theme.surface(), 0.2)
     }
@@ -240,11 +315,35 @@ impl ManhattanTrack {
             .count()
     }
 
-    /// The colour of an r² on the linkage ramp: grey where it is weak, the
-    /// accent where it is strong.
-    fn linkage_color(r2: f64, theme: &Theme) -> String {
+    /// The colour of an r²: its bin's, or on the ramp grey where it is weak
+    /// and the accent where it is strong.
+    fn linkage_color(&self, r2: f64, theme: &Theme) -> String {
+        match self.linkage_colors {
+            LinkageColors::LocusZoom => LOCUSZOOM[Self::bin(r2)].1.to_string(),
+            LinkageColors::Ramp => Self::ramp_color(r2, theme),
+        }
+    }
+
+    /// The bin of LocusZoom's five an r² falls in.
+    fn bin(r2: f64) -> usize {
+        LOCUSZOOM
+            .iter()
+            .rposition(|(least, _)| r2 >= *least)
+            .unwrap_or(0)
+    }
+
+    /// The colour of an r² on the ramp.
+    fn ramp_color(r2: f64, theme: &Theme) -> String {
         let weak = mix(&theme.muted, theme.surface(), 0.55);
         mix(&weak, &theme.accent, r2.clamp(0.0, 1.0))
+    }
+
+    /// The colour the lead's diamond is drawn in.
+    fn lead_color(&self, theme: &Theme) -> String {
+        match self.linkage_colors {
+            LinkageColors::LocusZoom => LOCUSZOOM_LEAD.to_string(),
+            LinkageColors::Ramp => theme.color(1).to_string(),
+        }
     }
 
     /// Sets the text shown in the left gutter.
@@ -471,6 +570,15 @@ impl Track for ManhattanTrack {
             .flatten()
     }
 
+    fn footnotes(
+        &self,
+        _region: &crate::region::Region,
+        _px_per_bp: f64,
+        _theme: &Theme,
+    ) -> Vec<String> {
+        self.footnotes.clone()
+    }
+
     /// How many variants in view the linkage gives no r² for, where the
     /// points are coloured by it: a linkage file cut to a window narrower
     /// than the scan's leaves the rest of the scan open rings.
@@ -491,8 +599,12 @@ impl Track for ManhattanTrack {
             .filter(|point| point.pos != lead)
             .count();
         let group = crate::track::axis::group_thousands;
+        let drawn_as = match self.linkage_colors {
+            LinkageColors::LocusZoom => "grey",
+            LinkageColors::Ramp => "as open rings",
+        };
         vec![format!(
-            "{} of {} variants in view have no r² with {}, and are drawn as open rings",
+            "{} of {} variants in view have no r² with {}, and are drawn {drawn_as}",
             group(unknown as u64),
             group(drawn as u64),
             self.lead_text(lead)
@@ -516,13 +628,25 @@ impl Track for ManhattanTrack {
         let Some(lead) = self.lead else {
             return rate;
         };
-        let key = crate::track::legend::Legend::new().ramp(
-            format!("r² with {}", self.lead_text(lead)),
-            Self::linkage_color(0.0, theme),
-            Self::linkage_color(1.0, theme),
-            "0",
-            "1",
-        );
+        let title = format!("r² with {}", self.lead_text(lead));
+        let key = match self.linkage_colors {
+            // The five bins, low to high, each as the point it colours.
+            LinkageColors::LocusZoom => crate::track::legend::Legend::new().steps(
+                title,
+                LOCUSZOOM
+                    .iter()
+                    .zip(LOCUSZOOM_BINS)
+                    .map(|((_, color), values)| (*color, values)),
+                crate::track::legend::Marker::Dot,
+            ),
+            LinkageColors::Ramp => crate::track::legend::Legend::new().ramp(
+                title,
+                Self::ramp_color(0.0, theme),
+                Self::ramp_color(1.0, theme),
+                "0",
+                "1",
+            ),
+        };
         // The diamond is keyed where one is drawn: a lead the scan did not
         // test, or one outside the window, has none.
         let drawn = region.contains(lead)
@@ -531,20 +655,24 @@ impl Track for ManhattanTrack {
                 .iter()
                 .any(|point| point.pos == lead && point.value.is_finite());
         let key = if drawn {
-            key.symbol("lead variant", theme.color(1), Symbol::Diamond)
+            key.symbol("lead variant", self.lead_color(theme), Symbol::Diamond)
         } else {
             key
         };
         let unknown = self.without_linkage(region);
         let key = if unknown > 0 {
-            key.marked(
-                format!(
-                    "no r² ({})",
-                    crate::track::axis::group_thousands(unknown as u64)
+            let said = format!(
+                "no r² ({})",
+                crate::track::axis::group_thousands(unknown as u64)
+            );
+            match self.linkage_colors {
+                LinkageColors::LocusZoom => key.dot(said, LOCUSZOOM_UNKNOWN),
+                LinkageColors::Ramp => key.marked(
+                    said,
+                    theme.muted.clone(),
+                    crate::track::legend::Marker::Ring,
                 ),
-                theme.muted.clone(),
-                crate::track::legend::Marker::Ring,
-            )
+            }
         } else {
             key
         };
@@ -732,8 +860,12 @@ impl Track for ManhattanTrack {
                     continue;
                 }
                 let r2 = self.linkage.get(&point.pos).copied();
-                // One point a pixel for each shade the ramp can show apart.
-                let shade = r2.map_or(u8::MAX, |r2| (r2 * 32.0).round() as u8);
+                // One point a pixel for each shade the ramp can show apart,
+                // or each bin.
+                let shade = r2.map_or(u8::MAX, |r2| match self.linkage_colors {
+                    LinkageColors::LocusZoom => Self::bin(r2) as u8,
+                    LinkageColors::Ramp => (r2 * 32.0).round() as u8,
+                });
                 let pixel = (x.round() as i64, y.round() as i64);
                 if taken.insert((pixel.0, pixel.1, false, 0, false, shade)) {
                     kept.push((x, y, false, Symbol::Circle, false, Some(r2.unwrap_or(-1.0))));
@@ -776,23 +908,38 @@ impl Track for ManhattanTrack {
                 // A locus is a few dozen points rather than a genome's
                 // texture, and each is read for its colour, so each is bigger.
                 let size = radius * 1.35 + ctx.theme.tokens.hairline * 0.5;
-                // A variant the linkage file gives no r² for is an open ring,
-                // keyed apart. Filled a shade lighter than the weakest
-                // linkage, five of them read as r² of nought: #c1becf against
-                // #b5b2c6, and nothing in the key said otherwise.
+                // A variant the linkage file gives no r² for is keyed apart:
+                // grey among the bins, which give no r² a grey, and an open
+                // ring on the ramp. Filled a shade lighter than the ramp's
+                // weakest linkage, five of them read as r² of nought:
+                // #c1becf against #b5b2c6, and nothing in the key said
+                // otherwise.
                 if r2 < 0.0 {
-                    let edge = ctx.theme.tokens.stroke;
-                    ctx.svg.circle_ringed(
-                        x,
-                        y,
-                        size - edge,
-                        ctx.theme.surface(),
-                        &ctx.theme.muted,
-                        edge,
-                    );
+                    match self.linkage_colors {
+                        LinkageColors::LocusZoom => ctx.svg.symbol_ringed(
+                            x,
+                            y,
+                            size,
+                            symbol,
+                            LOCUSZOOM_UNKNOWN,
+                            ctx.theme.surface(),
+                            ctx.theme.tokens.hairline * 0.6,
+                        ),
+                        LinkageColors::Ramp => {
+                            let edge = ctx.theme.tokens.stroke;
+                            ctx.svg.circle_ringed(
+                                x,
+                                y,
+                                size - edge,
+                                ctx.theme.surface(),
+                                &ctx.theme.muted,
+                                edge,
+                            );
+                        }
+                    }
                     continue;
                 }
-                let color = Self::linkage_color(r2, ctx.theme);
+                let color = self.linkage_color(r2, ctx.theme);
                 ctx.svg.symbol_ringed(
                     x,
                     y,
@@ -831,12 +978,13 @@ impl Track for ManhattanTrack {
                 Some(name) => format!("lead variant {name} at {place}"),
                 None => format!("lead variant {place}"),
             });
+            let lead_color = self.lead_color(ctx.theme);
             ctx.svg.symbol_ringed(
                 x,
                 y,
                 lead_radius,
                 Symbol::Diamond,
-                ctx.theme.color(1),
+                &lead_color,
                 ctx.theme.surface(),
                 ctx.theme.tokens.hairline,
             );
@@ -849,14 +997,15 @@ impl Track for ManhattanTrack {
             } else {
                 y + lead_radius + ctx.theme.tokens.row_gap + size * 0.8
             };
-            ctx.svg.text(
-                x,
-                baseline_y,
-                &text,
-                ctx.theme.color(1),
-                size,
-                Anchor::Middle,
-            );
+            // Its name in the ink of the text among the bins, as LocusZoom
+            // writes it: the purple stands 3.1 to 1 against the dark page,
+            // which a mark clears and a word of this size does not.
+            let ink = match self.linkage_colors {
+                LinkageColors::LocusZoom => &ctx.theme.foreground,
+                LinkageColors::Ramp => &lead_color,
+            };
+            ctx.svg
+                .text(x, baseline_y, &text, ink, size, Anchor::Middle);
         }
 
         // The rate's own scale on the right, in the line's colour, with its
@@ -1075,11 +1224,12 @@ mod tests {
         assert!(stacked.contains(">40 cM/Mb</text>"));
     }
 
-    /// A variant the linkage gives no r² for is an open ring, keyed and
-    /// counted apart. Filled a shade off the weakest linkage, five of them
-    /// read as r² of nought, and nothing said they had none.
+    /// A variant the linkage gives no r² for is keyed and counted apart: an
+    /// open ring on the ramp, and grey among the bins, which give no r² a
+    /// grey. Filled a shade off the ramp's weakest linkage, five of them read
+    /// as r² of nought, and nothing said they had none.
     #[test]
-    fn a_variant_with_no_r2_is_an_open_ring_keyed_and_counted() {
+    fn a_variant_with_no_r2_is_drawn_apart_keyed_and_counted() {
         let theme = Theme::light();
         let points = vec![
             Association::new(1_000, 2.0),
@@ -1087,9 +1237,10 @@ mod tests {
             Association::new(4_999, 9.0),
             Association::new(7_000, 4.0),
         ];
-        let track = ManhattanTrack::new(points)
+        let binned = ManhattanTrack::new(points)
             .linkage(4_999, vec![(1_000, 0.0), (3_000, 0.6)])
             .lead_name("snp1");
+        let track = binned.clone().linkage_colors(LinkageColors::Ramp);
         let figure = Figure::new(region())
             .show_region_label(false)
             .push(track.clone());
@@ -1109,6 +1260,30 @@ mod tests {
             figure.notes(),
             ["1 of 3 variants in view have no r² with snp1, and are drawn as open rings"]
         );
+        let figure = Figure::new(region())
+            .show_region_label(false)
+            .push(binned.clone());
+        let svg = figure.to_svg();
+        assert_eq!(svg.matches(&ring).count(), 0, "{svg}");
+        assert_eq!(
+            svg.matches(&format!("fill=\"{LOCUSZOOM_UNKNOWN}\""))
+                .count(),
+            1
+        );
+        let key = binned.key(&region(), 1.0, &theme).unwrap();
+        assert!(
+            key.items().iter().any(|item| matches!(item,
+                crate::track::legend::LegendItem::Key { label, marker, color }
+                    if label == "no r² (1)"
+                        && *marker == crate::track::legend::Marker::Dot
+                        && color == LOCUSZOOM_UNKNOWN)),
+            "{:?}",
+            key.items()
+        );
+        assert_eq!(
+            figure.notes(),
+            ["1 of 3 variants in view have no r² with snp1, and are drawn grey"]
+        );
         // Every variant given an r², nothing is keyed or said.
         let whole = ManhattanTrack::new(vec![
             Association::new(1_000, 2.0),
@@ -1123,6 +1298,92 @@ mod tests {
             key.items()
         );
         assert!(Figure::new(region()).push(whole).notes().is_empty());
+    }
+
+    /// A scan coloured by its linkage with a lead is drawn as LocusZoom draws
+    /// one: five bins of r² in its colours, keyed as five swatches under the
+    /// lead's name, and the lead a purple diamond. A continuous ramp from grey
+    /// to blue put an r² of 0.6 and one of 0.91 a shade apart, where a reader
+    /// of a regional plot looks for orange and red.
+    #[test]
+    fn a_scan_coloured_by_linkage_is_drawn_in_locuszoom_s_five_bins() {
+        let r2 = [0.0, 0.19, 0.2, 0.39, 0.4, 0.6, 0.79, 0.8, 1.0];
+        let mut points: Vec<Association> = (0..r2.len() as u64)
+            .map(|at| Association::new(500 + at * 1_000, 2.0 + at as f64 * 0.5))
+            .collect();
+        points.push(Association::new(9_900, 9.0));
+        let linkage: Vec<(u64, f64)> = r2
+            .iter()
+            .enumerate()
+            .map(|(at, r2)| (500 + at as u64 * 1_000, *r2))
+            .collect();
+        let track = ManhattanTrack::new(points)
+            .linkage(9_900, linkage)
+            .lead_name("rs9");
+        let svg = Figure::new(region()).push(track.clone()).to_svg();
+        let fills: Vec<&str> = svg
+            .split("<circle ")
+            .skip(1)
+            .filter_map(|circle| circle.split("fill=\"").nth(1)?.split('"').next())
+            .filter(|fill| *fill != "#ffffff")
+            .collect();
+        let expected = [
+            "#357ebd", "#357ebd", "#46b8da", "#46b8da", "#5cb85c", "#eea236", "#eea236", "#d43f3a",
+            "#d43f3a",
+        ];
+        let mut sorted = fills.clone();
+        sorted.sort_unstable();
+        let mut wanted = expected.to_vec();
+        wanted.sort_unstable();
+        assert_eq!(sorted, wanted, "{fills:?}");
+        // The lead is LocusZoom's purple diamond, named in the ink of text.
+        assert!(
+            svg.contains(&format!("fill=\"{LOCUSZOOM_LEAD}\"/></g>")),
+            "{svg}"
+        );
+        let theme = Theme::light();
+        assert!(
+            svg.contains(&format!(
+                "fill=\"{}\" font-size=\"10.5\" text-anchor=\"middle\">rs9</text>",
+                theme.foreground
+            )),
+            "{svg}"
+        );
+        let key = track.key(&region(), 1.0, &theme).unwrap();
+        let [crate::track::legend::LegendItem::Steps {
+            label,
+            steps,
+            marker,
+        }, lead] = key.items()
+        else {
+            panic!("{:?}", key.items());
+        };
+        assert_eq!(label, "r² with rs9");
+        assert_eq!(*marker, crate::track::legend::Marker::Dot);
+        let named: Vec<(&str, &str)> = steps
+            .iter()
+            .map(|(color, values)| (color.as_str(), values.as_str()))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("#357ebd", "< 0.2"),
+                ("#46b8da", "0.2–0.4"),
+                ("#5cb85c", "0.4–0.6"),
+                ("#eea236", "0.6–0.8"),
+                ("#d43f3a", "≥ 0.8"),
+            ]
+        );
+        assert!(matches!(lead,
+            crate::track::legend::LegendItem::Key { label, color, .. }
+                if label == "lead variant" && color == LOCUSZOOM_LEAD));
+        // The ramp is there for a reader who wants the r² itself.
+        let ramped = Figure::new(region())
+            .push(track.linkage_colors(LinkageColors::Ramp))
+            .to_svg();
+        for color in expected {
+            assert!(!ramped.contains(color), "{color} on the ramp");
+        }
     }
 
     /// A name the same as the axis's title is said once: `--label '-log10
@@ -1157,6 +1418,16 @@ mod tests {
         assert!(svg.contains(">rs1234</text>"), "{svg}");
         assert!(svg.contains("lead variant rs1234 at 5,000"), "{svg}");
         let key = track.key(&region(), 1.0, &Theme::light()).unwrap();
+        assert!(
+            key.items().iter().any(|item| matches!(item,
+                crate::track::legend::LegendItem::Steps { label, .. } if label == "r² with rs1234")),
+            "{:?}",
+            key.items()
+        );
+        let key = track
+            .linkage_colors(LinkageColors::Ramp)
+            .key(&region(), 1.0, &Theme::light())
+            .unwrap();
         assert!(
             key.items().iter().any(|item| matches!(item,
                 crate::track::legend::LegendItem::Ramp { label, .. } if label == "r² with rs1234")),

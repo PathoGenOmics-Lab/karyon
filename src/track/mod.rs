@@ -84,7 +84,7 @@ pub use junction::{Junction, JunctionTrack, Motif};
 pub use legend::{Legend, LegendItem, LegendTrack, Marker};
 pub use locus::{GeneShape, Homology, Locus, LocusTrack};
 pub use logo::{Centering, LogoColumn, LogoScore, LogoStack, LogoTrack, StackOrder};
-pub use manhattan::{Association, ManhattanTrack};
+pub use manhattan::{Association, LinkageColors, ManhattanTrack};
 pub use matrix::{CellScale, MatrixRow, MatrixTrack};
 pub use methylation::{MethylSite, MethylationTrack};
 pub use msa::{MsaColoring, MsaDisplay, MsaSequence, MsaTrack, ResidueClass};
@@ -140,6 +140,66 @@ pub(crate) fn band_note(ctx: &mut DrawContext<'_>, text: &str) {
         size,
         crate::svg::Anchor::End,
     );
+}
+
+/// Sentences written under a band in small print, each broken into lines
+/// that fit `width` pixels, and the size they are set at: what a track says
+/// of the way it was drawn that a reader of the figure has to know, where
+/// the figure goes into the paper with it.
+pub(crate) fn foot_lines(notes: &[String], width: f64, theme: &Theme) -> (Vec<String>, f64) {
+    let size = (theme.font_size - 1.0).max(6.0);
+    let mut lines = Vec::new();
+    for note in notes {
+        let mut line = String::new();
+        for word in note.split(' ') {
+            let longer = if line.is_empty() {
+                word.to_string()
+            } else {
+                format!("{line} {word}")
+            };
+            if !line.is_empty() && crate::svg::text_width(&longer, size) > width - 8.0 {
+                lines.push(std::mem::replace(&mut line, word.to_string()));
+            } else {
+                line = longer;
+            }
+        }
+        lines.push(line);
+    }
+    (lines, size)
+}
+
+/// The room `lines` lines of small print at `size` take under a band, in
+/// whole pixels, and none for none.
+pub(crate) fn foot_room(lines: usize, size: f64) -> f64 {
+    if lines == 0 {
+        0.0
+    } else {
+        (lines as f64 * (size + 4.0) + 6.0).ceil()
+    }
+}
+
+/// Writes `lines` of small print in the room [`foot_room`] gives them, from
+/// `top` down, starting at `x`.
+pub(crate) fn draw_foot(
+    svg: &mut SvgWriter,
+    x: f64,
+    top: f64,
+    lines: &[String],
+    size: f64,
+    theme: &Theme,
+) {
+    let mut y = top + 4.0;
+    for line in lines {
+        y += size + 4.0;
+        svg.text(
+            x,
+            y - 4.0,
+            line,
+            &theme.muted,
+            size,
+            crate::svg::Anchor::Start,
+        );
+    }
 }
 
 /// What a panel says of the tips of its tree that have no row.
@@ -415,6 +475,22 @@ pub trait Track {
     /// The figure is no place for these. A note drawn into it goes into the
     /// paper with it, and the reader of the paper cannot zoom.
     fn notes(&self, _region: &Region, _px_per_bp: f64, _theme: &Theme) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// What a reader of the figure has to be told to read this track as it
+    /// is drawn over `region` at `px_per_bp` pixels a base, a sentence each,
+    /// which the figure writes under the band in small print:
+    /// [`Figure::footnotes`](crate::Figure::footnotes) asks every track at
+    /// the zoom it draws at.
+    ///
+    /// Unlike [`Track::notes`], these go into the paper with the figure, for
+    /// what the reader of the paper would otherwise take the figure to say:
+    /// a rate drawn flat because the window lies inside one interval of a
+    /// map, or cells that pool the calls of several sites, which read as one
+    /// call. Said only on the terminal, a figure carrying either was handed
+    /// in as it was.
+    fn footnotes(&self, _region: &Region, _px_per_bp: f64, _theme: &Theme) -> Vec<String> {
         Vec::new()
     }
 

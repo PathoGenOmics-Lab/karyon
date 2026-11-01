@@ -127,6 +127,44 @@ fn is_vcf(text: &str) -> bool {
 /// per sample, one value per window.
 pub type WindowMatrix = (Vec<(u64, u64)>, Vec<MatrixRow>);
 
+/// The windows of one sequence, each 0-based and half-open, with the value of
+/// each sample there.
+pub type WindowValues = Vec<((u64, u64), Vec<f64>)>;
+
+/// Every window of a table of windows, on every sequence it names, as a
+/// heatmap drawn across a whole genome reads it.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GenomeWindows {
+    /// The samples, in the order of the header, or of a long table's rows.
+    pub samples: Vec<String>,
+    /// Each sequence the table names, in the order it first names them, with
+    /// its windows, each 0-based and half-open on that sequence and in the
+    /// order of the file, and the value of each sample there, in the order
+    /// of `samples`: missing where the cell is empty, `.` or `NA`, and where
+    /// a long table gives the sample no row in the window.
+    pub sequences: Vec<(String, WindowValues)>,
+}
+
+/// Which rows of a table are read: the ones over one window of one sequence,
+/// or every one, on whatever sequence it names.
+#[derive(Debug, Clone, Copy)]
+enum Rows<'a> {
+    In(&'a Region),
+    All,
+}
+
+impl Rows<'_> {
+    /// Whether a window on `sequence` from `start` to `end` is read.
+    fn keep(self, sequence: &str, start: u64, end: u64) -> bool {
+        match self {
+            Rows::In(region) => {
+                sequence == region.seq() && start < region.end() && end > region.start()
+            }
+            Rows::All => true,
+        }
+    }
+}
+
 /// Reads a value per sample per window, as `bedtools unionbedg` writes it.
 ///
 /// Each row is a window, a sequence, a start and an end, 0-based and
@@ -147,9 +185,92 @@ pub fn windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
     if is_long(text) {
         return long_windows(text, region);
     }
-    let mut names: Option<Vec<String>> = None;
     let mut spans = Vec::new();
     let mut values: Vec<Vec<f64>> = Vec::new();
+    let names = wide(text, Rows::In(region), |_, span, cells| {
+        spans.push(span);
+        if values.is_empty() {
+            values = vec![Vec::new(); cells.len()];
+        }
+        for (sample, value) in cells.into_iter().enumerate() {
+            values[sample].push(value);
+        }
+    })?;
+    let rows = names
+        .into_iter()
+        .zip(values.into_iter().chain(std::iter::repeat(Vec::new())))
+        .map(|(name, cells)| MatrixRow::new(name, cells))
+        .collect();
+    Ok((spans, rows))
+}
+
+/// Reads every window of a table of windows, on every sequence it names,
+/// for a heatmap laid across a whole genome: the table [`windows`] reads,
+/// wide or long, with no window left out for being somewhere else.
+///
+/// # Errors
+///
+/// What [`windows`] refuses.
+///
+/// ```
+/// use karyon::read::table::genome_windows;
+///
+/// let text = "chrom\tstart\tend\tS1\tS2\n2\t0\t500\t30\t.\n1\t0\t500\t28\t31\n";
+/// let read = genome_windows(text)?;
+/// assert_eq!(read.samples, ["S1", "S2"]);
+/// assert_eq!(read.sequences[1].0, "1");
+/// assert_eq!(read.sequences[1].1[0], ((0, 500), vec![28.0, 31.0]));
+/// assert!(read.sequences[0].1[0].1[1].is_nan());
+/// # Ok::<(), karyon::read::ReadError>(())
+/// ```
+pub fn genome_windows(text: &str) -> Result<GenomeWindows, ReadError> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    if is_long(text) {
+        let (samples, sequences) = long(text, Rows::All)?;
+        let sequences = sequences
+            .into_iter()
+            .map(|(name, cells)| {
+                let (spans, values) = matrixed(&samples, cells)?;
+                let windows = spans
+                    .into_iter()
+                    .enumerate()
+                    .map(|(column, span)| (span, values.iter().map(|row| row[column]).collect()))
+                    .collect();
+                Ok((name, windows))
+            })
+            .collect::<Result<_, ReadError>>()?;
+        return Ok(GenomeWindows { samples, sequences });
+    }
+    let mut sequences: Vec<(String, WindowValues)> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let samples = wide(text, Rows::All, |sequence, span, cells| {
+        // A file's rows come a sequence at a time, so the last one is asked
+        // about again far more often than any other.
+        let at = match sequences.last() {
+            Some((last, _)) if last == sequence => sequences.len() - 1,
+            _ => *index.entry(sequence.to_string()).or_insert_with(|| {
+                sequences.push((sequence.to_string(), Vec::new()));
+                sequences.len() - 1
+            }),
+        };
+        sequences[at].1.push((span, cells));
+    })?;
+    Ok(GenomeWindows { samples, sequences })
+}
+
+/// [`windows`] and [`genome_windows`] of a wide table, handing each window
+/// `rows` asks for to `each`, with the sequence its row names and the value
+/// of each sample there, and returning the names of the samples.
+fn wide(
+    text: &str,
+    rows: Rows<'_>,
+    mut each: impl FnMut(&str, (u64, u64), Vec<f64>),
+) -> Result<Vec<String>, ReadError> {
+    let mut names: Option<Vec<String>> = None;
+    // How many values the first window holds, which a table with no header
+    // names its samples by.
+    let mut width = 0;
+    let mut kept = false;
     for (index, raw) in text.lines().enumerate() {
         let line = index + 1;
         let raw = raw.trim_end_matches('\r');
@@ -164,7 +285,7 @@ pub fn windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
         if !is_data {
             // The first line that is not a window names the samples, where
             // it names at least one; a comment above it is only a comment.
-            if names.is_none() && spans.is_empty() && fields.len() >= 4 {
+            if names.is_none() && !kept && fields.len() >= 4 {
                 names = Some(
                     fields[3..]
                         .iter()
@@ -186,7 +307,7 @@ pub fn windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
             ));
         }
         let samples = fields.len() - 3;
-        let wanted = names.as_ref().map_or(values.len(), Vec::len);
+        let wanted = names.as_ref().map_or(width, Vec::len);
         if samples == 0 || (wanted > 0 && samples != wanted) {
             return Err(ReadError::at(
                 line,
@@ -200,33 +321,33 @@ pub fn windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
                 ),
             ));
         }
-        if values.is_empty() {
-            values = vec![Vec::new(); samples];
+        if width == 0 {
+            width = samples;
         }
-        if fields[0].trim() != region.seq() {
-            continue;
+        let sequence = fields[0].trim();
+        if let Rows::In(region) = rows {
+            if sequence != region.seq() {
+                continue;
+            }
         }
         let start: u64 = number(fields[1].trim(), "the start", line)?;
         let end: u64 = number(fields[2].trim(), "the end", line)?;
-        if end <= start || start >= region.end() || end <= region.start() {
+        if end <= start || !rows.keep(sequence, start, end) {
             continue;
         }
-        spans.push((start, end));
-        for (sample, field) in fields[3..].iter().enumerate() {
-            values[sample].push(cell(field, sample + 4, line)?);
-        }
+        let cells = fields[3..]
+            .iter()
+            .enumerate()
+            .map(|(sample, field)| cell(field, sample + 4, line))
+            .collect::<Result<Vec<f64>, ReadError>>()?;
+        kept = true;
+        each(sequence, (start, end), cells);
     }
-    let names = names.unwrap_or_else(|| {
-        (0..values.len())
+    Ok(names.unwrap_or_else(|| {
+        (0..width)
             .map(|column| format!("column {}", column + 4))
             .collect()
-    });
-    let rows = names
-        .into_iter()
-        .zip(values.into_iter().chain(std::iter::repeat(Vec::new())))
-        .map(|(name, cells)| MatrixRow::new(name, cells))
-        .collect();
-    Ok((spans, rows))
+    }))
 }
 
 /// The names a column of samples goes by in the header of a long table.
@@ -288,8 +409,34 @@ pub(crate) fn is_long(text: &str) -> bool {
 /// without being the same window, stop the read: a heatmap has one cell for
 /// each sample in each window, and neither has one answer.
 pub fn long_windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
+    let (samples, mut sequences) = long(text, Rows::In(region))?;
+    let cells = sequences.pop().map(|(_, cells)| cells).unwrap_or_default();
+    let (spans, values) = matrixed(&samples, cells)?;
+    let rows = samples
+        .into_iter()
+        .zip(values)
+        .map(|(name, cells)| MatrixRow::new(name, cells))
+        .collect();
+    Ok((spans, rows))
+}
+
+/// One row of a long table: its window, which of the samples it is, its
+/// value and the line it is on.
+type LongCell = ((u64, u64), usize, f64, usize);
+
+/// The samples a long table names and each sequence's rows of it.
+type LongRows = (Vec<String>, Vec<(String, Vec<LongCell>)>);
+
+/// One sequence's windows of a long table and each sample's value in each.
+type Columns = (Vec<(u64, u64)>, Vec<Vec<f64>>);
+
+/// The rows of a long table `rows` asks for, each sequence in the order the
+/// file first names it with its rows, and the samples they name, in the
+/// order the file first gives them.
+fn long(text: &str, rows: Rows<'_>) -> Result<LongRows, ReadError> {
     let mut samples: Vec<String> = Vec::new();
-    let mut cells: Vec<((u64, u64), usize, f64, usize)> = Vec::new();
+    let mut sequences: Vec<(String, Vec<LongCell>)> = Vec::new();
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for (line, raw) in lines(text) {
         let fields = columns(raw.trim_start_matches('#'));
         let is_data = fields.len() >= 3
@@ -309,12 +456,15 @@ pub fn long_windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadErr
                 ),
             ));
         }
-        if fields[0].trim() != region.seq() {
-            continue;
+        let sequence = fields[0].trim();
+        if let Rows::In(region) = rows {
+            if sequence != region.seq() {
+                continue;
+            }
         }
         let start: u64 = number(fields[1].trim(), "the start", line)?;
         let end: u64 = number(fields[2].trim(), "the end", line)?;
-        if end <= start || start >= region.end() || end <= region.start() {
+        if end <= start || !rows.keep(sequence, start, end) {
             continue;
         }
         let name = fields[3].trim();
@@ -325,8 +475,19 @@ pub fn long_windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadErr
                 samples.len() - 1
             }
         };
-        cells.push(((start, end), sample, cell(fields[4], 5, line)?, line));
+        let row = ((start, end), sample, cell(fields[4], 5, line)?, line);
+        let at = *index.entry(sequence.to_string()).or_insert_with(|| {
+            sequences.push((sequence.to_string(), Vec::new()));
+            sequences.len() - 1
+        });
+        sequences[at].1.push(row);
     }
+    Ok((samples, sequences))
+}
+
+/// The windows of one sequence's rows of a long table, in order along it,
+/// and each sample's value in each, missing where it has no row.
+fn matrixed(samples: &[String], cells: Vec<LongCell>) -> Result<Columns, ReadError> {
     let mut spans: Vec<(u64, u64)> = cells.iter().map(|(span, ..)| *span).collect();
     spans.sort_unstable();
     spans.dedup();
@@ -352,12 +513,7 @@ pub fn long_windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadErr
         }
         values[sample][column] = value;
     }
-    let rows = samples
-        .into_iter()
-        .zip(values)
-        .map(|(name, cells)| MatrixRow::new(name, cells))
-        .collect();
-    Ok((spans, rows))
+    Ok((spans, values))
 }
 
 /// Where the positions start in the header row.
@@ -458,6 +614,61 @@ mod tests {
         let overlap = "chr1\t0\t100\tS1\t3\nchr1\t50\t150\tS1\t4\n";
         let error = windows(overlap, &region("chr1:1-200")).unwrap_err();
         assert!(error.reason.contains("overlap"), "{}", error.reason);
+    }
+
+    /// Every window of every sequence, wide or long, each sequence in the
+    /// order the file first names it and its windows in the file's order,
+    /// with each sample's value there in the header's order: the same
+    /// windows and values a window over each sequence reads, and the same
+    /// refusals.
+    #[test]
+    fn a_table_of_windows_is_read_across_every_sequence_it_names() {
+        let wide = "chrom\tstart\tend\tS1\tS2\n\
+                    chr2\t0\t100\t5\tNA\n\
+                    chr1\t0\t100\t1\t2\n\
+                    chr2\t100\t150\t6\t7\n\
+                    chr1\t100\t200\t3\t.\n";
+        let read = genome_windows(wide).unwrap();
+        assert_eq!(read.samples, ["S1", "S2"]);
+        let names: Vec<&str> = read
+            .sequences
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(names, ["chr2", "chr1"]);
+        let chr2: Vec<(u64, u64)> = read.sequences[0].1.iter().map(|(span, _)| *span).collect();
+        assert_eq!(chr2, [(0, 100), (100, 150)]);
+        assert_eq!(read.sequences[1].1[0].1, [1.0, 2.0]);
+        assert!(read.sequences[0].1[0].1[1].is_nan(), "NA is missing");
+        // As each sequence's own window reads it.
+        let (spans, rows) = windows(wide, &region("chr1:1-200")).unwrap();
+        let across: Vec<(u64, u64)> = read.sequences[1].1.iter().map(|(span, _)| *span).collect();
+        assert_eq!(across, spans);
+        assert_eq!(rows[0].value(1), Some(read.sequences[1].1[1].1[0]));
+
+        // A long table: a sample with no row on a sequence is missing there.
+        let long = "chrom\tstart\tend\tsample\tdepth\n\
+                    chr1\t100\t200\tS1\t0\nchr1\t0\t100\tS1\t5\n\
+                    chr2\t0\t100\tS2\t1\nchr1\t0\t100\tS2\t7.5\n";
+        let read = genome_windows(long).unwrap();
+        assert_eq!(read.samples, ["S1", "S2"]);
+        assert_eq!(read.sequences[0].0, "chr1");
+        assert_eq!(read.sequences[0].1[0].0, (0, 100));
+        assert_eq!(read.sequences[0].1[0].1, [5.0, 7.5]);
+        assert!(read.sequences[0].1[1].1[1].is_nan(), "S2 has no row there");
+        assert!(
+            read.sequences[1].1[0].1[0].is_nan(),
+            "S1 has no row on chr2"
+        );
+
+        // Refused as a window refuses it, wherever the row is.
+        let short = "chrom\tstart\tend\tS1\tS2\nchr1\t0\t100\t1\t2\nchr9\t0\t100\t3\n";
+        let error = genome_windows(short).unwrap_err();
+        assert_eq!(error.line, 3);
+        assert!(error.reason.contains("the header names 2"), "{error}");
+        let overlap = "chr1\t0\t100\tS1\t3\nchr2\t0\t100\tS1\t3\nchr2\t50\t150\tS1\t4\n";
+        let error = genome_windows(overlap).unwrap_err();
+        assert!(error.reason.contains("overlap"), "{error}");
     }
 
     #[test]

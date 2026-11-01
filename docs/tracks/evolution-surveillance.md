@@ -27,7 +27,7 @@ A time-varying estimate with an optional uncertainty interval: an effective popu
 |:--|:--|
 | Rust | `.add_phylodynamics(points)` on `plot()`; `PhylodynamicTrack::new(points)` |
 | Command line | `--phylodynamics FILE`, with `--log`, `--threshold`, `--color`, `--height` |
-| Reads | a table of a time, an estimate and, where there is one, its interval, its columns found by their headers: `week` or `year`, `mean` or `median`, `lower` and `upper` (`read::series::estimates`) |
+| Reads | a table of a time, an estimate and, where there is one, its interval, its columns found by their headers: `week` or `year`, `mean` or `median`, `lower` and `upper` (`read::series::estimates`), and what they hold by the same headers (`read::series::estimate_names`) |
 
 === "Rust"
 
@@ -68,6 +68,9 @@ A time-varying estimate with an optional uncertainty interval: an effective popu
 | `.height(160.0)` | Band height in pixels | `126` |
 | `.scale(PhylodynamicScale::Log10)` | `Linear` or base-ten `Log10` | `Linear` |
 | `.unit("Ne")` | Unit shown in the tooltips and on the axis | none |
+| `.axis_title("R")` | What is estimated, written under the track's name | none |
+| `.estimate_name("mean")` | Names the line in the key | `estimate` |
+| `.interval_name("95% HPD")` | Names the ribbon in the key | `interval` |
 | `.color("#0072b2")` | Colour of the estimate | theme accent |
 | `.reference(1.0, "R = 1")` | Adds an independent guide line, such as `R = 1`, its words written over it at the left; words that are only its number are left off where the axis writes that number (`--threshold`) | none |
 | `.show_points(false)` | Shows or hides the point markers; the tooltips stay | shown |
@@ -79,6 +82,8 @@ A time-varying estimate with an optional uncertainty interval: an effective popu
 The track renders an inference someone else made. It does not fit a clock, a skyline, a coalescent or a birth-death model, and it draws the points in time order whatever order they arrive in.
 
 A time is a coordinate, as a base is, and counts from nought: time 0 is the first, which a ruler made with `AxisTrack::counting` and the tooltips both call 1. The command line reads a table's times as they are written, so week 1 is week 1 on the ruler and on hover.
+
+The command line names the track after its file and its axis and key after what the file's header says they hold: the quantity named inside EpiEstim's `Mean(R)`, or a column called `Ne`, `R`, `Rt` or `Re`, titles the axis, and where the header names only a statistic, `mean`, the axis says `mean`, since nothing says a mean of what and a quantity put there would be a guess. The key names the line by its statistic, `mean` or `median`, and the ribbon by its columns: `95% HPD` or `HPD` where they say so, `2.5% to 97.5%` for EpiEstim's quantiles, `95% interval` for `lower95` and `upper95`, and otherwise their two names, `lower to upper`.
 
 Log mode leaves out an estimate of nought or below rather than inventing a small positive value to draw. `PhylodynamicPoint::interval(lower, upper)` keeps only finite bounds in order, so a reversed, missing or non-finite interval draws no ribbon, while every accepted estimate and bound stays exact in its tooltip.
 
@@ -135,7 +140,7 @@ Observed lineage, clade, genotype or mutation counts through time, as stacked co
 |:--|:--|:--|
 | `.label("lineage frequency")` | Names the track in the left gutter | none |
 | `.height(160.0)` | Band height in pixels | `138` |
-| `.metric(SurveillanceMetric::Count)` | `Frequency`, each count over its total, or the raw `Count` | `Frequency` |
+| `.metric(SurveillanceMetric::Count)` | `Frequency`, each count over its total, or the raw `Count`, whose axis is titled `count` under the track's name, where a frequency's ticks say `50%` | `Frequency` |
 | `.style(SurveillanceStyle::Lines)` | `Stacked` composition, or one line per lineage with `Lines` | `Stacked` |
 | `.minimum_total(20)` | Leaves out observations whose total is below this sampling floor, and breaks the line at a time it empties | `1` |
 | `.frequency_alert(0.50)` | Flags observations at or above this frequency | none |

@@ -296,7 +296,8 @@ bedGraph it was written from does.
 or more of a zoom level, the coarsest such level is read instead of the values
 as written, and each bin is painted over its bases with what `--aggregate`
 takes of a pixel: its highest value, its lowest, or its sum spread over its
-bases, with the bases no value covers counted as 0 in each. A chromosome of
+bases, and without it both its lowest and its highest, the profile and the top
+of the pale wash over it, with the bases no value covers counted as 0 in each. A chromosome of
 249 Mb written as 4.7 million spans, a 38 MB bigWig, is then 5,139 bins of
 51,200 bases, and draws 900 pixels wide in 0.01 s and 4 MB, where its bedGraph
 takes 0.95 s and 216 MB. The figure is the one the values as written draw, but
@@ -547,7 +548,7 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 | | |
 |:--|:--|
 | Read by | `--variants`; `read::point::variants` |
-| Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ` |
+| Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ`, `CSQ`; the header's `##INFO=<ID=CSQ` line for the order of `CSQ`'s fields |
 | Ignored | 3 ID, 6 QUAL, 7 FILTER, and 9 onwards, which `--genotypes` reads, so a call that failed a filter is still drawn and a sites-only VCF reads like a cohort's |
 | Coordinates | 1-based: `POS 21563` is 0-based 21562 |
 | With an index | read a window at a time, through the `.tbi` that `tabix -p vcf calls.vcf.gz` writes or the `.csi` of `bcftools index`; the header comes with every window. The same calls as [BCF](#bcf) are read through theirs and draw the same figure |
@@ -562,26 +563,41 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 - **Category** is what an annotator wrote: the `ANN` entry naming this allele
   (from snpEff, or from VEP run with `--vcf_info_field ANN`), or else the
   first; or the first `BCSQ` consequence (from bcftools csq), without the `*`
-  of an uncertain one. VEP's own `CSQ`, which it writes unless told
-  otherwise, is not read, and its calls are named by their shape. With neither, it is
+  of an uncertain one; or the `CSQ` VEP writes unless told otherwise, its
+  fields found by the names its header's `Format: Allele|Consequence|...`
+  gives them, or in VEP's own order, the allele first and the consequence
+  second, where no header line says. VEP writes an entry per transcript in no
+  order of damage, so of the entries naming this allele, as the row spells it
+  or as VEP spells an indel's once the base its alleles share is off, `T` for
+  `C>CT` and `-` for `CA>C`, the most damaging is read, as the first of
+  snpEff's sorted `ANN` is; consequences joined with `&` are kept whole, as
+  they are from `ANN`. With none of them, it is
   the shape of REF against ALT: `substitution`, `insertion` or `deletion` by
   length, `breakend` for square brackets, and `deletion` for `*`. A symbolic
   allele is named by its tag: `<DEL>` is `deletion`, `<INS:ME:ALU>` is
   `insertion`, and `<DUP>` is `dup`.
-- **Colour** goes to the categories in view from the most damaging down, in
+- **Colour** goes to the categories of the whole file from the most damaging
+  down, in
   Ensembl's ranking of the Sequence Ontology consequences (`stop_gained`
   before `missense_variant` before `synonymous_variant`, a bcftools word such
   as `missense` ranked as its `_variant`, snpEff's `a&b` as the worse of the
   two, and a term of snpEff's own as the consequence it is a kind of:
   `conservative_inframe_deletion` as `inframe_deletion`, `intergenic_region`
   as `intergenic_variant`), then `substitution`, `insertion`, `deletion` and
-  `breakend`, then any other word alphabetically. A consequence keeps its
-  colour in a zoom into its gene unless the zoom leaves out one more
-  damaging, and the panels of several places rank the consequences of every
-  panel together, so one consequence is one colour across them.
+  `breakend`, then any other word alphabetically. Every call of the file is
+  ranked, on every sequence, so a consequence keeps its colour at every zoom
+  of the file, a zoom holding nothing more damaging included, and is one
+  colour across the panels of several places; the key names the ones in
+  view. A bgzipped VCF or a BCF read a window at a time through its index is
+  read to its end for this where it is no larger than 8 MB; a larger one
+  ranks the calls in view, those of every panel together. With `--color`
+  the four shapes are dealt to the consequences in view.
 - **Reach**: a call is kept when what REF spells touches the window, not only
   its first base, since a deletion is written one base to the left of what it
   removes.
+- **Alleles**: each call keeps REF and its own ALT, which its tooltip writes
+  after its place, `761,139 C>T`, and which a figure zoomed to a letter a base
+  writes beside its head where there is room.
 
 ### VCF genotypes { #vcf-genotypes }
 
@@ -786,7 +802,7 @@ NC_000962.3  100000  200000  70.4   98.7   0.0
 
 | | |
 |:--|:--|
-| Read by | `--heatmap`; `read::table::windows` |
+| Read by | `--heatmap`; `read::table::windows`, and `read::table::genome_windows` for every sequence, as a heatmap with no place is drawn across the whole genome |
 | Columns | a sequence, a start and an end, then one value per sample; the header names the samples |
 | Coordinates | 0-based, half-open, as BED; passed through |
 | With an index | read a window at a time, through the `.tbi` that `tabix -s1 -b2 -e3 -0 -S1 windows.tsv.gz` writes for a table with its header on the first line; a long table is read whole, since it names its samples on its rows |
@@ -936,7 +952,8 @@ out rather than drawn at nought.
 
 ### The segment table { #the-segment-table }
 
-Copy number over segments, as a caller concluded it. Used with `--ploidy`.
+Copy number over segments, as a caller concluded it, balanced at `--ploidy`
+or where the calls say.
 
 ```text
 chromosome  start      end        gene  log2   cn  cn1  cn2
@@ -962,16 +979,22 @@ chr17       7590000    7700000    -     NA     NA  NA   NA
 | log2 ratio, read last | `log2`, `log2ratio`, `logR`; `seg.mean` in a `.seg` file |
 | sample, where there is one | `sample`, `ID`, `sampleid`, `sample_id`, `name` |
 
-A log2 ratio becomes copies as `ploidy * 2^log2`, and the ploidy is not in the
-file, which is why `--ploidy` is required. The allele split is read first
-because a caller that wrote it did so on purpose, and a total cannot be turned
-back into one. A missing copy number leaves a gap rather than a level nobody
-called.
+A log2 ratio becomes copies as `ploidy * 2^log2`, and the ploidy is not in a
+file of ratios, which is why one with no copy numbers needs `--ploidy`. A file
+of called copies says it itself, and with no `--ploidy` it is read from there
+and said on standard error (`read::segments::balanced`): two where any call is
+split between two alleles, one copy of each, and else the whole number of
+copies the most bases carry, across every sequence of the one sample drawn. Two
+numbers carrying as many bases, or most of them at nought, say nothing, and
+`--ploidy` is asked for. The allele split is read first because a caller that
+wrote it did so on purpose, and a total cannot be turned back into one. A
+missing copy number leaves a gap rather than a level nobody called.
 
 Named with no place, the table is drawn across the whole genome, every
 sequence it calls a segment on end to end in the order chromosomes are
 counted, each as long as its furthest segment or as another file of the figure
-reaches, with `--ploidy` and `--sample` as over a place:
+reaches, with `--ploidy` and `--sample` as over a place, and balanced where the
+file says when `--ploidy` is left out:
 
 ```bash
 karyon tumour.bedgraph tumour.cns --ploidy 2 -o genome.svg
@@ -1021,14 +1044,21 @@ week  mean   lower  upper
 
 | | |
 |:--|:--|
-| Read by | `--phylodynamics`; `read::series::estimates` |
-| Columns | found by name in any case: a time, as for counts; an estimate (`estimate`, `mean`, `median`, `Mean(R)`); and, where there is an interval, its ends (`lower` and `upper`, `hpd_lower` and `hpd_upper`, EpiEstim's `Quantile.0.025(R)` and `Quantile.0.975(R)`) |
+| Read by | `--phylodynamics`; `read::series::estimates`, and `read::series::estimate_names` for what the columns hold |
+| Columns | found by name in any case: a time, as for counts; an estimate (`estimate`, `mean`, `median`, `Mean(R)`, or the quantity itself, `Ne`, `R`, `Rt`, `Re`); and, where there is an interval, its ends (`lower` and `upper`, `hpd_lower` and `hpd_upper`, EpiEstim's `Quantile.0.025(R)` and `Quantile.0.975(R)`) |
 | Coordinates | whole units, drawn as written; with fractions, a continuous time to a thousandth |
 | Refused | a missing time or estimate; a time as for counts |
 
 EpiEstim's table is read as R's `write.csv` writes it, drawn at the end of each
 window, `t_end`. An interval with an empty end, or `NA`, is not drawn, and the
 estimate is.
+
+The axis is titled with what is estimated where the header names it, `R`
+inside `Mean(R)` or a column called `Ne`, and with the estimate's own header
+where it names only a statistic: the table above says `mean`, and not of what.
+The key names the line by that statistic and the ribbon by its columns:
+`lower to upper` here, `95% HPD` where they say so, `2.5% to 97.5%` for
+EpiEstim's quantiles.
 
 ## Sequences and trees
 

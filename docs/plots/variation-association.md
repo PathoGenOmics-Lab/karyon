@@ -16,7 +16,7 @@ position.
 |:--|:--|:--|
 | Where are the calls, and how strong is each one? | [Point variants](../tracks/variation.md#varianttrack) | `VariantTrack`, `--variants` |
 | Which two positions does a rearrangement join? | [Structural variants](../tracks/variation.md#structuraltrack) | `StructuralTrack`, `--structural` |
-| How many copies are there, and has one allele been lost? | [Copy number](../tracks/variation.md#copynumbertrack) | `CopyNumberTrack`, `--copy-number` with `--ploidy` |
+| How many copies are there, and has one allele been lost? | [Copy number](../tracks/variation.md#copynumbertrack) | `CopyNumberTrack`, `--copy-number`, with `--ploidy` |
 | Which sites tell closely related samples apart? | [Variable sites](../tracks/variation.md#snptrack) | `SnpTrack`, `--snps` |
 | Which call does each sample carry, from a VCF? | [Genotypes by sample](../tracks/variation.md#genotypetrack) | `GenotypeTrack`, `--genotypes` |
 | Which samples carry what, site by site? | [Genotype matrix](../tracks/variation.md#matrixtrack) | `MatrixTrack`, `--matrix` |
@@ -70,10 +70,10 @@ position.
     **[Association scan](../tracks/variation.md#manhattantrack)**
     One point per test, a threshold you set and the points above it ringed; laid over a `Genome`, the scan runs across a whole assembly.
 
--   [![A peak of an association scan, each marker coloured from grey to blue by its linkage with the strongest, which is a diamond labelled with its name, and the three with no linkage known open rings, with a recombination rate with two hotspots laid behind it](../assets/start/locus.svg){ .k-light width="720" height="214" loading="lazy" }![A peak of an association scan coloured by linkage](../assets/start/locus-dark.svg){ .k-dark width="720" height="214" loading="lazy" }](../tracks/variation.md#manhattantrack)
+-   [![A peak of an association scan, each marker coloured by its linkage with the strongest in five bins from navy to red, the strongest a purple diamond labelled with its name, and the three with no linkage known grey, with a recombination rate with two hotspots laid behind it](../assets/start/locus.svg){ .k-light width="720" height="230" loading="lazy" }![A peak of an association scan coloured by linkage](../assets/start/locus-dark.svg){ .k-dark width="720" height="230" loading="lazy" }](../tracks/variation.md#manhattantrack)
 
     **[Scan coloured by linkage](../tracks/variation.md#manhattantrack)**
-    A peak as LocusZoom draws one: every marker coloured by its r² with the lead, so a second signal beside the first stands out grey.
+    A peak as LocusZoom draws one: every marker coloured by its r² with the lead in five bins, so a second signal beside the first stands out in the blues of weak linkage.
 
 -   [![Forty samples in the order of a tree, each a row of cells along a chromosome, with one clade missing a stretch and three samples carrying another twice](../assets/start/heatmap.svg){ .k-light width="720" height="602" loading="lazy" }![A heatmap of forty samples in windows](../assets/start/heatmap-dark.svg){ .k-dark width="720" height="602" loading="lazy" }](../tracks/variation.md#matrixtrack)
 

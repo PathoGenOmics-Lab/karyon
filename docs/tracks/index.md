@@ -59,7 +59,7 @@ On the [command line](../guide/cli.md), 35 of the 38 have a flag. Each flag star
 | [VariantTrack](variation.md#varianttrack) | Point calls as lollipops or ticks | `.add_variants(variants)` | `--variants` |
 | [GenotypeTrack](variation.md#genotypetrack) | The call of each sample at each site of a VCF, a row per sample | `.add_genotypes(samples, sites)` | `--genotypes` |
 | [StructuralTrack](variation.md#structuraltrack) | Structural calls as arcs between breakpoints | `.add_structural(variants)` | `--structural` |
-| [CopyNumberTrack](variation.md#copynumbertrack) | Segmented copy number and lost heterozygosity | `.add_copy_number(segments, ploidy)` | `--copy-number` with `--ploidy` |
+| [CopyNumberTrack](variation.md#copynumbertrack) | Segmented copy number and lost heterozygosity | `.add_copy_number(segments, ploidy)` | `--copy-number`, with `--ploidy` |
 | [SnpTrack](variation.md#snptrack) | The variable sites of an alignment, one row per sample | `.add_snps(names, sites)` | `--snps` |
 | [MatrixTrack](variation.md#matrixtrack) | A value per sample per site, or per window as a heatmap | `.add_matrix(sites, rows)` | `--matrix`, `--heatmap` |
 | [ManhattanTrack](variation.md#manhattantrack) | Association statistics against a threshold, or coloured by linkage with a lead | `.add_manhattan(points)` | `--manhattan`, with `--ld` |
@@ -176,7 +176,7 @@ The Command line column above maps each flag to its track. A few flags need comp
 
 - **A second file.** `--dynseq` needs `--with-sequence`, `--tanglegram` needs `--against`, `--clades` needs `--with-tree` and `--loci` needs `--links`, and each is refused without it. `--pileup` takes `--with-sequence` optionally, to find mismatches.
 - **A choice inside the file.** `--methylation` takes `--modification`, `--bisulfite` takes `--context` and `--domains` takes `--analysis`, for a file that holds several datasets; the command refuses to pick one for you.
-- **A number the file does not hold.** `--copy-number` needs `--ploidy`, since where balanced sits is not in the file.
+- **A number the file does not hold.** `--copy-number` needs `--ploidy` for a file of log ratios alone, since where balanced sits is not in it; a file of called copies says it, and the command says what it took.
 - **A gene and its CDS.** `--codons` reads no file of its own: it numbers the CDS the figure's annotation writes for the gene the figure is placed on, and takes its letters from the figure's `--sequence`.
 - **Standard input.** Any track file may be `-`, for one track per command, which is how CRAM gets in: `samtools` already writes the text these readers take. A BAM, a BCF, a bigWig, a bigBed, a 2bit and a `.hic` are named instead, since each is read out of order through an index.
 

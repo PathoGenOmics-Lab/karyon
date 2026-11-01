@@ -3787,3 +3787,211 @@ fn repeated_tip_names_and_negative_lengths_are_said() {
         "{warnings:?}"
     );
 }
+
+/// The fill a tip's point is painted, the last in the group its tooltip
+/// opens: a point is drawn on a ring of the page's colour.
+fn tip_point(svg: &str, title: &str) -> Option<String> {
+    let at = svg.find(&format!("<title>{title}</title>"))?;
+    let group = &svg[at..at + svg[at..].find("</g>")?];
+    let fill = group.rfind("fill=\"#")?;
+    Some(group[fill + 6..fill + 13].to_string())
+}
+
+/// The ink a name is written in.
+fn name_ink(svg: &str, name: &str) -> String {
+    let at = svg
+        .find(&format!(">{name}</text>"))
+        .unwrap_or_else(|| panic!("no name {name}"));
+    let text = &svg[svg[..at].rfind("<text").expect("the name's element")..at];
+    let fill = text.find("fill=\"").expect("an ink");
+    text[fill + 6..fill + 13].to_string()
+}
+
+/// Four lineages and two hosts, the hosts on the tips and the lineages on
+/// the branches.
+fn hosted() -> Tree {
+    Tree::parse_annotated_newick(
+        "((A[&lineage=L1,host=cow]:1,B[&lineage=L2,host=pig]:1):1,\
+         (C[&lineage=L3,host=cow]:1,D[&lineage=L4,host=pig]:1):1);",
+    )
+    .unwrap()
+}
+
+/// A tip coloured by a key is a point at the end of its branch and a name,
+/// both in its value's colour, in all three projections, and the key names
+/// each value with a point. No tip could be coloured, and colouring them
+/// took a strip beside them and a colour typed for each value.
+#[test]
+fn a_tip_coloured_by_a_key_is_a_point_and_a_name_in_its_colour() {
+    let theme = Theme::light();
+    for track in [
+        TreeTrack::new(hosted()),
+        TreeTrack::new(hosted()).circular(),
+        TreeTrack::new(hosted()).unrooted(),
+    ] {
+        let svg = drawn(track.color_by("lineage").tip_color_by("host"));
+        let mut hosts = BTreeSet::new();
+        for (tip, host) in [("A", "cow"), ("B", "pig"), ("C", "cow"), ("D", "pig")] {
+            let point = tip_point(&svg, &format!("{tip}; host {host}"))
+                .unwrap_or_else(|| panic!("no point at {tip}"));
+            assert_eq!(name_ink(&svg, tip), point, "{tip}'s name and its point");
+            hosts.insert((host, point));
+        }
+        assert_eq!(hosts.len(), 2, "{hosts:?}");
+        // The lineages run L1 to L4 from the palette's first colour, and the
+        // hosts take the two left: their stretch started on L4's colour.
+        let lineages: BTreeSet<String> = ["lineage L1", "lineage L2", "lineage L3", "lineage L4"]
+            .iter()
+            .flat_map(|title| painted_under(&svg, title))
+            .collect();
+        assert!(
+            hosts.iter().all(|(_, colour)| !lineages.contains(colour)),
+            "{hosts:?} {lineages:?}"
+        );
+        assert!(hosts.contains(&("cow", colour(4))) && hosts.contains(&("pig", colour(5))));
+    }
+    let track = TreeTrack::new(hosted())
+        .color_by("lineage")
+        .tip_color_by("host");
+    let key = track.legend(&theme);
+    let dots: Vec<&str> = key
+        .items()
+        .iter()
+        .filter_map(|item| match item {
+            crate::track::legend::LegendItem::Key {
+                label,
+                marker: crate::track::legend::Marker::Dot,
+                ..
+            } => Some(label.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(dots, ["host: cow", "host: pig"]);
+    assert!(track.warnings().is_empty(), "{:?}", track.warnings());
+}
+
+/// A name starts past the point at the end of its branch, in each
+/// projection: on the longest branch the two ran into each other.
+#[test]
+fn a_tip_s_name_starts_past_its_point() {
+    let theme = Theme::light();
+    let room = theme.tokens.marker_radius + theme.tokens.hairline;
+    let at = |svg: &str, from: &str, attribute: &str| -> f64 {
+        let piece = &svg[svg.find(from).unwrap_or_else(|| panic!("no {from}"))..];
+        let value = piece.split(&format!(" {attribute}=\"")).nth(1).unwrap();
+        value[..value.find('"').unwrap()].parse().unwrap()
+    };
+    let svg = drawn(TreeTrack::new(hosted()).tip_color_by("host"));
+    let point = at(&svg, "<title>A; host cow</title>", "cx");
+    let name = svg[..svg.find(">A</text>").unwrap()]
+        .rfind("<text")
+        .unwrap();
+    let name = at(&svg[name..], "<text", "x");
+    assert!(name - point >= room + 4.0 - 1e-9, "{point} {name}");
+    // The branches give the point its room, and the names keep their place.
+    let plain = drawn(TreeTrack::new(hosted()));
+    let start = plain[..plain.find(">A</text>").unwrap()]
+        .rfind("<text")
+        .unwrap();
+    assert!((at(&plain[start..], "<text", "x") - name).abs() < 1e-6);
+}
+
+/// Tips coloured by the key a strip or the branches colour by take the
+/// colours those take, keyed once; a tip holding no value is an open ring
+/// with its name in the ink of the others.
+#[test]
+fn a_tip_takes_the_colour_its_value_has_in_the_strip_beside_it() {
+    let svg = drawn(
+        TreeTrack::new(sampled())
+            .trait_categorical("lineage")
+            .trait_categorical("country")
+            .tip_color_by("country"),
+    );
+    for (tip, country) in [("A", "India"), ("B", "Peru"), ("C", "Chile")] {
+        let title = format!("{tip}; country {country}");
+        // The point's ring, the point and the cell, which say the same.
+        let point = tip_point(&svg, &title).unwrap();
+        let painted = painted_under(&svg, &title);
+        assert_eq!(painted.len(), 2, "{painted:?}");
+        assert!(
+            painted.contains(&point) && point != "#ffffff",
+            "{painted:?}"
+        );
+    }
+    let key = keyed(
+        &TreeTrack::new(sampled())
+            .trait_categorical("country")
+            .tip_color_by("country")
+            .legend(&Theme::light()),
+    );
+    assert_eq!(key.len(), 3, "{key:?}");
+
+    let tree = Tree::parse_annotated_newick("((A[&host=cow]:1,B:1):1,C[&host=pig]:1);").unwrap();
+    let svg = drawn(TreeTrack::new(tree).tip_color_by("host"));
+    assert!(svg.contains("<title>B; host missing</title>"));
+    assert_eq!(name_ink(&svg, "B"), Theme::light().muted);
+    assert_ne!(name_ink(&svg, "A"), Theme::light().muted);
+}
+
+/// More values on the tips than the palette has colours are shapes as well,
+/// and the figure says so under the tree, with the way to colours of their
+/// own; numbers on the tips are a ramp, keyed as one.
+#[test]
+fn tips_of_more_values_than_colours_are_shapes_and_numbers_a_ramp() {
+    let names: Vec<String> = (0..8).map(|i| format!("T{i}")).collect();
+    let newick = format!(
+        "({});",
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| format!("{name}[&place=P{i},year={}]:1", 2010 + i))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let tree = Tree::parse_annotated_newick(&newick).unwrap();
+    // An annotation of the file takes no colours of its own, so the way to
+    // them is not said.
+    let warned = TreeTrack::new(tree.clone())
+        .tip_color_by("place")
+        .recolour("--colors gives them colours of their own")
+        .warnings();
+    assert_eq!(
+        warned,
+        ["place: 8 values for 6 colours, so each tip is a shape as well"]
+    );
+    // The second is a square, and the seventh comes round to the first
+    // colour as a diamond.
+    let svg = drawn(TreeTrack::new(tree.clone()).tip_color_by("place"));
+    let shapes = |title: &str| {
+        let at = svg.find(&format!("<title>{title}</title>")).unwrap();
+        svg[at..at + svg[at..].find("</g>").unwrap()].to_string()
+    };
+    assert!(
+        shapes("T1; place P1").contains("<rect"),
+        "{}",
+        shapes("T1; place P1")
+    );
+    assert!(shapes("T0; place P0").contains("<circle"));
+    assert_eq!(
+        tip_point(&svg, "T6; place P6"),
+        tip_point(&svg, "T0; place P0")
+    );
+    assert!(shapes("T6; place P6").contains("<polygon"));
+    let key = TreeTrack::new(tree.clone())
+        .tip_color_by("place")
+        .legend(&Theme::light());
+    assert!(key.items().iter().any(|item| matches!(
+        item,
+        crate::track::legend::LegendItem::Key {
+            marker: crate::track::legend::Marker::Symbol(crate::Symbol::Square),
+            ..
+        }
+    )));
+    let ramp = TreeTrack::new(tree)
+        .tip_color_by("year")
+        .legend(&Theme::light());
+    assert!(matches!(
+        ramp.items(),
+        [crate::track::legend::LegendItem::Ramp { label, .. }] if label == "year"
+    ));
+}

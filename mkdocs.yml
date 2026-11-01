@@ -169,6 +169,7 @@ nav:
       - An alignment and its tree: your-data/alignment.md
       - Two assemblies: your-data/assemblies.md
       - A whole sequence: your-data/genome.md
+      - A plasmid or circular genome: your-data/plasmid.md
       - A heatmap of many samples: your-data/samples.md
       - Genotypes of many samples: your-data/genotypes.md
       - Pairs of positions: your-data/pairs.md

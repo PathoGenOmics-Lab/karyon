@@ -25,21 +25,21 @@ Four rules cover every command:
     A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
     place, since none of them is drawn in a window, and neither does a figure
     across the whole genome: with no place, `--manhattan`, `--coverage`,
-    `--windows` and `--copy-number` files are drawn over every sequence they
-    name end to end, in the order chromosomes are counted, each as long as the
-    furthest any file reaches on it, or as a bigWig says, and named under the
-    tracks, as `karyon tumour.bedgraph tumour.cns --ploidy 2`. A sequence a
-    coverage file names no row on is a gap in its track, not a depth of nought,
-    and files that name one sequence draw it as though it were the place
-    written. Anything else needs a place, and one beside them is refused by
-    name: a FASTA, an annotation, calls, a `--heatmap` table of windows. So
-    does a scan read with `--ld` or `--with-recombination`, or a signal with
-    `--format values`, and the option is what is named. A BAM or a CRAM, whose
-    depth across a genome is every read it holds, is refused with the
-    `mosdepth --by` that counts it in windows instead. A sequence drawn to the
-    end of a file's rows, because no file says how long it is, is said to stop
-    there, unless the rows are windows whose last is cut short of the others,
-    which a table of windows does only at a sequence's end.
+    `--windows`, `--copy-number` and `--heatmap` files are drawn over every
+    sequence they name end to end, in the order chromosomes are counted, each
+    as long as the furthest any file reaches on it, or as a bigWig says, and
+    named under the tracks, as `karyon tumour.bedgraph tumour.cns --ploidy 2`.
+    A sequence a coverage file names no row on is a gap in its track, not a
+    depth of nought, and files that name one sequence draw it as though it were
+    the place written. Anything else needs a place, and one beside them is
+    refused by name: a FASTA, an annotation, calls. So does a scan read with
+    `--ld` or `--with-recombination`, or a signal with `--format values`, and
+    the option is what is named. A BAM or a CRAM, whose depth across a genome
+    is every read it holds, is refused with the `mosdepth --by` that counts it
+    in windows instead. A sequence drawn to the end of a file's rows, because
+    no file says how long it is, is said to stop there, unless the rows are
+    windows whose last is cut short of the others, which a table of windows
+    does only at a sequence's end.
 
     Several places draw one panel each, one under the other, with the same
     tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3
@@ -75,7 +75,7 @@ Four rules cover every command:
 | `.nwk`, `.newick`, `.tree`, `.treefile` | a phylogeny (`--tree`) |
 | `.paf` | synteny (`--synteny`) |
 | `.assoc`, `.glm.linear`, `.regenie` | an association scan (`--manhattan`) |
-| `.cns`, `.seg` | copy number (`--copy-number`), from CNVkit, or the table IGV and GISTIC2 read; `--ploidy` is still required |
+| `.cns`, `.seg` | copy number (`--copy-number`), from CNVkit, or the table IGV and GISTIC2 read; a `.seg` of log ratios needs `--ploidy` |
 | `.ld`, `.bedpe` | pairs of positions (`--pairs`) |
 | `.hic` | a contact map (`--pairs`), read through its index at one resolution |
 | `.slow5` | a read's signal (`--squiggle`) |
@@ -136,9 +136,10 @@ Read the command one flag at a time:
 
 - `NC_000962.3:761,000-762,999` is the window every track is drawn over.
 - `--coverage depth.bedgraph` opens the first band. The three options after it
-  belong to it: `--label` names it in the left gutter, `--aggregate min` keeps
-  a dropout visible where one pixel covers several bases, and `--height` sets
-  how tall it is.
+  belong to it: `--label` names it in the left gutter, `--aggregate min` draws
+  the lowest depth of each pixel that covers several bases, the profile
+  without the pale wash up to the highest drawn without it, and `--height`
+  sets how tall it is.
 - `--sequence`, `--features` and `--variants` open the next three bands, each
   named by the `--label` that follows it.
 - `--title` and `-o` describe the figure, so where they sit does not matter.
@@ -198,7 +199,7 @@ file, or `-` for [standard input](#standard-input), except `--axis` and
 | `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
 | `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) or [2bit](formats.md#2bit) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
 | `--features <FILE>` | genes and other intervals, a gene drawn once with its exons | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3), or [bigBed](formats.md#bigbed) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
-| `--variants <FILE>` | point calls, coloured by the consequence in `ANN` or `BCSQ`, or by the shape of the call | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
+| `--variants <FILE>` | point calls, coloured by the consequence in `ANN`, `BCSQ` or VEP's `CSQ`, or by the shape of the call | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
 | `--genotypes <FILE>` | the call of each sample at each site, a row per sample | [VCF with samples](formats.md#vcf-genotypes) | [GenotypeTrack](../tracks/variation.md#genotypetrack) |
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) or [bigWig](formats.md#bigwig) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
@@ -302,7 +303,7 @@ takes.
 | `--analysis <NAME>` | `Pfam`, `PANTHER` or another member database | `--domains` | the one analysis in the file; refused when it holds several |
 | `--read <NAME>` | a read the SLOW5 file names | `--squiggle` | the first read, and the command says how many the file holds |
 | `--resolution <BASES>` | a size of bin the `.hic` holds, in bases, as `10000` | `--pairs`, after a `.hic` | the finest that cuts the window into 250 bins or fewer, and a note says so where the file holds finer |
-| `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | required |
+| `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | where the file's calls say, and the command says so: 2 for calls split between two alleles, else the copies most of the genome carries; refused for a file of log ratios alone |
 | `--sample <NAME[,N]>` | a sample the table names; after `--genotypes`, samples of the VCF, comma separated, in the order to draw them | `--copy-number`, `--genotypes` | the one sample, refused when the table holds several; every sample of the VCF, in the order of its header |
 | `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--genotypes`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
@@ -310,6 +311,7 @@ takes.
 | `--threshold <V|genome-wide>` | a number in the file's units, so a p-value for a file of p-values, or `genome-wide` for -log10(5e-8) on a scan | `--manhattan`; `--tree`, as the least support worth showing; `--phylodynamics`, as a dashed reference; `--selection`, as the p-value or posterior a site needs; `--pairs`, as the least value drawn; `--frequencies`, as the frequency a lineage is flagged at | no line on a scan; every support value on a tree; no reference; p = 0.05, or a posterior of 0.9; every pair; no lineage flagged |
 | `--projection <HOW>` | `rectangular`, `circular` or `unrooted` | `--tree` | `rectangular` |
 | `--color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | one colour for every branch |
+| `--tip-color-by <KEY>` | a column of the `--traits` sheet, or an annotation in the file | `--tree` | no point at the tips, and their names in the ink of the text |
 | `--support-style <HOW>` | `none`, `symbols`, `labels` or `both` | `--tree` | `none`: support is in the tooltips only |
 | `--support-from <KEY>` | an annotation of numbers on the clades, as `posterior` in a BEAST tree or `prob` in a MrBayes one | `--tree` | the internal labels, as a bootstrap writes them |
 | `--mutations <KEY>` | the annotation the changes are kept under; needs `--carrying` | `--tree` | no changes read |
@@ -331,7 +333,7 @@ takes.
 | `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--genotypes`, `--bisulfite`, `--tree` | 40 for the first five; no cap on a tree |
 | `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
 | `--isoforms` | nothing | `--features` | each gene once, with every exon its transcripts use |
-| `--aggregate <HOW>` | `max`, `mean` or `min`, which for a bigWig also picks the summary its zoom level is drawn from | `--coverage` | `max` |
+| `--aggregate <HOW>` | `max`, `mean` or `min`: the one value drawn for a pixel that covers many bases, which for a bigWig also picks the summary its zoom level is drawn from | `--coverage` | the profile along the lowest value of a pixel holding several, under a pale wash up to the highest, keyed as `lowest value in a pixel` and `highest value in a pixel`; `max` on a ring |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage and a `.hic` always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
 | `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it. A profile of `--coverage` or `--recombination` that runs past it is struck along the top where it was cut, and its top label reads `30+`, the pin itself where it is not a round tick; a cell of `--matrix` or `--heatmap` past it carries a dot, and the key reads `150+`. `--windows`, `--manhattan` and `--pairs` draw what runs past it at it, and do not mark it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
@@ -357,7 +359,7 @@ second with an option, spelled by what the file is:
 | `--loci` | the genes of each genome | `--links`, the homologies between neighbouring rows |
 | `--dynseq` | one score per base | `--with-sequence`, the reference the letters are drawn from |
 | `--pileup` | the aligned reads | `--with-sequence`, optional: the reference mismatches are read against, the figure's `--sequence` when not given |
-| `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points as LocusZoom does; `--with-recombination`, optional: a genetic map laid over it, read off a scale on the right |
+| `--manhattan` | the scan | `--ld`, optional: the linkage of each variant with the lead, which colours the points in LocusZoom's five bins of r²; `--with-recombination`, optional: a genetic map laid over it, read off a scale on the right |
 | `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--domains` | the rows | `--with-tree`, optional: the tree the rows are ordered by and drawn beside |
 | `--squiggle` | the read's current | `--with-moves`, optional: the basecaller's record of the read, whose move table puts each base over its stretch of current |
 
@@ -440,9 +442,13 @@ rather than one of several, as `--sample S07,S01,S12`. A name the VCF does not
 hold is refused with the first five it does. A methylation, bisulfite or
 domain band is named after what it shows unless `--label` names it.
 
-`--copy-number` also needs `--ploidy`, the copy number that counts as balanced.
-The segment file does not say it, and a rule in the wrong place turns every gain
-into a loss.
+`--copy-number` reads where balanced sits from `--ploidy`, the copy number that
+counts as balanced. Left out, it is taken from the file's calls where they say
+it, and the command says so: two where each call is split between two alleles,
+one copy of each, as CNVkit's `cn1` and `cn2` and ASCAT's `nMajor` and `nMinor`
+are, and else the number of copies most of the genome carries. A file of log2
+ratios alone does not say it, and is refused asking for `--ploidy`: a rule in
+the wrong place turns every gain into a loss.
 
 ### How deep a stack of rows goes
 
@@ -508,10 +514,14 @@ karyon: --matrix samples.tsv has no column called linage; it has lineage, host, 
 ```
 
 Each column of words starts on a stretch of the palette's six colours of its
-own. A column of more than six values is drawn in shapes as well, and one that
-runs past its stretch shares colours with the column after it; a tree says
-either under it. `--colors` gives the values colours of your own, the ones
-your field already knows them by:
+own, and a column after the first whose values fit in the colours the ones
+before it left takes those instead, so two columns share no colour while the
+palette has room for both; a tree's branches and tips, coloured by
+`--color-by` and `--tip-color-by`, are columns too. A column of more than six
+values is drawn in shapes as well, and one that does not fit in what is left
+shares colours with a column before it; a tree says either under it.
+`--colors` gives the values colours of your own, the ones your field already
+knows them by:
 
 ```bash
 karyon tree.nwk --traits samples.tsv --columns lineage,country \
@@ -559,6 +569,11 @@ karyon --tree big.nwk --max-rows 60 \
   too, so a lineage comes out as a coloured clade. A column of the sheet takes
   the colours `--colors` gives it; an annotation of the Newick keeps the
   palette.
+- `--tip-color-by` colours each tip, a point at the end of its branch and its
+  name, by a column of the sheet or an annotation, so the branches can say the
+  lineage while the tips say the country. A value is the colour of its strip
+  and of branches coloured by it, and a tip the sheet says nothing of is an
+  open ring.
 - `--support-style` makes support values readable without hovering, and
   `--threshold` hides the ones below it.
 - A phylogram draws a scale bar, a rule in its own branch-length units, and
@@ -587,8 +602,8 @@ karyon --tree tree.nwk --mutations mutations --carrying S:D614G
 happened, which is every tip that carries it, and colours by the answer unless
 `--color-by` says otherwise. A change that arose twice marks both clades.
 
-A clade, tip, change or `--color-by` key the tree does not hold is refused with
-what it does hold, rather than drawing the whole tree:
+A clade, tip, change, `--color-by` or `--tip-color-by` key the tree does not
+hold is refused with what it does hold, rather than drawing the whole tree:
 
 ```text
 $ karyon --tree tree.nwk --focus ERR9
@@ -739,7 +754,7 @@ karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz \
 
 | Track | Its ring |
 |:--|:--|
-| `--features` | an arc a feature, the forward strand on the outer half and the reverse on the inner, as a band of features paints them; named where the ring holds at most 20 named features, and `--no-names` leaves them off |
+| `--features` | an arc a feature, the forward strand on the outer half and the reverse on the inner, as a band of features paints them, a gene wider than three degrees ending in a point at its 3' end; what the annotation calls something other than a gene, as an `origin_of_transfer` or a `repeat_region`, an arc with no point in the muted ink, keyed by its kind; named where the ring holds at most 20 named features, and `--no-names` leaves them off |
 | `--coverage` | the depth cut into 1,000 arcs, each the `--aggregate` of its bases (`max` unless written), read either side of its median: a stretch lost dips inside the line, one carried twice stands outside it |
 | `--windows` | the windows cut into the same arcs, each the mean of the windows under it, read either side of 0 as the band is |
 | `--variants` | a tick a call, coloured by consequence from the most damaging down, as a band of calls deals them |
@@ -758,8 +773,11 @@ karyon NC_000962.3 --circular genes.gff3 calls.vcf.gz \
   the files' headers and indexes alone, and any other span is part of one.
   Several places are left for a command each.
 - **Named in the key and on hover.** Each ring is called after its file, or
-  its `--label`. The ring's name is its tooltip, and the key under the circle
-  gives a line to each ring, outside in, with what its colours mean.
+  its `--label`, and a ring of annotation after what it holds: `genes`, or the
+  one kind it holds, as `repeat_region`, where the annotation says; a BED,
+  which says nothing of what its rows are, after its file. The ring's name is
+  its tooltip, and the key under the circle gives a line to each ring, outside
+  in, with what its colours mean.
 - **What a ring takes.** `--label`, `--height` for its thickness where the
   track takes one, `--aggregate` on a depth, `--color` on a depth or features,
   `--format`, and `--no-names` on features and structural calls.
@@ -1004,7 +1022,8 @@ which a pixel holds two bins or more, the coarsest such, rather than from its
 values as written: a chromosome 900 pixels wide is a few thousand bins of the
 summary the file keeps for that scale, where its values as written may be
 millions of spans. Each bin is drawn with what `--aggregate` takes of a pixel,
-its most, its least or its mean, with the bases no value covers counted as
+its most, its least or its mean, and without it with its least and its most,
+the profile and the top of its pale wash, with the bases no value covers counted as
 nought, so the figure is the one the values as written would draw, but for a
 bin that straddles two columns and is drawn in both: a peak may come out a
 column wider than it is. Its scale runs to the most of the values under the
@@ -1194,10 +1213,10 @@ The command line is checked before any file is opened:
 
 ```text
 $ karyon --features genes.gff3
-karyon: the first argument is the place, as in NC_000962.3:761,000-763,000, or a gene or a sequence drawn whole; --coverage, --copy-number, --windows and --manhattan tracks alone are drawn across the whole genome, and a figure of --tree, --msa, --snps, --logo, --tanglegram, --frequencies, --phylodynamics, --selection or --squiggle tracks goes without one
+karyon: the first argument is the place, as in NC_000962.3:761,000-763,000, or a gene or a sequence drawn whole; --coverage, --copy-number, --windows, --manhattan and --heatmap tracks alone are drawn across the whole genome, and a figure of --tree, --msa, --snps, --logo, --tanglegram, --frequencies, --phylodynamics, --selection or --squiggle tracks goes without one
 
 $ karyon trait.assoc genes.gff3
-karyon: --features genes.gff3 is drawn over a place, and with none a figure is drawn across the whole genome, which --coverage, --copy-number, --windows and --manhattan tracks alone are: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
+karyon: --features genes.gff3 is drawn over a place, and with none a figure is drawn across the whole genome, which --coverage, --copy-number, --windows, --manhattan and --heatmap tracks alone are: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
 
 $ karyon trait.assoc gwas.assoc --ld lead.ld
 karyon: --manhattan gwas.assoc is drawn over a place with --ld, since the linkage to a lead is read over one stretch of one sequence: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
@@ -1234,9 +1253,6 @@ karyon: --aggregate means nothing to a features track; it is an option of depth.
 
 $ karyon NC_000962.3:761,000-763,000 genes.gff3 --genotypes cohort.vcf.gz --color '#8b0000'
 karyon: --color means nothing to a genotypes track
-
-$ karyon chr8:1-1000 --copy-number segments.cns
-karyon: --copy-number needs --ploidy, since where balanced sits is not in the file
 ```
 
 Then the files, in the order the tracks are stacked. Every message names the
@@ -1256,6 +1272,9 @@ karyon: --variants calls.vcf: no variants in 1:1-5000, though the file holds 12 
 
 $ karyon aln:1-9 --msa aln.fa
 karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns
+
+$ karyon chr8:1-1000 --copy-number segments.seg
+karyon: --copy-number segments.seg needs --ploidy: it holds log2 ratios and no copy numbers, so where balanced sits is not in the file
 ```
 
 A file that parsed and held nothing for the window is an error too, because an

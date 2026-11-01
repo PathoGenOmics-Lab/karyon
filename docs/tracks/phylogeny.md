@@ -21,7 +21,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | | |
 |:--|:--|
 | Rust | `.add_tree(tree)` on `plot_tree()`, a plot that names no place, or on `plot()`; `TreeTrack::new(tree)` |
-| Command line | `--tree FILE`, with `--projection`, `--shape`, `--color-by`, `--support-style`, `--threshold`, `--no-scale-bar`, `--mutations`, `--carrying`, `--highlight`, `--focus`, `--max-rows`, `--row-height`, `--traits`, `--columns` |
+| Command line | `--tree FILE`, with `--projection`, `--shape`, `--color-by`, `--tip-color-by`, `--support-style`, `--threshold`, `--no-scale-bar`, `--mutations`, `--carrying`, `--highlight`, `--focus`, `--max-rows`, `--row-height`, `--traits`, `--columns` |
 | Reads | Newick or NEXUS with BEAST, NHX or IQ-TREE annotations, the first tree of a file of several (`Tree::parse`; `Tree::parse_all` for every one) |
 
 === "Rust"
@@ -104,6 +104,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 | `.show_tips(false)` | Shows or hides the tip names | shown |
 | `.show_nodes(true)` | Draws a point at every visible internal node | off |
 | `.color_by("lineage")` | Colours each branch by an annotation, inherited down the tree (`--color-by`) | none |
+| `.tip_color_by("country")` | Colours each tip, a point at the end of its branch and its name, by an annotation (`--tip-color-by`) | none |
 | `.time("date")` | Places the tree on a numeric annotation such as a decimal date | none |
 | `.time_direction(TimeDirection::Decreasing)` | Whether time grows or shrinks from root to tips | `Increasing` |
 | `.time_unit("year")` | What the time axis counts, written as its title: under the numbers of a phylogram, at the inner end of a circle's rings | none |
@@ -171,7 +172,7 @@ A phylogeny from Newick, drawn as a phylogram when the branch lengths mean somet
 ![An unrooted phylogram with colour strips, radial depth bars, binary resistance markers and host symbols beside a circular cladogram carrying the same datasets](../assets/figures/example-phylo-annotations.svg){ width="1480" height="712" loading="lazy" }
 </figure>
 
-**Metadata.** Annotated Newick, BEAST and NHX annotations are kept as typed values on their nodes. `time` places nodes on a numeric date or height, and every tip must carry it. `color_by` colours a branch by an annotation inherited down the tree, so a clade whose tips agree takes their colour. On the command line `--traits` copies a sample sheet onto the tips it names, so the sheet's columns work with `--color-by` as well as drawing as strips.
+**Metadata.** Annotated Newick, BEAST and NHX annotations are kept as typed values on their nodes. `time` places nodes on a numeric date or height, and every tip must carry it. `color_by` colours a branch by an annotation inherited down the tree, so a clade whose tips agree takes their colour, and `tip_color_by` colours the tips by another. On the command line `--traits` copies a sample sheet onto the tips it names, so the sheet's columns work with `--color-by` and `--tip-color-by` as well as drawing as strips.
 
 **Nodes and clades.** `NodeGlyph::bubble`, `pie`, `donut` and `stacked_bar` attach numbers to nodes; `NodeGlyphTarget` limits them to internal nodes or leaves, and a missing value draws no glyph rather than a zero. `CladeHighlight` marks one clade as a band, a sector or a field, depending on the projection, without changing the topology.
 

@@ -36,9 +36,11 @@ impl RadialGeometry {
                 })
                 .fold(0.0f64, f64::max)
                 + 6.0
+                + track.tip_room(theme)
         } else {
             4.0
         };
+        let room = track.tip_room(theme);
         let gap = theme.tokens.legend_gap.clamp(1.0, 4.0);
         let ring_room = if track.trait_columns.is_empty() {
             0.0
@@ -56,7 +58,7 @@ impl RadialGeometry {
                 let ring_outer = (half - label_extent).max(4.0);
                 let tree_outer = (ring_outer - ring_room).max(2.0);
                 let tree_inner = tree_outer * track.radial.inner_radius;
-                (tree_outer, tree_inner, ring_outer, ring_outer + 4.0)
+                (tree_outer, tree_inner, ring_outer, ring_outer + 4.0 + room)
             }
             RadialDirection::Inward => {
                 let ring_outer = half;
@@ -71,7 +73,7 @@ impl RadialGeometry {
                     tree_outer,
                     tree_inner,
                     ring_outer,
-                    (tree_inner - 4.0).max(0.0),
+                    (tree_inner - 4.0 - room).max(0.0),
                 )
             }
         };
@@ -413,6 +415,22 @@ pub(super) fn draw_radial_labels(
     scene: &TreeScene,
     geometry: &RadialGeometry,
 ) {
+    let painted = track.tip_paint(ctx.theme);
+    // A point at the end of each tip's branch, under the names.
+    if let Some(painted) = &painted {
+        for (row, node) in scene.terminals.iter().enumerate() {
+            let (Some(placement), true) =
+                (scene.placements[*node], track.tree.nodes()[*node].is_leaf())
+            else {
+                continue;
+            };
+            let at = geometry.point(
+                geometry.radius(scene, placement.depth),
+                geometry.angle(row as f64),
+            );
+            painted.point(ctx, &track.tree, *node, at);
+        }
+    }
     if !track.show_tips {
         return;
     }
@@ -428,11 +446,15 @@ pub(super) fn draw_radial_labels(
             (RadialDirection::Inward, true) => (degrees, crate::svg::Anchor::End),
             (RadialDirection::Inward, false) => (degrees + 180.0, crate::svg::Anchor::Start),
         };
+        let ink = painted.as_ref().map_or_else(
+            || ctx.theme.muted.clone(),
+            |painted| painted.ink(&track.tree, *node, track.folded(), ctx.theme),
+        );
         ctx.svg.text_rotated(
             (x, y + size * 0.32),
             rotation,
             &terminal_label(&track.tree, *node, track.folded(), &track.fold_names),
-            &ctx.theme.muted,
+            &ink,
             size,
             anchor,
         );

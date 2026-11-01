@@ -36,6 +36,101 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   grows by 4 to 30 kilobytes for each face it uses, about 28 kilobytes for most
   of the examples; the playground's wasm does not carry the fonts and is 13
   bytes larger.
+- A gene on a ring of `FeatureRing` wider than three degrees ends in a point
+  at its 3' end, the end of its span on the forward strand and its start on
+  the reverse, as a band of features draws its arrows: the point narrows to
+  the middle of the gene's half of the ring over one and three quarter times
+  that half's width, never more than a third of the arc, and across the
+  origin the gene is one shape. A gene showed its strand only by its colour and a few pixels
+  of radius. What the annotation calls something other than a gene, an
+  origin of replication or of transfer, a repeat, a mobile element, is an arc
+  with no point in the muted ink, with its kind in its tooltip, and the
+  command line keys it by that kind and keys the strands by the genes alone:
+  an `origin_of_transfer` was drawn and keyed as a forward gene. From the
+  command line a ring of annotation is named for what it holds, `genes`, or
+  the one kind it holds, rather than after its file, so a plasmid's GFF3
+  named after the plasmid no longer keys its ring as the sequence named in
+  the middle of the circle; a BED keeps its file's name, and `--label` says
+  what it says. A circle of no annotation, or of genes too short for a
+  point, as a chromosome's, is drawn as it was.
+- A scan coloured by its linkage with a lead, `--ld` or
+  `ManhattanTrack::linkage`, is drawn in LocusZoom's five bins of r² and its
+  colours, under 0.2 navy, to 0.4 light blue, to 0.6 green, to 0.8 orange
+  and from 0.8 red, keyed as five swatches titled `r² with` the lead's name;
+  the lead is LocusZoom's purple diamond with its name over it in the ink of
+  the text, and a variant with no r² a neutral grey, keyed `no r²` with its
+  count. One ramp from grey to the accent put an r² of 0.6 and one of 0.91 a
+  shade apart, where a reader of a regional plot looks for orange and red.
+  The five stand at 4:1 or more against the dark page as they are, so
+  neither theme changes them; on the white page the light blue, the green
+  and the orange stand at 2.1 to 2.5, as they do in LocusZoom.
+  `ManhattanTrack::linkage_colors(LinkageColors::Ramp)` keeps the ramp, its
+  open rings and its lead in the palette's second colour.
+- The branches, the strips and the tips one figure colours by its sheet are
+  dealt the palette in that order, each after the first from the colours the
+  ones before it left, where its values fit in them, from where its own
+  stretch starts. Each column of words took a stretch by its place in the
+  sheet, a third of six colours where the sheet has three such columns, so
+  four lineages ran past theirs into the next column's and a lineage and a
+  host were one colour while two of the six painted nothing. A column that
+  does not fit in what is left is dealt its stretch as before, and the tree
+  says which two values share a colour, now between its branches, its strips
+  and its tips alike. A column given its first colour by hand keeps it, and a
+  value given a colour of its own takes none of the palette's. Strips beside
+  a matrix, an alignment or a cohort are dealt the same way.
+- A copy number track given no `--ploidy` takes where balanced sits from its
+  file, where the file says it, and says so on standard error: `tumour.cns:
+  balanced taken as 2 copies, one of each of the two alleles its calls are
+  split between; --ploidy N to change`. A table whose calls are split between
+  two alleles, CNVkit's `cn1` and `cn2` or ASCAT's `nMajor` and `nMinor`, is
+  balanced at two; one of totals alone at the whole number of copies most of
+  the genome carries, weighed by length, which is one for a haploid genome and
+  three for a triploid line. `karyon tumour.bedgraph tumour.cns` was refused
+  for want of `--ploidy`, though the file wrote whole copies and both alleles.
+  A table of log ratios alone, as a `.seg` is, does not say, and is refused as
+  before, now naming the file; so is one where two numbers of copies carry as
+  much of it. `read::segments::balanced` reads it and `Balanced` says which,
+  `BuildError::MissingPloidy` names the file and why, and
+  `ArgError::MissingPloidy` is gone, since the line alone cannot tell.
+  `CopyNumberTrack::at_ploidy` takes the number it is handed, as before. No
+  committed figure moves: each names its `--ploidy`.
+- A heatmap's table of windows named with no place is drawn across the whole
+  genome, as a bedGraph is: every sequence it names end to end, in the order
+  chromosomes are counted, with `--relative`, `--max`, its sheet's strips and
+  key and its tree as over a place. `karyon --heatmap depths.tsv --max 150`
+  was refused asking for a place, and the refusal's list of the tracks drawn
+  with none left `--heatmap` out, though its table has a bedGraph's first
+  three columns. A table of one sequence draws it as that sequence written
+  for the place does, to its last window, which is its end where it is cut
+  short of the others. `read::table::genome_windows` reads every window of
+  every sequence, wide or long, into a `GenomeWindows`. No committed figure
+  moves.
+- Calls are named by the consequence Ensembl VEP writes in its `CSQ`, as they
+  are by snpEff's `ANN` and bcftools' `BCSQ`: a VCF straight out of VEP was
+  drawn with every call named by its shape. Its fields are found by the names
+  the header's `Format: Allele|Consequence|...` gives them, as `--fields`
+  orders them, or in VEP's own order where no header line says. VEP writes an
+  entry per transcript in no order of damage, so of the entries naming the
+  allele, as the row spells it or as VEP does once the base an indel's alleles
+  share is off, `-` for `CA>C`, the most damaging is read, which is what the
+  first of snpEff's sorted `ANN` is; consequences joined with `&` are kept
+  whole, as they are from `ANN`. No committed figure moves.
+- An estimate over time names what it draws on its axis and in its key, as its
+  table's header names it, under the track's name, which stays its file's:
+  `R` for EpiEstim's `Mean(R)`, `Ne` or `Rt` for a column so called, and the
+  estimate's own header, `mean`, where it names only a statistic, since the
+  table then does not say a mean of what and a quantity put there would be a
+  guess. The key names the line by its statistic and the ribbon by its
+  columns, `lower to upper`, `95% HPD` or `2.5% to 97.5%`, where it said
+  `estimate` and `interval`, which did not say which interval. `karyon
+  --phylodynamics reproduction.tsv` was titled only with its file's name.
+  `PhylodynamicTrack::axis_title`, `estimate_name` and `interval_name` are
+  new, and `read::series::estimate_names` reads the names; a column called
+  `Rt` or `Re` is read as an estimate. A surveillance track drawing counts
+  titles its axis `count`, where its ticks were bare numbers under its file's
+  name; a frequency's ticks say `50%`. A selection scan's axis already says
+  `-log10 p`, a recombination rate's `cM/Mb`, and a bedGraph of windows does
+  not say what it holds. `time.svg` and `time-dark.svg` on the site change.
 - Bold and semibold text is measured at least as wide as Helvetica-Bold draws
   it, which is the face Arial sets a bold label in and the one a PDF sets it
   in. Nine characters, `& ? B K L ^ i j l`, were measured at Inter's narrower
@@ -343,14 +438,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A figure's description names every track it counts, each by its label or,
   where it has none, by what it is: `with 4 tracks, drawn top to bottom: reads
   depth, genes, calls and a ruler`. It counted the ruler and the key and named
-  neither, so four tracks were three names long, which a simulated user
-  reading it as a screen reader would took for a mistake. `Track::noun` says
+  neither, so four tracks were three names long, which a screen reader read
+  out as a count its own list did not match. `Track::noun` says
   what a track is, and every track of the crate says it; one that does not is
   `a track`. Every committed figure's description changes.
 - The key names a column's levels as a reader looks them up, `L1`, `L2`,
   `L4`, `L10`, each in the colour it was dealt, where it named them in the
-  order the sheet dealt them their colours: `L4`, `L2`, `L1`, which all three
-  simulated users asked about. The colours are dealt as they were, so no strip
+  order the sheet dealt them their colours: `L4`, `L2`, `L1`, which looked out
+  of order. The colours are dealt as they were, so no strip
   and no branch changes colour.
 - A phylogram draws its branch-length scale bar by default, since its widths
   measured nothing a reader could name without one; `--no-scale-bar` and
@@ -365,8 +460,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tick: `10 -log10 p` read as ten minus something, and nothing named the
   calls' axis at all. `Track::axis_title` says it, `ManhattanTrack` and
   `VariantTrack` take one, and the command line sets both. A unit written as a
-  symbol, the `x` of `50x`, stays on the tick. All three simulated users read
-  the scan's axis wrong or asked what the calls' axis was.
+  symbol, the `x` of `50x`, stays on the tick. The scan's axis was read wrong,
+  and the calls' axis did not say what it measured.
 - The significance line says where it is: `p = 5e-8` for
   `genome_wide_threshold`, `p = 1e-5` for the new `p_value_threshold(1e-5)`,
   and the value itself for `threshold`, over the line, or under it where the
@@ -384,8 +479,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Every column of words in a sample sheet deals its own stretch of the
   palette, by its place in the sheet: two columns take three colours each and
   three take two. They all dealt it from the first colour, so a lineage and a
-  country were one colour side by side, `L4` and `Kenya` the same blue, and two
-  simulated users called it misleading. The stretch goes by the sheet rather
+  country were one colour side by side, `L4` and `Kenya` the same blue, as
+  though the two were one thing. The stretch goes by the sheet rather
   than by what is drawn or how many levels come first, so neither `--columns`
   nor an appended sample repaints anything. A tree coloured by a column starts
   where the column does. `TraitColumn::first_color` sets it by hand.
@@ -393,8 +488,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lineage strip's colours.
 - The command line names the bases' colours in the key under the figure while
   they are blocks too narrow for their letters, in the reference and in a
-  pileup's mismatches, and says nothing of them once each is lettered. No
-  simulated user could say which colour was which base. `Track::key` is what
+  pileup's mismatches, and says nothing of them once each is lettered.
+  Nothing said which colour was which base. `Track::key` is what
   a track needs explained at a zoom, `Figure::key` gathers every track's at
   the zoom the figure draws at, `BaseColors::legend` is the key to the four
   colours, and `Legend::and` joins two keys without saying a colour twice. No
@@ -489,6 +584,35 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A page of the Your data guide for a plasmid or another circular sequence,
+  opening with `karyon pEX1 --circular pEX1.gff3`, its figure on the light
+  page and the dark one, and a table of the changes made most, linked from
+  the guide's index and from a whole sequence's circle. Its files,
+  `docs/data/pEX1.fa` and `pEX1.gff3`, a plasmid of 7,800 bases with genes on
+  both strands and its origins of replication and of transfer, are written by
+  `write_plasmid` in `make_data.py` with a seed of its own, so no other
+  example file changes, and `examples.zip` holds them. A circle could be
+  found only under the depth along a whole chromosome.
+- `Feature::kind` holds what an annotation calls a feature, as GFF3 and GTF
+  write it in their third column, which the readers now keep, and
+  `Feature::is_genic` says whether it is a gene, a transcript or a part of
+  one, or of no stated kind. `Polar::arrow` gives a ring's sector with its
+  3' end drawn to a point.
+- `LinkageColors`, how a scan coloured by linkage paints an r²: LocusZoom's
+  five bins, the default, or one ramp. `Legend::steps` and
+  `LegendItem::Steps` key a scale cut into steps under one name, each step a
+  swatch and the values it holds, its colour in its tooltip.
+- `--tip-color-by KEY` colours each tip of a phylogeny, a point at the end of
+  its branch and its name, by a column of its `--traits` sheet or an
+  annotation the file carries, through `TreeTrack::tip_color_by`. A value is
+  the colour of its strip and of branches coloured by it, takes the colours
+  `--colors` gives it, and is keyed with a point unless a strip or the
+  branches of the same key key it; a tip the sheet says nothing of is an open
+  ring, a key of numbers is a ramp, and more values than colours draw each
+  point as a shape as well and say so under the tree. Nothing coloured a tip:
+  the branches could say the lineage and a strip the country, and colouring
+  the tips themselves took a strip beside them and a colour typed for each
+  value.
 - `--panel-columns N` lays the panels of several places `N` to a row, in the
   order the places are written, through `Panels::columns` and
   `Panels::row_major`, each panel at its `--width` and the key in the room
@@ -1156,18 +1280,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   does not use says which `--rename` would draw it, where one plainly would:
   the figure's own with a `chr` more or less, or the one sequence the file
   names where neither name is a chromosome's number. One name renamed two
-  ways is refused. All three simulated users had to find out by reading the
-  file that PLINK named the chromosome `1`.
+  ways is refused. That PLINK named the chromosome `1` could be found only by
+  reading the file.
 - A sequence drawn whole to where its rows reach, because no file gives its
-  length, says so on standard error: all three simulated users saw that the
-  figure stopped at the last tested position only from the corner label. The
+  length, says so on standard error: that the figure stopped at the last
+  tested position showed only in the corner label. The
   note says to write the span, or to add a FASTA or BAM, and how to place the
   figure on their name where they call the sequence otherwise. `Files::note`
   is how the figure tells whoever drew it, and `Disk::notes` keeps what it
   was told.
 - Two more notes: a BAM named on its own over a thousand bases or fewer says
-  that `--pileup` draws its reads, since a simulated user drew four hundred
-  bases of depth where the reads were wanted; and bases drawn as blocks say
+  that `--pileup` draws its reads, since four hundred bases of a BAM were
+  drawn as depth where the reads were wanted; and bases drawn as blocks say
   the `--width` that would letter them. `Figure::px_per_bp` is the zoom a
   figure draws at.
 - A file named on its own is a track of the kind its name says, under any
@@ -1192,20 +1316,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `calls.vcf.gz`, `reads` for the reads of `data/reads.bam` and `reads depth`
   for its depth. Standard input, a pipe the shell names, a tanglegram's two
   trees and a tree get no name: a tree is plain to see, and its file's name
-  was a word by itself in the margin that all three simulated users asked
-  about.
+  was a word by itself in the margin with nothing to say what it named.
 - A flag another tool spells for something karyon says otherwise, `--vcf`,
   `--region`, `--metadata`, `--legend` and some sixty more, is answered with
   how karyon says it, and any other unknown flag says where the tracks and
   their options are listed.
 - A key to the colours of a tree's branches and of every `--traits` strip is
   drawn under the figure, each level once however many strips show it.
-  `--no-legend` leaves it out. The three simulated users each drew a tree
-  coloured by lineage and found no way to say which colour was which.
+  `--no-legend` leaves it out. A tree coloured by lineage had nothing to say
+  which colour was which.
 - A pileup with no `--with-sequence` reads its reads against the reference the
   figure's `--sequence` draws. It drew every read as agreeing, with the
-  reference right above it, which is how one simulated user nearly missed the
-  variant the figure was for.
+  reference right above it, so the variant the figure was for could be
+  missed.
 - `--manhattan` reads an association tool's own table by its header: PLINK,
   PLINK 2, whose header is written behind a `#`, REGENIE, BOLT, GEMMA, SAIGE
   and the GWAS Catalog's format, finding
@@ -1575,6 +1698,104 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A recombination rate drawn flat because the whole window lies inside one
+  interval of its map says so under its track, on the figure, as well as on
+  the terminal: `genetic_map.txt: the window lies inside one interval of the
+  map, 759,401 to 764,400, so its one rate, 0.41 cM/Mb, is drawn flat across
+  it`. Said on the terminal alone, a figure of a map laid over a window of
+  another genome under a `--rename` was handed in with a flat line nothing
+  on it explained. A scan with `--with-recombination` writes it under the
+  scan. `CoverageTrack::footnote` and `ManhattanTrack::footnote` are new, and
+  write a sentence under the band through `Track::footnotes`, as the cells a
+  genotype track pools are counted. No committed figure moves.
+- A call's tooltip says the change it is after where it is, `variant,
+  761,139 C>T, missense_variant, AF 0.62`, where it said `variant, 761,139,
+  missense_variant, AF 0.62` and the bases were only in the file.
+  `Variant::alleles` is new, and the reader of a VCF or a BCF gives each call
+  its `REF` and its own `ALT`; an allele longer than twelve bases is written
+  as its first twelve and how many more, `ACGTACGTACGT+8>A`, as a genotype's
+  tooltip writes it. Zoomed until a base is a letter wide, a lollipop with
+  room on its right has its alternate allele written there, a base in the
+  colour the reference's letter of it is drawn in, where it is three bases
+  or fewer and no other head or stem stands in the way. `reads.svg` and
+  `reads-dark.svg` on the site move, in their tooltips alone.
+- Lollipop heads closer than a head is wide are moved apart along the band,
+  into a row a head and a pixel apart, in the order of their calls and
+  centred where the calls are, each on a stem that rises at its call and
+  leans over to its head at the last; a tooltip still names its call. A
+  call at 761,110 of 0.50 and one four bases on of 0.53 drew two heads of
+  four pixels at (399.9, 95.3) and (400.7, 93.5), one mark, and nothing was
+  said. A row moved onto another head takes it in and is laid out again,
+  and is kept inside the band. Heads that touch none stay exactly where
+  they were, so a figure with no heads that collide is drawn as before, and
+  heads too many for the band to hold in a row are left as they are, the
+  density ticks are for, as is a whole band where more than a million pairs
+  of heads lie within a head of each other: two hundred thousand calls over
+  four megabases, laid out pair by pair, took 6.3 s to draw where they take
+  0.3 s. `gallery.svg` and its copy on the site move, its calls of no value
+  side by side.
+- A consequence keeps its colour at every zoom of a file of calls: the
+  colours are dealt from every call of the file, on every sequence, ranked
+  from the most damaging down, rather than from the calls in view.
+  `NC_000962.3:760,300-760,330 calls.vcf.gz`, thirty bases holding one
+  synonymous call, keyed it `#1634c2`, the first colour, where the figure of
+  the whole gene keyed it `#e63f9f`, under its missense calls; both key it
+  `#e63f9f` now. A bgzipped VCF or a BCF drawn a window at a time through its
+  index is read to its end for this where it is no larger than 8 MB, so it
+  deals as the same file read whole does; a larger one ranks the calls in
+  view, as before, since reading every call of a cohort's file to draw one
+  gene is the read its index spares. `--color` still deals its four shapes
+  to the consequences in view. `read::point::ranked_file` ranks a VCF's
+  text the same way for the library. No committed figure moves.
+- A genotype pixel whose sites a sample was called differently at is cut
+  into thin stripes stacked down the row, a stripe a site with the first on
+  top, each in the colour of that sample's call there, as long as the row
+  has a pixel of its height for each; more sites than that keep their shade.
+  In a cohort of one copy a sample, an alternate call at 763,290 and a
+  reference call at 763,295 were one mid-grey cell, which on paper is a
+  mixed call, and nothing on the page said which site carried the
+  alternate. The key then names the calls' states rather than a ramp. The
+  figure says under the track how many cells pool calls that differ and
+  names a window that draws them apart, as `7 cells pool calls that differ
+  from more than one site, drawn a stripe a site with the first on top;
+  NC_000962.3:762,701-763,700 draws them apart`, and the command line prints
+  it too. Every pooled run of eight sites or fewer is named in a tooltip,
+  whatever it carries: a no call pooled with a reference call beside it was
+  a pale cell with nothing to say which site it was. The line is written by
+  `Track::footnotes`, new, which the figure reserves room for under a band
+  and writes broken to the width of the plot, outside the band, with a
+  shade's edges stopping above it; `Figure::footnotes` gathers them for a
+  caller who also says them. A tree's warnings are broken and set by the
+  same code, in its own band as before. `genotypes.svg` and
+  `genotypes-dark.svg` on the site move, striped where they pooled and
+  counted under the rows.
+- A coverage track draws a pixel that holds more than one value as the
+  spread between them, as a genome browser draws whiskers, wherever no
+  `--aggregate` is written: the profile, its line and the fill under it or
+  its bar, runs along the lowest value under the pixel, and a flat pale wash
+  of the same colour stands on it up to the highest. A pixel was drawn at
+  the most of its values, so across a whole genome a half megabase of no
+  copies, 0.18 in its bedGraph, was drawn at 60.5, the depth beside it,
+  right above a copy-number track drawing no copies there. There the line
+  now falls to the floor under a wash that stays at sixty, and a spike is a
+  pale column over the line. A pixel of one value adds nothing, so a figure
+  whose pixels each hold one, as at a few pixels a base, is drawn as it was,
+  and one whose pixels pool differs only by the wash and by its line
+  following the lowest. The key names the two, `lowest value in a
+  pixel` swatched as the track is drawn and `highest value in a pixel` as
+  the wash, wherever a pixel is drawn this way. `--aggregate max`, `mean` or
+  `min` draws one value a pixel as before, and `karyon help` now says what
+  is drawn without it; a ring still takes the most. In the library
+  `CoverageTrack::aggregate` is the same choice, and a track given none
+  draws the spread. A bigWig drawn from a zoom level is read for the least
+  of each bin as well as its most, so a pixel reaches down as far as the
+  values as written take it. `example-genomewide.svg`,
+  `example-gene-models.svg`, `example-ideogram.svg`, `example-regulation.svg`,
+  `example-split.svg`, `example-structural.svg`, `example-visual-system.svg`
+  and `gallery.svg`, and their copies on the site, move, each depth along
+  its lowest values under a pale wash, and so do `reads.svg`, `genome.svg`
+  and `genome-copies.svg` on the site, light and dark, which gain the two
+  keys.
 - A squiggle's note on bases too narrow for their letters says how many of
   the read's bases the window it names holds, and the command line adds how
   wide a figure of the whole read letters every one: `sample:1-304 letters

@@ -71,6 +71,7 @@ depth of nought.
 | To | Write |
 |:--|:--|
 | Draw one chromosome alone | `5` in front, as `karyon 5 tumour.bedgraph tumour.cns --ploidy 2` |
+| Take where balanced sits from the file | leave out `--ploidy 2`: the calls are split between two alleles, so balanced is two, and karyon says so |
 | Draw a BAM's depth this way | `mosdepth --by 500000 tumour reads.bam`, then `tumour.regions.bed.gz` in place of `tumour.bedgraph`; a BAM itself needs a place |
 | Shade the amplification, down both tracks | `--shade 5:12,000,001-13,500,000=amplified` |
 | Lay a scan over the same chromosomes | `trait.assoc` in front, from [the scan page](scan.md); `--rename 1=chr1` where the files call a chromosome differently |
@@ -100,7 +101,8 @@ its line and the stretch it carries twice stands outside it, and `--same-scale`
 puts both rings on one reach. The genes sit on the outer half of their ring for
 the forward strand and the inner half for the reverse, and the calls are coloured
 by their consequence. The key under the circle names each ring, outside in, and
-so does each ring when you point at it.
+so does each ring when you point at it. A plasmid drawn from its annotation
+alone, its genes as arrows, has [a page of its own](plasmid.md).
 
 | To | Write |
 |:--|:--|
