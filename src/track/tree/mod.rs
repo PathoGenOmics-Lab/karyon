@@ -2884,57 +2884,25 @@ impl TreeTrack {
 
     /// The lines [`TreeTrack::warnings`] takes across a band `width` pixels
     /// wide, and the size they are set at.
+    ///
+    /// Broken and set as every track's [footnotes](Track::footnotes) are,
+    /// and written in the tree's own band, which its height counts them in,
+    /// since a tree is laid out in the room its band leaves.
     fn warning_lines(&self, width: f64, theme: &Theme) -> (Vec<String>, f64) {
-        let size = (theme.font_size - 1.0).max(6.0);
-        let mut lines = Vec::new();
-        for warning in self.warnings_in(theme) {
-            let mut line = String::new();
-            for word in warning.split(' ') {
-                let longer = if line.is_empty() {
-                    word.to_string()
-                } else {
-                    format!("{line} {word}")
-                };
-                if !line.is_empty() && text_width(&longer, size) > width - 8.0 {
-                    lines.push(std::mem::replace(&mut line, word.to_string()));
-                } else {
-                    line = longer;
-                }
-            }
-            lines.push(line);
-        }
-        (lines, size)
+        crate::track::foot_lines(&self.warnings_in(theme), width, theme)
     }
 
     /// The room under the tree for its warnings.
     fn warning_room(&self, width: f64, theme: &Theme) -> f64 {
         let (lines, size) = self.warning_lines(width, theme);
-        if lines.is_empty() {
-            0.0
-        } else {
-            (lines.len() as f64 * (size + 4.0) + 6.0).ceil()
-        }
+        crate::track::foot_room(lines.len(), size)
     }
 
     /// Writes the warnings in the room kept for them at the foot of the band.
     fn draw_warnings(&self, ctx: &mut DrawContext<'_>) {
         let (lines, size) = self.warning_lines(ctx.band.w, ctx.theme);
-        if lines.is_empty() {
-            return;
-        }
-        let room = (lines.len() as f64 * (size + 4.0) + 6.0).ceil();
-        let mut y = ctx.band.bottom() - room + 4.0;
-        for line in &lines {
-            y += size + 4.0;
-            ctx.svg.text(
-                ctx.band.x + 4.0,
-                y - 4.0,
-                line,
-                &ctx.theme.muted,
-                size,
-                crate::svg::Anchor::Start,
-            );
-        }
+        let top = ctx.band.bottom() - crate::track::foot_room(lines.len(), size);
+        crate::track::draw_foot(ctx.svg, ctx.band.x + 4.0, top, &lines, size, ctx.theme);
     }
 
     /// The room across the top of a band `width` pixels wide for the

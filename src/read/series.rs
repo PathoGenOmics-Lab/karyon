@@ -239,61 +239,89 @@ pub fn counts(
     Ok((out, unit))
 }
 
+/// The columns of a table of estimates: its time, its estimate, and the two
+/// ends of its interval where it has them.
+struct EstimateColumns {
+    time: usize,
+    estimate: usize,
+    lower: Option<usize>,
+    upper: Option<usize>,
+}
+
+impl EstimateColumns {
+    /// Finds them in `header`, or names the one a table has to have and
+    /// does not.
+    fn of(line: usize, header: &[&str]) -> Result<EstimateColumns, ReadError> {
+        Ok(EstimateColumns {
+            time: needed(line, header, "times", TIME)?,
+            estimate: needed(
+                line,
+                header,
+                "estimates",
+                &[
+                    "estimate",
+                    "mean",
+                    "median",
+                    "value",
+                    "ne",
+                    "r",
+                    "rt",
+                    "re",
+                    "mean(r)",
+                    "median(r)",
+                ],
+            )?,
+            lower: column(
+                header,
+                &[
+                    "lower",
+                    "lower95",
+                    "hpd_lower",
+                    "lower_hpd",
+                    "low",
+                    "quantile.0.025(r)",
+                    "quantile 0.025(r)",
+                    "q2.5",
+                ],
+            ),
+            upper: column(
+                header,
+                &[
+                    "upper",
+                    "upper95",
+                    "hpd_upper",
+                    "upper_hpd",
+                    "high",
+                    "quantile.0.975(r)",
+                    "quantile 0.975(r)",
+                    "q97.5",
+                ],
+            ),
+        })
+    }
+}
+
 /// An estimate at each time with the interval around it, as a skyline, an
 /// effective population size or a reproductive number is written.
 ///
-/// The columns are a time, an estimate (`estimate`, `mean`, `median`...)
-/// and, where the file has them, the two ends of its interval (`lower` and
-/// `upper`, or the quantiles EpiEstim writes). Returns the points and the name
-/// of the time column. `decimals` is as for [`counts`].
+/// The columns are a time, an estimate (`estimate`, `mean`, `median`, or the
+/// quantity itself, `Ne`, `R`, `Rt`, `Re`...) and, where the file has them,
+/// the two ends of its interval (`lower` and `upper`, or the quantiles
+/// EpiEstim writes). Returns the points and the name of the time column.
+/// `decimals` is as for [`counts`]. [`estimate_names`] says what the columns
+/// hold.
 pub fn estimates(text: &str, decimals: u32) -> Result<(Vec<PhylodynamicPoint>, String), ReadError> {
     let mut rows = lines(text);
     let (line, head) = rows
         .next()
         .ok_or_else(|| ReadError::whole("an empty table: a header and a row per time"))?;
     let header = fields(head);
-    let at = needed(line, &header, "times", TIME)?;
-    let estimate = needed(
-        line,
-        &header,
-        "estimates",
-        &[
-            "estimate",
-            "mean",
-            "median",
-            "value",
-            "ne",
-            "r",
-            "mean(r)",
-            "median(r)",
-        ],
-    )?;
-    let lower = column(
-        &header,
-        &[
-            "lower",
-            "lower95",
-            "hpd_lower",
-            "lower_hpd",
-            "low",
-            "quantile.0.025(r)",
-            "quantile 0.025(r)",
-            "q2.5",
-        ],
-    );
-    let upper = column(
-        &header,
-        &[
-            "upper",
-            "upper95",
-            "hpd_upper",
-            "upper_hpd",
-            "high",
-            "quantile.0.975(r)",
-            "quantile 0.975(r)",
-            "q97.5",
-        ],
-    );
+    let EstimateColumns {
+        time: at,
+        estimate,
+        lower,
+        upper,
+    } = EstimateColumns::of(line, &header)?;
     let unit = header[at].to_ascii_lowercase();
     let mut out = Vec::new();
     for (line, row) in rows {
@@ -314,6 +342,101 @@ pub fn estimates(text: &str, decimals: u32) -> Result<(Vec<PhylodynamicPoint>, S
         return Err(ReadError::whole("a header and no row under it"));
     }
     Ok((out, unit))
+}
+
+/// What a table of estimates says its columns hold, as its header names
+/// them, for a figure to say what it draws.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EstimateNames {
+    /// What is estimated, where the header names it: `R` under EpiEstim's
+    /// `Mean(R)`, `Ne` under a column called `Ne`. Otherwise the estimate's
+    /// header as written, `mean`, since a table of a mean and its interval
+    /// does not say a mean of what, and any name put there would be a guess.
+    pub quantity: String,
+    /// What the line is: the statistic the header names, `mean` or `median`,
+    /// or `estimate` where it names the quantity alone.
+    pub estimate: String,
+    /// What the interval is, where the table has one: `95% HPD` where its
+    /// columns say so, `2.5% to 97.5%` for the quantiles EpiEstim writes,
+    /// `95% interval` for `lower95` and `upper95`, and otherwise the two
+    /// columns' names, `lower to upper`.
+    pub interval: Option<String>,
+}
+
+/// What the columns [`estimates`] reads hold, by their header.
+///
+/// # Errors
+///
+/// What [`estimates`] refuses in a header: no column of times or of
+/// estimates.
+///
+/// ```
+/// use karyon::read::series::estimate_names;
+///
+/// let epiestim = "t_start\tt_end\tMean(R)\tStd(R)\tQuantile.0.025(R)\tQuantile.0.975(R)\n";
+/// let named = estimate_names(epiestim)?;
+/// assert_eq!(named.quantity, "R");
+/// assert_eq!(named.estimate, "mean");
+/// assert_eq!(named.interval.as_deref(), Some("2.5% to 97.5%"));
+/// # Ok::<(), karyon::read::ReadError>(())
+/// ```
+pub fn estimate_names(text: &str) -> Result<EstimateNames, ReadError> {
+    let (line, head) = lines(text)
+        .next()
+        .ok_or_else(|| ReadError::whole("an empty table: a header and a row per time"))?;
+    let header = fields(head);
+    let columns = EstimateColumns::of(line, &header)?;
+    let written = header[columns.estimate].trim();
+    let statistics = ["estimate", "mean", "median", "value"];
+    // EpiEstim's `Mean(R)` is a statistic of a quantity.
+    let (quantity, estimate) = match written
+        .strip_suffix(')')
+        .and_then(|inner| inner.split_once('('))
+    {
+        Some((statistic, quantity)) if !quantity.trim().is_empty() => (
+            quantity.trim().to_string(),
+            statistic.trim().to_ascii_lowercase(),
+        ),
+        _ if statistics
+            .iter()
+            .any(|word| written.eq_ignore_ascii_case(word)) =>
+        {
+            (written.to_string(), written.to_ascii_lowercase())
+        }
+        _ => (written.to_string(), "estimate".to_string()),
+    };
+    let interval = columns
+        .lower
+        .zip(columns.upper)
+        .map(|(lower, upper)| interval_named(header[lower].trim(), header[upper].trim()));
+    Ok(EstimateNames {
+        quantity,
+        estimate,
+        interval,
+    })
+}
+
+/// What an interval between the columns `lower` and `upper` is, as their
+/// names say it.
+fn interval_named(lower: &str, upper: &str) -> String {
+    let both = format!("{lower} {upper}").to_ascii_lowercase();
+    if both.contains("hpd") {
+        return if both.contains("95") {
+            "95% HPD"
+        } else {
+            "HPD"
+        }
+        .to_string();
+    }
+    if (both.contains("0.025") && both.contains("0.975"))
+        || (both.contains("q2.5") && both.contains("q97.5"))
+    {
+        return "2.5% to 97.5%".to_string();
+    }
+    if both.contains("95") {
+        return "95% interval".to_string();
+    }
+    format!("{lower} to {upper}")
 }
 
 /// A test of selection at each site of a gene, as HyPhy's FEL and MEME, a
@@ -839,6 +962,49 @@ mod tests {
         assert_eq!(unit, "year");
         assert_eq!(points[0].time, 2014);
         assert_eq!(points.len(), 2);
+    }
+
+    /// What is estimated is the quantity the header names, or the
+    /// estimate's own header where it names none, and the interval is what
+    /// its columns say it is.
+    #[test]
+    fn an_estimate_and_its_interval_are_named_as_the_header_names_them() {
+        let named = |header: &str| {
+            let found = estimate_names(&format!("{header}\n")).unwrap();
+            (found.quantity, found.estimate, found.interval)
+        };
+        let some = |text: &str| Some(text.to_string());
+        // A mean and its interval, with no word of what it is a mean of.
+        assert_eq!(
+            named("week\tmean\tlower\tupper"),
+            ("mean".into(), "mean".into(), some("lower to upper"))
+        );
+        // EpiEstim names the quantity inside each statistic.
+        assert_eq!(
+            named("t_start,t_end,Mean(R),Std(R),Quantile.0.025(R),Median(R),Quantile.0.975(R)"),
+            ("R".into(), "mean".into(), some("2.5% to 97.5%"))
+        );
+        // A skyline exported from Tracer, upper before lower.
+        assert_eq!(
+            named("time\tmedian\tupper\tlower"),
+            ("median".into(), "median".into(), some("lower to upper"))
+        );
+        assert_eq!(
+            named("year\tNe\thpd_lower_95\thpd_upper_95"),
+            ("Ne".into(), "estimate".into(), None),
+            "columns no reader takes for an interval are none"
+        );
+        assert_eq!(
+            named("year\tNe\tlower_hpd\tupper_hpd"),
+            ("Ne".into(), "estimate".into(), some("HPD"))
+        );
+        assert_eq!(
+            named("date\tRt\tlower95\tupper95"),
+            ("Rt".into(), "estimate".into(), some("95% interval"))
+        );
+        assert_eq!(named("week\tR"), ("R".into(), "estimate".into(), None));
+        // A header with no estimate is refused as the reader refuses it.
+        assert!(estimate_names("week\tcount\n").is_err());
     }
 
     #[test]

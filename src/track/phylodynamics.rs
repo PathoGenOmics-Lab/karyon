@@ -80,6 +80,9 @@ pub struct PhylodynamicTrack {
     show_points: bool,
     show_interval: bool,
     time_decimals: u32,
+    axis_title: Option<String>,
+    estimate_name: Option<String>,
+    interval_name: Option<String>,
 }
 
 impl PhylodynamicTrack {
@@ -96,6 +99,9 @@ impl PhylodynamicTrack {
             show_points: true,
             show_interval: true,
             time_decimals: 0,
+            axis_title: None,
+            estimate_name: None,
+            interval_name: None,
         }
     }
 
@@ -139,6 +145,29 @@ impl PhylodynamicTrack {
     /// Overrides the theme accent used for the estimate.
     pub fn color(mut self, color: impl Into<String>) -> Self {
         self.color = Some(color.into());
+        self
+    }
+
+    /// Titles the value axis with what is estimated, `R` or `Ne`, written
+    /// under the track's name as [`Track::axis_title`] says. A label names
+    /// the track, often after its file, and a reader of the axis is owed the
+    /// quantity.
+    pub fn axis_title(mut self, title: impl Into<String>) -> Self {
+        self.axis_title = Some(title.into());
+        self
+    }
+
+    /// Names the line in the key, `mean` or `median`, where it says
+    /// `estimate`.
+    pub fn estimate_name(mut self, name: impl Into<String>) -> Self {
+        self.estimate_name = Some(name.into());
+        self
+    }
+
+    /// Names the ribbon in the key, `95% HPD` or `lower to upper`, where it
+    /// says `interval`, which does not say which one.
+    pub fn interval_name(mut self, name: impl Into<String>) -> Self {
+        self.interval_name = Some(name.into());
         self
     }
 
@@ -283,6 +312,10 @@ impl Track for PhylodynamicTrack {
 
     fn label(&self) -> Option<&str> {
         self.label.as_deref()
+    }
+
+    fn axis_title(&self) -> Option<&str> {
+        self.axis_title.as_deref()
     }
 
     fn y_axis_width(&self, _theme: &Theme) -> f64 {
@@ -567,8 +600,12 @@ impl PhylodynamicTrack {
     /// A key to what is drawn: the line is the estimate, the ribbon where
     /// there is one its interval, and the scale where it is not the plain one.
     /// It used to read `trajectory · linear`, which named the default and
-    /// left the ribbon to be guessed at.
+    /// left the ribbon to be guessed at. Each is named as the track was told,
+    /// `mean` and `95% HPD`, where `estimate` and `interval` did not say
+    /// which.
     fn draw_header(&self, ctx: &mut DrawContext<'_>, color: &str, ribbon: bool) {
+        let estimate = self.estimate_name.as_deref().unwrap_or("estimate");
+        let interval = self.interval_name.as_deref().unwrap_or("interval");
         let size = ctx.theme.font_size * 0.76;
         let top = ctx.band.y + ctx.px(2.0);
         let height = ctx.px(15.0);
@@ -577,9 +614,9 @@ impl PhylodynamicTrack {
         let swatch = ctx.px(17.0);
         let gap = ctx.px(6.0);
         let log = self.scale == PhylodynamicScale::Log10;
-        let mut width = ctx.px(8.0) + swatch + gap + text_width_strong("estimate", size);
+        let mut width = ctx.px(8.0) + swatch + gap + text_width_strong(estimate, size);
         if ribbon {
-            width += ctx.px(12.0) + swatch + gap + text_width_strong("interval", size);
+            width += ctx.px(12.0) + swatch + gap + text_width_strong(interval, size);
         }
         if log {
             width += ctx.px(12.0) + text_width_strong("log scale", size);
@@ -593,30 +630,18 @@ impl PhylodynamicTrack {
         let mut x = ctx.band.x + 2.0 + ctx.px(8.0);
         ctx.svg.line(x, middle, x + swatch, middle, color, 2.0);
         x += swatch + gap;
-        ctx.svg.text_bold(
-            x,
-            baseline,
-            "estimate",
-            &ctx.theme.muted,
-            size,
-            Anchor::Start,
-        );
-        x += text_width_strong("estimate", size);
+        ctx.svg
+            .text_bold(x, baseline, estimate, &ctx.theme.muted, size, Anchor::Start);
+        x += text_width_strong(estimate, size);
         if ribbon {
             x += ctx.px(12.0);
             let tall = ctx.px(8.0);
             ctx.svg
                 .rect_opacity(x, middle - tall / 2.0, swatch, tall, color, 0.16);
             x += swatch + gap;
-            ctx.svg.text_bold(
-                x,
-                baseline,
-                "interval",
-                &ctx.theme.muted,
-                size,
-                Anchor::Start,
-            );
-            x += text_width_strong("interval", size);
+            ctx.svg
+                .text_bold(x, baseline, interval, &ctx.theme.muted, size, Anchor::Start);
+            x += text_width_strong(interval, size);
         }
         if log {
             x += ctx.px(12.0);
@@ -709,6 +734,37 @@ mod tests {
             .to_svg();
         assert!(svg.contains("<title>time 1 | estimate 1.2"), "{svg}");
         assert!(svg.contains("<title>time 3 | estimate 0.9"), "{svg}");
+    }
+
+    /// What is estimated titles the axis under the track's name, and the
+    /// key names the line and the ribbon as they are named; untold, they are
+    /// `estimate` and `interval`, and the axis has no title.
+    #[test]
+    fn the_axis_and_the_key_name_what_is_estimated() {
+        let points = vec![
+            PhylodynamicPoint::new(1, 1.2).interval(0.9, 1.5),
+            PhylodynamicPoint::new(2, 0.8).interval(0.6, 1.1),
+        ];
+        let drawn = |track: PhylodynamicTrack| {
+            Figure::new(Region::new("week", 0, 3).unwrap())
+                .push(track.label("reproduction"))
+                .to_svg()
+        };
+        let plain = PhylodynamicTrack::new(points.clone());
+        assert_eq!(Track::axis_title(&plain), None);
+        let svg = drawn(plain);
+        assert!(svg.contains(">estimate</text>"), "{svg}");
+        assert!(svg.contains(">interval</text>"), "{svg}");
+        let named = PhylodynamicTrack::new(points)
+            .axis_title("R")
+            .estimate_name("mean")
+            .interval_name("95% HPD");
+        assert_eq!(Track::axis_title(&named), Some("R"));
+        let svg = drawn(named);
+        assert!(svg.contains(">R</text>"), "{svg}");
+        assert!(svg.contains(">mean</text>"), "{svg}");
+        assert!(svg.contains(">95% HPD</text>"), "{svg}");
+        assert!(!svg.contains(">interval</text>"), "{svg}");
     }
 
     #[test]

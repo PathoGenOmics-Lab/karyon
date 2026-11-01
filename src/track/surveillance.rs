@@ -252,6 +252,13 @@ impl Track for SurveillanceTrack {
         self.label.as_deref()
     }
 
+    // A frequency's ticks say what they are, `50%`; a count's are bare
+    // numbers under a name that is often its file's, so the axis says what
+    // they count.
+    fn axis_title(&self) -> Option<&str> {
+        (self.metric == SurveillanceMetric::Count).then_some("count")
+    }
+
     fn y_axis_width(&self, _theme: &Theme) -> f64 {
         45.0
     }

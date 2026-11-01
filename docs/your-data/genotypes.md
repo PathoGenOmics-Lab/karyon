@@ -22,10 +22,17 @@ One row per sample and one cell per site, each at its position under the gene.
 A short grey bar is a call of the reference, a cell in the ink of the text a
 call of the other allele, dark on a light page and light on a dark one, and a
 pale cell no call. In the order of the tree, the alleles a clade
-shares are blocks rather than a speckle. Where sites are closer than a cell,
-their pixel is shaded by the share of alternate calls under it, and the key
-says so; a pixel of a few sites names each and its call in a tooltip, and
-zoomed in they come apart into cells. Each row's tooltip counts
+shares are blocks rather than a speckle. Where sites are closer than a cell
+and a sample was called differently at them, their pixel is cut into thin
+stripes down the row, a stripe a site with the first on top, each in the
+colour of its call, so the figure shows which site carries the other allele;
+more sites than the row has pixels for are shaded by the share of alternate
+calls under them, and the key says so. A line under the track counts these
+cells and names a window that draws them apart, as `7 cells pool calls that
+differ from more than one site, drawn a stripe a site with the first on top;
+NC_000962.3:762,701-763,700 draws them apart`, and the terminal says it too.
+A pixel of a few sites names each and its call in a tooltip, and zoomed in
+they come apart into cells. Each row's tooltip counts
 the sample's calls in the window, and a cell that carries an alternate allele
 names its call in a tooltip of its own. A diploid cohort's heterozygous calls
 are a mid grey, the ink at a little over half strength, between the pale bar

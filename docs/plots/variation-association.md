@@ -16,7 +16,7 @@ position.
 |:--|:--|:--|
 | Where are the calls, and how strong is each one? | [Point variants](../tracks/variation.md#varianttrack) | `VariantTrack`, `--variants` |
 | Which two positions does a rearrangement join? | [Structural variants](../tracks/variation.md#structuraltrack) | `StructuralTrack`, `--structural` |
-| How many copies are there, and has one allele been lost? | [Copy number](../tracks/variation.md#copynumbertrack) | `CopyNumberTrack`, `--copy-number` with `--ploidy` |
+| How many copies are there, and has one allele been lost? | [Copy number](../tracks/variation.md#copynumbertrack) | `CopyNumberTrack`, `--copy-number`, with `--ploidy` |
 | Which sites tell closely related samples apart? | [Variable sites](../tracks/variation.md#snptrack) | `SnpTrack`, `--snps` |
 | Which call does each sample carry, from a VCF? | [Genotypes by sample](../tracks/variation.md#genotypetrack) | `GenotypeTrack`, `--genotypes` |
 | Which samples carry what, site by site? | [Genotype matrix](../tracks/variation.md#matrixtrack) | `MatrixTrack`, `--matrix` |

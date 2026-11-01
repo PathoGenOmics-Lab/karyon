@@ -681,12 +681,13 @@ impl Figure {
             shade::wash(&mut svg, &columns, &runs, &theme);
         }
 
-        for (((track, height), shared), top) in self
+        for ((((track, height), shared), top), (foot, foot_size)) in self
             .tracks
             .iter()
             .zip(&layout.track_heights)
             .zip(&layout.scales)
             .zip(&layout.track_tops)
+            .zip(&layout.feet)
         {
             let y = *top;
             let band = Rect {
@@ -796,6 +797,16 @@ impl Figure {
             };
             track.draw(&mut ctx);
             svg.end_group();
+            // Under the band and outside its clip, in the room the layout
+            // kept for it, from the plot's left edge.
+            crate::track::draw_foot(
+                &mut svg,
+                band.x + 4.0,
+                band.bottom(),
+                foot,
+                *foot_size,
+                &theme,
+            );
         }
 
         // The edges over every track, from under the row of names, and the
@@ -868,6 +879,18 @@ impl Figure {
         self.tracks
             .iter()
             .flat_map(|track| track.notes(&self.region, px_per_bp, &self.theme))
+            .collect()
+    }
+
+    /// What the tracks write under their bands at the zoom the figure is
+    /// drawn at, a sentence each, in the order the tracks are stacked: see
+    /// [`Track::footnotes`]. The figure draws them; this is for a caller who
+    /// also says them, as the command line does on its terminal.
+    pub fn footnotes(&self) -> Vec<String> {
+        let px_per_bp = self.px_per_bp();
+        self.tracks
+            .iter()
+            .flat_map(|track| track.footnotes(&self.region, px_per_bp, &self.theme))
             .collect()
     }
 
@@ -959,7 +982,24 @@ impl Figure {
                 }
             })
             .collect();
+        // What each track writes under its band, broken to the width of the
+        // plot, and the room it takes there, which is the band's and not a
+        // gap between two: a note under a track is read as that track's.
+        let px_per_bp = scale.px_per_bp();
+        let feet: Vec<(Vec<String>, f64)> = self
+            .tracks
+            .iter()
+            .map(|t| {
+                let notes = t.footnotes(&self.region, px_per_bp, theme);
+                crate::track::foot_lines(&notes, plot_width, theme)
+            })
+            .collect();
+        let foot_heights: Vec<f64> = feet
+            .iter()
+            .map(|(lines, size)| crate::track::foot_room(lines.len(), *size))
+            .collect();
         let content_height: f64 = track_heights.iter().sum::<f64>()
+            + foot_heights.iter().sum::<f64>()
             + track_gap * (self.tracks.len().saturating_sub(1)) as f64;
         // Checking each height on its own is not enough: two of them can each
         // be a number and still add to one that is not, and then the total
@@ -988,12 +1028,12 @@ impl Figure {
         // figure made of lines, and the one that measured nothing.
         let mut track_tops = Vec::with_capacity(track_heights.len());
         let mut y = margin_top + header_height;
-        for (index, height) in track_heights.iter().enumerate() {
+        for (index, (height, foot)) in track_heights.iter().zip(&foot_heights).enumerate() {
             if name_row > 0.0 && first_shaded == Some(index) {
                 y += name_row;
             }
             track_tops.push(y);
-            y += height + track_gap;
+            y += height + foot + track_gap;
         }
         let content_height = if name_row > 0.0 {
             content_height + name_row
@@ -1013,6 +1053,8 @@ impl Figure {
             margin_left,
             track_heights,
             track_tops,
+            feet,
+            foot_heights,
             name_row,
             total_height: (margin_top + header_height + content_height + margin_bottom)
                 .min(TALLEST),
@@ -1025,15 +1067,21 @@ impl Figure {
     fn shade_runs(&self, layout: &Layout) -> Vec<(f64, f64)> {
         let mut runs: Vec<(f64, f64)> = Vec::new();
         let mut open: Option<(f64, f64)> = None;
-        for ((track, top), height) in self
+        for (((track, top), height), foot) in self
             .tracks
             .iter()
             .zip(&layout.track_tops)
             .zip(&layout.track_heights)
+            .zip(&layout.foot_heights)
         {
             if track.shows_shades() {
                 let bottom = top + height;
                 open = Some(open.map_or((*top, bottom), |(from, _)| (from, bottom)));
+                // The lines written under a band end its run, so the edges
+                // of a shade do not strike through them.
+                if *foot > 0.0 {
+                    runs.extend(open.take());
+                }
             } else if let Some(run) = open.take() {
                 runs.push(run);
             }
@@ -1133,6 +1181,12 @@ struct Layout {
     track_heights: Vec<f64>,
     /// Where each band starts.
     track_tops: Vec<f64>,
+    /// The lines each track writes under its band, and the size they are
+    /// set at.
+    feet: Vec<(Vec<String>, f64)>,
+    /// The room under each band for its lines, nought for a track with
+    /// nothing to say.
+    foot_heights: Vec<f64>,
     /// How tall the row of shade names is, above the first band that shows
     /// shades, or nought where no named shade is in view.
     name_row: f64,
@@ -1294,6 +1348,73 @@ mod tests {
             .push(AxisTrack::new().height(40.0));
         let layout = figure.layout();
         assert_eq!(layout.track_heights, vec![20.0, 40.0]);
+    }
+
+    /// A track that says something under its band.
+    struct Noted(Vec<String>);
+
+    impl Track for Noted {
+        fn height(&self, _scale: &Scale) -> f64 {
+            20.0
+        }
+        fn footnotes(&self, _region: &Region, _px_per_bp: f64, _theme: &Theme) -> Vec<String> {
+            self.0.clone()
+        }
+        fn draw(&self, ctx: &mut DrawContext<'_>) {
+            let _ = ctx.scale;
+        }
+    }
+
+    /// What a track writes under its band takes room there, between it and
+    /// the next band, broken into lines as wide as the plot and drawn
+    /// outside the band's clip; a shade's edges stop above it. A track with
+    /// nothing to say takes none.
+    #[test]
+    fn a_track_writes_its_footnotes_under_its_band() {
+        let short = vec!["drawn flat".to_string()];
+        let long = vec![["a sentence long enough to run onto a second line"; 6].join(" ")];
+        let quiet = Figure::new(region())
+            .push(Noted(Vec::new()))
+            .push(AxisTrack::new());
+        let one = Figure::new(region())
+            .push(Noted(short.clone()))
+            .push(AxisTrack::new());
+        let two = Figure::new(region())
+            .push(Noted(long.clone()))
+            .push(AxisTrack::new());
+        let room = |figure: &Figure| figure.dimensions().1 - quiet.dimensions().1;
+        let theme = Theme::default();
+        let size = theme.font_size - 1.0;
+        assert_eq!(room(&one), crate::track::foot_room(1, size));
+        assert!(room(&two) > room(&one), "{} {}", room(&two), room(&one));
+        let (layout, plain) = (one.layout(), quiet.layout());
+        assert_eq!(layout.track_heights, plain.track_heights);
+        assert_eq!(
+            layout.track_tops[1] - plain.track_tops[1],
+            crate::track::foot_room(1, size)
+        );
+        assert_eq!(one.footnotes(), short);
+        let svg = one.to_svg();
+        assert!(svg.contains(">drawn flat</text>"), "{svg}");
+        // Every line of the long note fits the plot.
+        let (lines, _) = crate::track::foot_lines(&long, two.layout().plot_width, &theme);
+        assert!(lines.len() > 1, "{lines:?}");
+        for line in &lines {
+            assert!(
+                text_width(line, size) <= two.layout().plot_width - 8.0,
+                "{line}"
+            );
+        }
+        // A shade over both bands stops at the foot of the first.
+        let shaded = Figure::new(region())
+            .push(Noted(short))
+            .push(Noted(Vec::new()))
+            .shade(crate::Shade::new(100, 200));
+        let layout = shaded.layout();
+        let runs = shaded.shade_runs(&layout);
+        assert_eq!(runs.len(), 2, "{runs:?}");
+        assert_eq!(runs[0].1, layout.track_tops[0] + layout.track_heights[0]);
+        assert_eq!(runs[1].0, layout.track_tops[1]);
     }
 
     #[test]

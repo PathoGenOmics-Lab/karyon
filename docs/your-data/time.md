@@ -21,7 +21,11 @@ karyon --frequencies lineages.tsv \
 
 No place is named: the tables are their own place, and the ruler counts their
 weeks. Each week's lineages fill the band to 100%, and under them is the
-estimate with its interval and a dashed line at 1.
+estimate with its interval and a dashed line at 1. Its axis and its key say
+what the table's header says: `mean`, and `lower to upper` for the band, since
+`reproduction.tsv` does not say a mean of what. A header that names the
+quantity titles the axis with it: a column called `Rt` with `Rt`, and
+EpiEstim's `Mean(R)` with `R`.
 
 ## Your tables
 

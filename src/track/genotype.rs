@@ -41,6 +41,17 @@
 //! a reference. The same twenty thousand sites are 0.94 MB this way, in
 //! 14,509 rectangles, forty rows of them, since the rows stop at forty and
 //! count the rest.
+//!
+//! A pixel whose sites a sample was called differently at is not one shade,
+//! though: in a cohort of one copy a sample, an alternate call at one site
+//! and a reference call five bases on were a grey cell between the two, which
+//! on paper is a mixed call, and nothing said which site carried the
+//! alternate. Such a cell is cut into thin stripes stacked down the row, a
+//! stripe a site, the first site on top, each in the colour of its own call,
+//! as long as each stripe has a pixel of the row; past that it keeps its
+//! shade. Either way the figure says under the track how many cells pool
+//! calls that differ, and names a window that draws them apart, since a
+//! figure handed in is read where nobody can zoom.
 
 use std::ops::Range;
 
@@ -365,7 +376,7 @@ pub(crate) fn placeholder(alt: &str) -> bool {
 
 /// An allele as a tooltip writes it: in full up to twelve characters, and
 /// past that its first twelve and how many more there are.
-fn spelled(allele: &str) -> String {
+pub(crate) fn spelled(allele: &str) -> String {
     let length = allele.chars().count();
     if length <= SPELLED {
         return allele.to_string();
@@ -404,7 +415,21 @@ struct Drawn {
     not_called: bool,
     /// Steps 1 to 8, at index 1 to 8.
     levels: [bool; LEVELS + 1],
+    /// Whether some mark is the share of alternate copies among calls that
+    /// differ, too many of them to draw a stripe each.
     pooled: bool,
+}
+
+/// What the cells pooling calls that differ come to over a window, for the
+/// line under the track.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Mixed {
+    /// How many cells, a row and a pixel each, pool calls that differ.
+    cells: usize,
+    /// How many of them have room for a stripe a site.
+    striped: usize,
+    /// The sites those cells pool, by index, each cell's in order.
+    pools: Vec<Range<usize>>,
 }
 
 /// The calls of many samples at many sites, a row per sample.
@@ -718,10 +743,28 @@ impl GenotypeTrack {
         (copies > 0).then(|| level(alternate, copies))
     }
 
+    /// Whether sample `row` was called differently at the sites of `sites`:
+    /// two calls drawn in two colours, or a call and no call.
+    fn differ(&self, row: usize, sites: Range<usize>) -> bool {
+        let mut levels = self.sites[sites].iter().map(|site| site.call(row).level());
+        match levels.next() {
+            Some(first) => levels.any(|level| level != first),
+            None => false,
+        }
+    }
+
+    /// Whether a pixel of `sites` is drawn for `row` as a stripe a site:
+    /// where the calls under it differ, and the row has a pixel of its
+    /// height for each of them.
+    fn striped(&self, row: usize, sites: Range<usize>) -> bool {
+        sites.len() > 1 && sites.len() as f64 <= self.row_height && self.differ(row, sites)
+    }
+
     /// What the rows on display drew, walked the way the drawing walks them.
     fn drawn(&self, cells: &[Cell]) -> Drawn {
         let mut drawn = Drawn::default();
         let (rows, _) = self.visible_rows();
+        let mut averaged = false;
         let mut mark = |class: Class| match class {
             None => drawn.not_called = true,
             Some(0) => drawn.reference = true,
@@ -733,14 +776,165 @@ impl GenotypeTrack {
                     Cell::Single { site, .. } => mark(self.sites[*site].call(row).level()),
                     Cell::Pooled(stretches) => {
                         for stretch in stretches {
-                            mark(self.class(row, stretch.sites.clone()));
+                            let sites = stretch.sites.clone();
+                            if self.striped(row, sites.clone()) {
+                                for site in &self.sites[sites] {
+                                    mark(site.call(row).level());
+                                }
+                            } else {
+                                averaged |= self.differ(row, sites.clone());
+                                mark(self.class(row, sites));
+                            }
                         }
                     }
                 }
             }
         }
-        drawn.pooled = rows > 0 && cells.iter().any(|cell| matches!(cell, Cell::Pooled(_)));
+        drawn.pooled = averaged;
         drawn
+    }
+
+    /// The cells of the rows on display, a row and a pixel each, that pool
+    /// calls that differ, at the zoom `cells` were worked out at.
+    fn mixed(&self, cells: &[Cell]) -> Mixed {
+        let mut mixed = Mixed::default();
+        let (rows, _) = self.visible_rows();
+        for cell in cells {
+            let Cell::Pooled(stretches) = cell else {
+                continue;
+            };
+            for stretch in stretches {
+                let sites = stretch.sites.clone();
+                if sites.len() < 2 {
+                    continue;
+                }
+                let differing = (0..rows)
+                    .filter(|row| self.differ(*row, sites.clone()))
+                    .collect::<Vec<_>>();
+                if differing.is_empty() {
+                    continue;
+                }
+                mixed.cells += differing.len();
+                mixed.striped += differing
+                    .iter()
+                    .filter(|row| self.striped(**row, sites.clone()))
+                    .count();
+                mixed.pools.push(sites);
+            }
+        }
+        mixed
+    }
+
+    /// The line under the rows on the cells that pool calls that differ, or
+    /// nothing where none does: how many there are, how they are drawn, and
+    /// a window `width` pixels wide over the sequence `seq` that draws them
+    /// apart, where there is one.
+    fn mixed_note(&self, mixed: &Mixed, seq: &str, width: f64) -> Option<String> {
+        if mixed.cells == 0 {
+            return None;
+        }
+        let mut note = match mixed.cells {
+            1 => "1 cell pools calls that differ from more than one site".to_string(),
+            n => format!(
+                "{} cells pool calls that differ from more than one site",
+                group_thousands(n as u64)
+            ),
+        };
+        if mixed.striped > 0 {
+            note.push_str(", drawn a stripe a site with the first on top");
+            if mixed.striped < mixed.cells {
+                note.push_str(" where the row has room");
+            }
+        }
+        if let Some(window) = self.apart(mixed, seq, width) {
+            note.push_str("; ");
+            note.push_str(&window);
+        }
+        Some(note)
+    }
+
+    /// A window as wide as `width` pixels at the floor width of a cell that
+    /// draws the sites of `mixed` apart, each site a cell of its own, written
+    /// as a place: centred on all of them where one window holds them, and
+    /// else on the first. `None` where they are at one base, which no zoom
+    /// draws apart.
+    fn apart(&self, mixed: &Mixed, seq: &str, width: f64) -> Option<String> {
+        // The closest two sites of a pool at different bases, which is as
+        // close as the window has to draw two sites apart.
+        let gap = |pool: &Range<usize>| -> Option<u64> {
+            self.sites[pool.clone()]
+                .windows(2)
+                .map(|pair| pair[1].position - pair[0].position)
+                .filter(|gap| *gap > 0)
+                .min()
+        };
+        // The longest window, from a nice round number down, a gap of
+        // `gap` bases is a floor width wide in.
+        let longest = |gap: u64| -> u64 {
+            let most = width * gap as f64 / self.min_cell_width;
+            let mut nice = 1u64;
+            for step in (0..12).flat_map(|power| {
+                let ten = 10u64.pow(power);
+                [ten, 2 * ten, 5 * ten]
+            }) {
+                if (step as f64) <= most {
+                    nice = step;
+                }
+            }
+            nice
+        };
+        let window = |from: u64, to: u64, length: u64| -> String {
+            let step = (length / 10).max(1);
+            let middle = from + (to - from) / 2;
+            let start = middle.saturating_sub(length / 2) / step * step;
+            format!(
+                "{seq}:{}-{}",
+                group_thousands(start + 1),
+                group_thousands(start + length)
+            )
+        };
+        let separable: Vec<&Range<usize>> = mixed
+            .pools
+            .iter()
+            .filter(|pool| gap(pool).is_some())
+            .collect();
+        let closest = separable.iter().filter_map(|pool| gap(pool)).min()?;
+        let length = longest(closest);
+        let from = separable
+            .iter()
+            .map(|pool| self.sites[pool.start].position)
+            .min()?;
+        let to = separable
+            .iter()
+            .map(|pool| self.sites[pool.end - 1].position)
+            .max()?;
+        // Whether every site of every pool is at a base of its own, so the
+        // window draws each apart from each.
+        let every = mixed.pools.iter().all(|pool| {
+            self.sites[pool.clone()]
+                .windows(2)
+                .all(|pair| pair[1].position > pair[0].position)
+        });
+        // A window holds a span four fifths its length wherever its start is
+        // rounded to.
+        if ((to - from) as f64) <= length as f64 * 0.8 {
+            let them = if every {
+                "draws them apart"
+            } else {
+                "draws apart those at different bases"
+            };
+            return Some(format!("{} {them}", window(from, to, length)));
+        }
+        let first = separable[0];
+        let length = longest(gap(first)?);
+        Some(format!(
+            "{} draws the first of them apart",
+            window(
+                self.sites[first.start].position,
+                self.sites[first.end - 1].position,
+                length
+            )
+        ))
     }
 
     /// The colour of a step of alternate copies, from a fifth of the way off
@@ -808,6 +1002,34 @@ impl GenotypeTrack {
         }
     }
 
+    /// Paints a pixel of several sites for `row` as a stripe a site, stacked
+    /// down the row from the first site on top, each in the colour of the
+    /// row's call there: a reference call fills its stripe in the colour of
+    /// its bar, which a stripe is too short to be.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_stripes(
+        &self,
+        ctx: &mut DrawContext<'_>,
+        row: usize,
+        sites: Range<usize>,
+        x: f64,
+        width: f64,
+        top: f64,
+        hue: &str,
+    ) {
+        let theme = ctx.theme;
+        let height = self.row_height / sites.len() as f64;
+        for (index, site) in self.sites[sites].iter().enumerate() {
+            let color = match site.call(row).level() {
+                None => Self::missing_color(theme),
+                Some(0) => Self::reference_color(theme),
+                Some(step) => Self::step_color(step, hue, theme),
+            };
+            ctx.svg
+                .rect(x, top + index as f64 * height, width, height, &color);
+        }
+    }
+
     /// What a reader hovering a row is told: the sample, and how many of the
     /// sites on display it was called at and carries an alternate allele at.
     ///
@@ -836,10 +1058,9 @@ impl GenotypeTrack {
     }
 
     /// What a reader hovering a mark of sites too close to draw apart is
-    /// told, for a mark that carries an alternate copy: how many sites it
-    /// holds, how many of them carry an alternate allele, and the call at
-    /// each, so a shade between reference and alternate reads as the sites
-    /// it pools and not as a call that is part of each.
+    /// told: how many sites it holds, how many of them carry an alternate
+    /// allele, and the call at each, so a shade or a stack of stripes reads
+    /// as the sites it pools and not as a call that is part of each.
     fn pooled_tooltip(&self, row: usize, sites: Range<usize>) -> String {
         let name = self.samples.get(row).map_or("", String::as_str);
         let held = &self.sites[sites];
@@ -1024,6 +1245,16 @@ impl Track for GenotypeTrack {
         (!key.is_empty()).then_some(key)
     }
 
+    /// How many cells pool calls that differ from more than one site, how
+    /// they are drawn, and a window that draws them apart.
+    fn footnotes(&self, region: &Region, px_per_bp: f64, _theme: &Theme) -> Vec<String> {
+        let cells = self.cells(region, px_per_bp);
+        let width = region.len() as f64 * px_per_bp;
+        self.mixed_note(&self.mixed(&cells), region.seq(), width)
+            .into_iter()
+            .collect()
+    }
+
     fn y_axis_width(&self, theme: &Theme) -> f64 {
         let tree = if self.tree.is_some() {
             self.tree_width
@@ -1112,18 +1343,37 @@ impl Track for GenotypeTrack {
                         }
                     }
                     Cell::Pooled(stretches) => {
-                        // Runs of one class are one rectangle, named as a
-                        // single cell is when it carries an alternate copy.
-                        // Left to the row's tooltip, 85 alternate calls of a
+                        // Runs of one class are one rectangle, each named:
+                        // left to the row's tooltip, 85 alternate calls of a
                         // cohort of forty across rpoB could not be told from
                         // the reference calls they were pooled with, and a
-                        // pixel shading one alternate site with one
-                        // reference site read as a mixed call.
+                        // no call pooled with a call beside it said nothing
+                        // of which site it was. A pixel of calls that differ
+                        // is a run of its own, a stripe a site, so a static
+                        // figure shows which site carries the alternate.
                         let mut at = 0;
                         while at < stretches.len() {
-                            let class = self.class(row, stretches[at].sites.clone());
+                            let stretch = &stretches[at];
+                            if self.striped(row, stretch.sites.clone()) {
+                                let said = self.pooled_tooltip(row, stretch.sites.clone());
+                                ctx.svg.begin_titled(&said);
+                                self.paint_stripes(
+                                    ctx,
+                                    row,
+                                    stretch.sites.clone(),
+                                    x0 + stretch.from,
+                                    stretch.to - stretch.from,
+                                    top,
+                                    &hue,
+                                );
+                                ctx.svg.end_group();
+                                at += 1;
+                                continue;
+                            }
+                            let class = self.class(row, stretch.sites.clone());
                             let mut end = at + 1;
                             while end < stretches.len()
+                                && !self.striped(row, stretches[end].sites.clone())
                                 && self.class(row, stretches[end].sites.clone()) == class
                             {
                                 end += 1;
@@ -1131,8 +1381,7 @@ impl Track for GenotypeTrack {
                             let from = stretches[at].from;
                             let to = stretches[end - 1].to;
                             let sites = stretches[at].sites.start..stretches[end - 1].sites.end;
-                            let named = matches!(class, Some(step) if step > 0)
-                                && sites.len() <= POOLED_NAMED;
+                            let named = sites.len() <= POOLED_NAMED;
                             if named {
                                 let said = if sites.len() == 1 {
                                     self.cell_tooltip(&self.sites[sites.start], row)
@@ -1546,8 +1795,9 @@ mod tests {
         }
     }
 
-    /// While every cell is one call the key names the states; once a pixel
-    /// is an average of several, it is a ramp of the steps, and no call.
+    /// While every cell is one call, or a stripe a call, the key names the
+    /// states; once a pixel is an average of several calls that differ, too
+    /// many for a stripe each, it is a ramp of the steps, and no call.
     #[test]
     fn the_key_names_states_while_every_cell_is_one_call_and_is_a_ramp_once_any_is_pooled() {
         let theme = Theme::light();
@@ -1570,9 +1820,28 @@ mod tests {
                 "no call"
             ]
         );
-        // Zoomed out until the two cells overlap, they are one pixel's worth.
+        // Zoomed out until the two cells overlap, they are one pixel's
+        // worth, drawn a stripe a call, which the states still name.
         let wide = Region::parse("chr1:1-1,000,000").unwrap();
         let key = track.key(&wide, 0.0007, &theme).unwrap();
+        let labels: Vec<String> = key.items().iter().map(label).collect();
+        assert_eq!(
+            labels,
+            [
+                "reference call",
+                "heterozygous call",
+                "alternate call",
+                "no call"
+            ]
+        );
+        // Twelve calls that differ under a pixel of a row eleven pixels tall
+        // are too many to stripe, and are a shade of the ramp.
+        let crowded: Vec<GenotypeSite> = (0..12u64)
+            .map(|at| site(500_000 + at, &[if at % 2 == 0 { "1/1" } else { "0/0" }]))
+            .collect();
+        let key = GenotypeTrack::new(names(1), crowded)
+            .key(&wide, 0.0007, &theme)
+            .unwrap();
         assert!(
             key.items()
                 .iter()
@@ -1586,12 +1855,164 @@ mod tests {
         );
     }
 
+    /// A pixel of a row pooling calls that differ is a stripe a site,
+    /// stacked down the row from the first site, each in the colour of its
+    /// call: an alternate call five bases from a reference one in a haploid
+    /// cohort was one grey cell, which on paper is a mixed call. A row whose
+    /// calls agree there is drawn as that call.
+    #[test]
+    fn a_pixel_of_calls_that_differ_is_a_stripe_a_site() {
+        let theme = Theme::light();
+        let sites = vec![
+            site(763_289, &["1", "0", "0"]),
+            site(763_294, &["0", "1", "0"]),
+        ];
+        let track = GenotypeTrack::new(names(3), sites).show_names(false);
+        let region = Region::parse("chr1:1-1,000,000").unwrap();
+        let svg = drawn(region, track);
+        let cells = marks(&svg);
+        let alternate = GenotypeTrack::step_color(LEVELS, &theme.foreground, &theme);
+        let reference = GenotypeTrack::reference_color(&theme);
+        let fills = |row: usize| -> Vec<(f64, String)> {
+            let top = cells.iter().map(|mark| mark.y).fold(f64::MAX, f64::min) + row as f64 * 12.0;
+            cells
+                .iter()
+                .filter(|mark| mark.y >= top - 1e-6 && mark.y < top + 11.0)
+                .map(|mark| (mark.h, mark.fill.clone()))
+                .collect()
+        };
+        assert_eq!(
+            fills(0),
+            [(5.5, alternate.clone()), (5.5, reference.clone())],
+            "{cells:?}"
+        );
+        assert_eq!(fills(1), [(5.5, reference.clone()), (5.5, alternate)]);
+        // The third row agrees at both, and is the bar of a reference call.
+        assert_eq!(fills(2).len(), 1, "{cells:?}");
+        assert_eq!(fills(2)[0].1, reference);
+        // Each stack is named, sites and calls.
+        assert!(
+            svg.contains(
+                "<title>S2, 2 sites too close to draw apart, 1 carrying an alternate allele: \
+                 763,290 C&gt;T reference; 763,295 C&gt;T alternate</title>"
+            ),
+            "{svg}"
+        );
+    }
+
+    /// More sites than a row has pixels for a stripe each keep the shade of
+    /// their share of alternate copies, which the line under the track
+    /// counts all the same.
+    #[test]
+    fn a_pixel_of_more_calls_than_the_row_has_pixels_keeps_its_shade() {
+        let theme = Theme::light();
+        let sites: Vec<GenotypeSite> = (0..12u64)
+            .map(|at| site(500_000 + at, &[if at == 3 { "1" } else { "0" }]))
+            .collect();
+        let track = GenotypeTrack::new(names(1), sites).show_names(false);
+        let region = Region::parse("chr1:1-1,000,000").unwrap();
+        let cells = marks(&drawn(region.clone(), track.clone()));
+        let first = GenotypeTrack::step_color(1, &theme.foreground, &theme);
+        assert_eq!(cells.len(), 1, "{cells:?}");
+        assert_eq!((cells[0].h, cells[0].fill.clone()), (11.0, first));
+        let notes = track.footnotes(&region, 0.0007, &theme);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("1 cell pools calls that differ from more than one site;"),
+            "{notes:?}"
+        );
+    }
+
+    /// The figure says under the track how many cells pool calls that
+    /// differ, how they are drawn, and a window that draws them apart, which
+    /// drawn says nothing; a cohort whose pooled calls agree says nothing.
+    /// Said on the terminal alone, a figure of seven such cells was handed
+    /// in as seven mixed calls.
+    #[test]
+    fn the_cells_pooling_calls_that_differ_are_counted_under_the_track() {
+        let sites = vec![
+            site(763_289, &["1", "0", "0"]),
+            site(763_294, &["0", "1", "0"]),
+            site(900_000, &["1", "1", "0"]),
+        ];
+        let track = GenotypeTrack::new(names(3), sites).show_names(false);
+        let region = Region::parse("chr1:1-1,000,000").unwrap();
+        let figure = Figure::new(region).push(track.clone());
+        let said = "2 cells pool calls that differ from more than one site, drawn a stripe \
+                    a site with the first on top; chr1:762,701-763,700 draws them apart";
+        assert_eq!(figure.footnotes(), [said]);
+        let svg = figure.to_svg();
+        let written: String = svg
+            .split("<text")
+            .filter_map(|text| text.split_once('>'))
+            .filter_map(|(_, rest)| rest.split_once("</text>"))
+            .map(|(line, _)| line)
+            .filter(|line| line.contains("cells pool") || line.contains("draws them"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(written, said, "{svg}");
+        // Drawn over the window it names, nothing pools.
+        let apart = Figure::new(Region::parse("chr1:762,701-763,700").unwrap()).push(track);
+        assert!(apart.footnotes().is_empty(), "{:?}", apart.footnotes());
+        // Calls that agree pool quietly.
+        let agreeing = vec![site(763_289, &["1", "0"]), site(763_294, &["1", "0"])];
+        let quiet = Figure::new(Region::parse("chr1:1-1,000,000").unwrap())
+            .push(GenotypeTrack::new(names(2), agreeing));
+        assert!(quiet.footnotes().is_empty(), "{:?}", quiet.footnotes());
+    }
+
+    /// Two records at one base are never drawn apart, and the line says the
+    /// window draws apart only the cells at different bases.
+    #[test]
+    fn calls_at_one_base_are_not_promised_a_window() {
+        let at_one = vec![site(763_289, &["1"]), site(763_289, &["0"])];
+        let region = Region::parse("chr1:1-1,000,000").unwrap();
+        let theme = Theme::light();
+        let notes = GenotypeTrack::new(names(1), at_one.clone()).footnotes(&region, 0.0007, &theme);
+        assert_eq!(
+            notes,
+            [
+                "1 cell pools calls that differ from more than one site, drawn a stripe a site \
+              with the first on top"
+            ]
+        );
+        let mut both = at_one;
+        both.extend([site(763_294, &["1"]), site(763_299, &["0"])]);
+        let notes = GenotypeTrack::new(names(1), both).footnotes(&region, 0.0007, &theme);
+        assert!(
+            notes[0].ends_with("draws apart those at different bases"),
+            "{notes:?}"
+        );
+    }
+
+    /// A pooled mark with no alternate copy in it is named too, as one that
+    /// carries one is: a no call pooled with a reference call beside it was
+    /// a pale cell with nothing under the pointer to say which site it was.
+    #[test]
+    fn a_pooled_mark_with_no_alternate_is_named_too() {
+        let sites = vec![site(759_754, &["./."]), site(759_764, &["0/0"])];
+        let track = GenotypeTrack::new(names(1), sites).show_names(false);
+        let region = Region::parse("chr1:759,456-763,676").unwrap();
+        let cells = track.cells(&region, 700.0 / 4_221.0);
+        assert!(
+            matches!(cells.as_slice(), [Cell::Pooled(stretches)] if stretches.len() == 2),
+            "{cells:?}"
+        );
+        let svg = drawn(region, track);
+        assert!(
+            svg.contains("<title>S1, 759,755, C&gt;T: ./. (no call)</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>S1, 759,765, C&gt;T: C/C (reference)</title>"),
+            "{svg}"
+        );
+    }
+
     /// A mark of sites too close to draw apart names each of them and the
-    /// row's call there, when it carries an alternate copy: an alternate
-    /// site pooled with a reference one five bases on was a grey a haploid
-    /// cohort reads as a mixed call, with nothing to say which site was
-    /// which. A mark of the reference alone is named by its row, as a
-    /// reference cell is.
+    /// row's call there: an alternate site pooled with a reference one five
+    /// bases on was a grey a haploid cohort reads as a mixed call, with
+    /// nothing to say which site was which.
     #[test]
     fn a_pooled_mark_names_its_sites_and_the_call_at_each() {
         let sites = vec![
@@ -1621,14 +2042,21 @@ mod tests {
             svg.contains("<title>S2, 765,001, C&gt;T: T (alternate)</title>"),
             "{svg}"
         );
-        assert_eq!(svg.matches("sites too close").count(), 1, "{svg}");
-        // The key says a shade is a pixel's calls pooled, not one call's.
+        // The reference calls S2 pools there are named as well.
+        assert!(
+            svg.contains(
+                "<title>S2, 2 sites too close to draw apart, 0 carrying an alternate allele: \
+                 763,290 C&gt;T reference; 763,295 C&gt;T reference</title>"
+            ),
+            "{svg}"
+        );
+        assert_eq!(svg.matches("sites too close").count(), 2, "{svg}");
+        // Drawn a stripe a call, the pixel is keyed by the calls' states.
         let key = track.key(&region, 0.0008, &Theme::light()).unwrap();
         assert!(
-            key.items().iter().any(|item| matches!(
-                item,
-                LegendItem::Ramp { label, .. } if label == "alternate copies among a pixel's calls"
-            )),
+            !key.items()
+                .iter()
+                .any(|item| matches!(item, LegendItem::Ramp { .. })),
             "{key:?}"
         );
     }

@@ -157,16 +157,6 @@ pub enum ArgError {
     },
     /// More than one track wanted standard input.
     StdinTwice,
-    /// A list of columns on a track that was given no sheet to take them from.
-    ///
-    /// A copy number track with no ploidy to read its levels against.
-    ///
-    /// Required rather than defaulted, because where balanced sits is not in
-    /// the file and this crate does not know what it is drawing. Two copies is
-    /// right for a human autosome and wrong for most of what else is handed to
-    /// it, and a rule in the wrong place does not merely mis-scale the ladder,
-    /// it swaps every gain for a loss and says so confidently.
-    MissingPloidy,
     /// A change to look for, and no key saying where the changes are kept.
     ///
     /// An annotated Newick keeps its changes under a key the tool that wrote
@@ -181,6 +171,8 @@ pub enum ArgError {
     /// read, found and set aside, and the tree came out byte for byte as it
     /// would have with `--mutations` left off.
     MissingCarrying,
+    /// A list of columns on a track that was given no sheet to take them from.
+    ///
     /// Checked once the whole line is read rather than where the flag sits, so
     /// that `--columns` before `--traits` and after it are the same command.
     /// Two modifiers of one track are not in an order, and refusing one of the
@@ -596,10 +588,6 @@ impl fmt::Display for ArgError {
             ArgError::MissingSecond { flag, track } => write!(
                 f,
                 "a {track} track is drawn from two files, and {flag} names the second"
-            ),
-            ArgError::MissingPloidy => write!(
-                f,
-                "--copy-number needs --ploidy, since where balanced sits is not in the file"
             ),
             ArgError::MissingMutations => write!(
                 f,
@@ -1253,9 +1241,9 @@ impl Kind {
     /// reads; a VCF as its calls; GFF3, GTF, BED and bigBed as features;
     /// bedGraph and bigWig as a signal; FASTA and 2bit as the reference; a
     /// Newick file as a tree; PAF as synteny; a PLINK or REGENIE association
-    /// table as a scan; CNVkit's `.cns` and a `.seg` as copy number, which
-    /// still needs its `--ploidy`. A name that could be several things, `.tsv`
-    /// or `.txt`, says nothing, and the file has to be given its flag.
+    /// table as a scan; CNVkit's `.cns` and a `.seg` as copy number. A name
+    /// that could be several things, `.tsv` or `.txt`, says nothing, and the
+    /// file has to be given its flag.
     pub fn for_file(name: &str) -> Option<Kind> {
         let lower = name.to_ascii_lowercase();
         let lower = lower
@@ -1387,14 +1375,14 @@ impl Kind {
     }
 
     /// Whether a track of this kind is drawn across a whole genome where the
-    /// command line writes no place: a scan, a signal, windows and a segment
-    /// table, each on the sequences its rows name, laid end to end. What a
-    /// particular track of the kind reads may still need a place, which
-    /// [`TrackSpec::genome_wide`] says.
+    /// command line writes no place: a scan, a signal, windows, a segment
+    /// table and a heatmap's table of windows, each on the sequences its rows
+    /// name, laid end to end. What a particular track of the kind reads may
+    /// still need a place, which [`TrackSpec::genome_wide`] says.
     pub fn genome_wide(self) -> bool {
         matches!(
             self,
-            Kind::Coverage | Kind::CopyNumber | Kind::Windows | Kind::Manhattan
+            Kind::Coverage | Kind::CopyNumber | Kind::Windows | Kind::Manhattan | Kind::Heatmap
         )
     }
 
@@ -1931,7 +1919,10 @@ pub struct TrackSpec {
     /// The complement of [`TrackSpec::height`], and the two never both apply:
     /// `Kind::takes_height` and `Kind::takes_row_height` are disjoint.
     pub row_height: Option<f64>,
-    /// `--ploidy`, where balanced sits on a copy number ladder.
+    /// `--ploidy`, where balanced sits on a copy number ladder. `None` takes
+    /// it from the file where the file says it, as
+    /// [`read::segments::balanced`](crate::read::segments::balanced) reads
+    /// it, and refuses a file that does not.
     pub ploidy: Option<f64>,
     /// `--sample`, for a file holding more than one: one name after
     /// `--copy-number`, and after `--genotypes` the samples to draw, in the
@@ -2017,15 +2008,16 @@ impl TrackSpec {
     /// which are read over one stretch of one sequence. A signal, unless it
     /// is a BAM's or a CRAM's depth, which across a genome is every read the
     /// file holds, or a bare column of values, which names no sequence to lay
-    /// its values on. Windows and a segment table. And a `.bed` named on its
-    /// own, which may be mosdepth's depth in windows, a bedGraph by another
-    /// name, as is told once it is read: one that holds features is refused
-    /// then, as a figure of features with no place always was.
+    /// its values on. Windows, a segment table, and a heatmap's table of
+    /// windows, whose first three columns are a bedGraph's. And a `.bed`
+    /// named on its own, which may be mosdepth's depth in windows, a bedGraph
+    /// by another name, as is told once it is read: one that holds features
+    /// is refused then, as a figure of features with no place always was.
     pub fn genome_wide(&self) -> bool {
         match self.kind {
             Kind::Manhattan => self.second.is_none() && self.recombination.is_none(),
             Kind::Coverage => !self.reads_alignments() && self.format != Some(Format::Values),
-            Kind::Windows | Kind::CopyNumber => true,
+            Kind::Windows | Kind::CopyNumber | Kind::Heatmap => true,
             Kind::Features => self.guessed && named_as(self.source.as_ref(), &[".bed"]),
             _ => false,
         }
@@ -2291,8 +2283,8 @@ impl Invocation {
 
     /// Whether the figure is drawn across a whole genome: no place written,
     /// and every track one [`TrackSpec::genome_wide`] says is, a scan, a
-    /// signal, windows or a segment table, which are then laid over every
-    /// sequence their files name, end to end.
+    /// signal, windows, a segment table or a heatmap's table of windows,
+    /// which are then laid over every sequence their files name, end to end.
     pub fn genome_wide(&self) -> bool {
         self.region.is_none()
             && self.named.is_none()
@@ -4233,11 +4225,6 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
                 });
             }
         }
-        // Late for the same reason `--against` is checked late: the flag may
-        // sit anywhere after the track it describes.
-        if spec.kind == Kind::CopyNumber && spec.ploidy.is_none() {
-            return Err(ArgError::MissingPloidy);
-        }
         // Late for the same reason: `--mutations` may be written after the
         // `--carrying` that needs it.
         if spec.carrying.is_some() && spec.mutations.is_none() {
@@ -4290,8 +4277,8 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     // holds a single track that is drawn in one needs it: a tree beside a
     // coverage track is still measured against the coverage's window. A place
     // named by a word is a window too, found once the files are read.
-    // A scan, a signal, windows or a segment table read on their own are a
-    // place too: every sequence they name.
+    // A scan, a signal, windows, a segment table or a heatmap's table of
+    // windows read on their own are a place too: every sequence they name.
     let genome_wide = !tracks.is_empty() && tracks.iter().all(TrackSpec::genome_wide);
     if region.is_none()
         && named.is_none()
@@ -4801,10 +4788,8 @@ mod tests {
         ] {
             assert!(draw(&format!("{flag} t.tsv")).region.is_none(), "{flag}");
         }
-        assert!(
-            parse(&args("--heatmap d.tsv")).is_err(),
-            "a heatmap is drawn over a place"
-        );
+        // A heatmap's table of windows is drawn across the genome.
+        assert!(draw("--heatmap d.tsv").genome_wide());
         // Styles are a track's own words.
         assert_eq!(
             draw("--frequencies f.tsv --style line").tracks[0].style,
@@ -5530,6 +5515,9 @@ mod tests {
             "t.seg --ploidy 2 --sample S1",
             "sample.regions.bed.gz",
             "gwas.assoc d.bg --windows w.bg t.cns --ploidy 2",
+            "--heatmap depths.tsv --max 150",
+            "--heatmap depths.tsv --relative --traits s.tsv --with-tree t.nwk",
+            "t.cns --heatmap depths.tsv",
         ] {
             assert!(draw(line).genome_wide(), "{line}");
         }
@@ -5547,8 +5535,8 @@ mod tests {
                 "--msa",
                 "--frequencies",
                 "--squiggle",
-                "--coverage, --copy-number, --windows and --manhattan tracks alone are drawn \
-                 across the whole genome",
+                "--coverage, --copy-number, --windows, --manhattan and --heatmap tracks alone \
+                 are drawn across the whole genome",
             ] {
                 assert!(said.contains(alone), "{alone} not in: {said}");
             }
@@ -5580,9 +5568,9 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "--features genes.gff3 is drawn over a place, and with none a figure is drawn \
-             across the whole genome, which --coverage, --copy-number, --windows and \
-             --manhattan tracks alone are: write the place first, as chr1 for a sequence \
-             drawn whole or chr1:1-2,000,000 for a stretch of it"
+             across the whole genome, which --coverage, --copy-number, --windows, \
+             --manhattan and --heatmap tracks alone are: write the place first, as chr1 for \
+             a sequence drawn whole or chr1:1-2,000,000 for a stretch of it"
         );
     }
 
@@ -5672,17 +5660,14 @@ mod tests {
         assert!(draw("chr1 reads.bam").named.is_some());
     }
 
-    /// CNVkit's segments and a `.seg` are copy number by their names, and
-    /// still need the ploidy where balanced sits.
+    /// CNVkit's segments and a `.seg` are copy number by their names, with
+    /// the ploidy where balanced sits left to the file where none is written.
     #[test]
     fn a_segment_table_is_copy_number_by_its_name() {
         for name in ["tumour.cns", "cohort.seg", "T1.CNS.gz"] {
             assert_eq!(Kind::for_file(name), Some(Kind::CopyNumber), "{name}");
         }
-        assert!(matches!(
-            parse(&args("tumour.cns")).unwrap_err(),
-            ArgError::MissingPloidy
-        ));
+        assert_eq!(draw("tumour.cns").tracks[0].ploidy, None);
         let invocation = draw("tumour.cns --ploidy 2");
         assert_eq!(invocation.tracks[0].ploidy, Some(2.0));
         assert!(invocation.tracks[0].guessed);
@@ -5818,12 +5803,13 @@ mod tests {
         assert_eq!(it.tracks[0].source, Some(Source::Stdin));
     }
 
-    /// Where balanced sits is not in a segment table, and a rule in the wrong
-    /// place does not mis-scale a copy number ladder, it inverts it.
+    /// A copy number track takes its ploidy anywhere after it, and none at
+    /// all: whether the file says where balanced sits is known once it is
+    /// read, and a file that does not is refused then.
     #[test]
-    fn a_copy_number_track_is_refused_without_a_ploidy() {
-        let error = parse(&args("chr8:1-1000 --copy-number seg.cns")).unwrap_err();
-        assert!(matches!(error, ArgError::MissingPloidy), "{error}");
+    fn a_copy_number_track_takes_its_ploidy_anywhere_after_it() {
+        let it = draw("chr8:1-1000 --copy-number seg.cns");
+        assert_eq!(it.tracks[0].ploidy, None);
 
         // Late, so the flag may sit anywhere after the track it describes.
         let it = draw("chr8:1-1000 --copy-number seg.cns --label copies --ploidy 2");

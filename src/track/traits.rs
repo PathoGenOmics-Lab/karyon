@@ -695,8 +695,8 @@ impl TraitDomain {
     ///
     /// The colours were dealt in the order the sheet lists the levels, which
     /// keeps a figure's colours where they were when a sample is added, and
-    /// listed that way the key read L4, L2, L1: all three simulated users
-    /// asked why. Each level keeps its own colour, whatever place it takes.
+    /// listed that way the key read L4, L2, L1, in no order a reader could
+    /// see. Each level keeps its own colour, whatever place it takes.
     pub(crate) fn keyed(&self) -> Vec<(&str, usize)> {
         let mut levels = self.levels();
         levels.retain(|(level, _)| self.met.contains(*level));
