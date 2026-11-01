@@ -47,11 +47,11 @@ USAGE
 
 The place comes first: a region as chr1:10,000-20,000, a gene the annotation
 names, or a whole sequence; several places draw a panel each. Trees need none,
-and --windows, --copy-number, --manhattan and a bedGraph or bigWig of --coverage
-alone span the genome. Each file is the track its name says, BAM, VCF, GFF3,
-GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, .gz or not, its options after
-it. A BAM is its depth over a place; a track flag chooses another, as --pileup
-reads.bam. SVG goes to standard output unless -o names a file; PDF to x.pdf.
+and --windows, --copy-number, --manhattan, --heatmap and a bedGraph or bigWig
+of --coverage alone span the genome. A file is the track its name says, BAM,
+VCF, GFF3, GTF, BED, bedGraph, FASTA, Newick, PAF or PLINK, .gz or not, its
+options after it. A BAM is its depth over a place; --pileup reads.bam draws
+its reads. SVG goes to standard output unless -o names a file; x.pdf is PDF.
 
 TRACKS, by what they draw
     signal and sequence   --coverage --windows --methylation --sequence
@@ -538,22 +538,25 @@ window it is not drawn in, and a figure made only of --tree, --tanglegram and
 the sites of a gene, and a read's signal are their own place: named nowhere,
 the figure is laid over all of it, and its ruler counts columns, weeks, sites
 or samples rather than bases. With no place, --manhattan, --coverage,
---windows and --copy-number tracks are drawn across the whole genome: every
-sequence they name, end to end, in the order chromosomes are counted, each as
-long as the furthest any file reaches on it, or as long as a bigWig says, and
-named underneath. A sequence a file names no row on is a gap in its track, not
-a depth of nought, and a BAM, whose depth there is every read it holds, needs
-a place. Several places, as karyon rpoB katG inhA reads.bam genes.gff3, draw
-one panel each, one under the other or side by side with --panel-columns, the
-same tracks over each and the key once after them; a track with nothing in one
-of them says so there rather than refusing the figure. Any track file may be -
-for standard input, and one track may take it.
+--windows, --copy-number and --heatmap tracks are drawn across the whole
+genome: every sequence they name, end to end, in the order chromosomes are
+counted, each as long as the furthest any file reaches on it, or as long as a
+bigWig says, and named underneath. A sequence a file names no row on is a gap
+in its track, not a depth of nought, and a BAM, whose depth there is every
+read it holds, needs a place. Several places, as karyon rpoB katG inhA
+reads.bam genes.gff3, draw one panel each, one under the other or side by side
+with --panel-columns, the same tracks over each and the key once after them; a
+track with nothing in one of them says so there rather than refusing the
+figure. Any track file may be - for standard input, and one track may take it.
 
 TRACKS
     --coverage <FILE>    per-base signal: bedGraph, bigWig, samtools depth,
                          values, or the depth of a BAM's reads
     --copy-number <FILE> segmented copy number, a caller's segment table;
-                         the ploidy is a track option and is required
+                         balanced sits at the copies the ploidy option gives,
+                         or where the file's calls say: two for calls split
+                         between two alleles, else the copies most of the
+                         genome carries
     --dynseq <FILE>      per-base model attribution, bedGraph or bigWig, drawn
                          as the bases themselves; takes --with-sequence
     --junctions <FILE>   splice junctions as arcs weighted by the reads that
@@ -564,8 +567,9 @@ TRACKS
                          use over a line through its introns, and the ends
                          that do not code at half height
     --variants <FILE>    point calls, VCF or BCF, coloured by the consequence
-                         an annotator wrote in ANN or BCSQ, or else by the
-                         shape of the call: substitution, insertion, deletion
+                         an annotator wrote in ANN, BCSQ or VEP's CSQ, or else
+                         by the shape of the call: substitution, insertion,
+                         deletion
     --genotypes <FILE>   the call of each sample at each site of a VCF or BCF,
                          a row per sample: reference, heterozygous, alternate
                          or not called, at its position
@@ -585,8 +589,8 @@ TRACKS
                          depth, a copy number or a methylation level, as
                          bedtools unionbedg writes it, a sequence, a start and
                          an end, then a column per sample under a header that
-                         names them. Drawn over a place, as chr1 for the whole
-                         of a sequence, and not across a genome with none
+                         names them. With no place, across the whole genome,
+                         every sequence the table names end to end
     --pileup <FILE>      aligned reads, a BAM or SAM text; takes
                          --with-sequence, and colours what disagrees with it
     --synteny <FILE>     alignment ribbons between two sequences, PAF from
@@ -627,8 +631,10 @@ TRACKS
     --phylodynamics <FILE>
                          an estimate over time with its interval, as a
                          skyline, a population size or a reproductive number:
-                         a table headed time, estimate (or mean, median) and
-                         lower and upper where there is an interval
+                         a table headed time, estimate (or mean, median, or
+                         the quantity, Ne, R, Rt) and lower and upper where
+                         there is an interval; its axis and key are named
+                         from those headers
     --selection <FILE>   a test of selection at each site of a gene, HyPhy's
                          FEL or MEME as CSV, or a table of site, alpha and beta
                          (or dS and dN, or omega) and a p-value or a posterior
@@ -683,7 +689,8 @@ TRACK OPTIONS, each describing the track before it, once
                          drawn, with no normalisation, and a cell it does not
                          list, a count of nought, is left blank
     --ploidy <COPIES>    where balanced sits on a copy number ladder, as in 2;
-                         required, since it is not in the file
+                         left out, the file's calls say where, and a file of
+                         log ratios alone is refused, since it does not
     --sample <NAME[,N]>  which sample of a segment table holding several; after
                          --genotypes, which samples of the VCF to draw and in
                          what order, comma separated
@@ -1368,10 +1375,13 @@ mod tests {
             assert!(parsed(line).is_err(), "{line}");
         }
         // And a heatmap, whose table has a bedGraph's first three columns,
-        // says in its own help that it is not one of them.
-        assert!(!spread.contains(&"--heatmap"));
+        // is one of them, and says so in its own help.
+        assert!(spread.contains(&"--heatmap"));
         let heatmap = help_on("heatmap").unwrap();
-        assert!(heatmap.contains("Drawn over a place"), "{heatmap}");
+        assert!(
+            heatmap.contains("With no place, across the whole"),
+            "{heatmap}"
+        );
     }
 
     /// A PDF names Helvetica and Courier and embeds neither, which a
@@ -1408,7 +1418,7 @@ mod tests {
             variants.contains("coloured by the consequence"),
             "{variants}"
         );
-        for field in ["ANN", "BCSQ"] {
+        for field in ["ANN", "BCSQ", "CSQ"] {
             assert!(names(&variants, field), "{field}: {variants}");
         }
         assert!(variants.contains("--color <HEX>"), "{variants}");
@@ -1440,7 +1450,11 @@ mod tests {
             .expect("a row numbers the codons");
         assert!(codons.contains("is read from `genes.gff3`"), "{codons}");
         assert!(
-            READS.contains("`ANN` or `BCSQ`"),
+            READS
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .contains("`ANN`, `BCSQ` or `CSQ`"),
             "the calls' colour unexplained"
         );
 

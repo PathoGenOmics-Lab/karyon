@@ -71,6 +71,7 @@ depth of nought.
 | To | Write |
 |:--|:--|
 | Draw one chromosome alone | `5` in front, as `karyon 5 tumour.bedgraph tumour.cns --ploidy 2` |
+| Take where balanced sits from the file | leave out `--ploidy 2`: the calls are split between two alleles, so balanced is two, and karyon says so |
 | Draw a BAM's depth this way | `mosdepth --by 500000 tumour reads.bam`, then `tumour.regions.bed.gz` in place of `tumour.bedgraph`; a BAM itself needs a place |
 | Shade the amplification, down both tracks | `--shade 5:12,000,001-13,500,000=amplified` |
 | Lay a scan over the same chromosomes | `trait.assoc` in front, from [the scan page](scan.md); `--rename 1=chr1` where the files call a chromosome differently |

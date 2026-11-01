@@ -290,15 +290,21 @@ pub enum BuildError {
         /// How many it picks.
         held: usize,
     },
-    /// A copy number track with no ploidy to read its levels against.
+    /// A copy number track given no ploidy, whose file does not say where
+    /// balanced sits either: it writes log ratios and no copies, or copies
+    /// none of which carries more of it than every other, as
+    /// [`read::segments::balanced`] reads it.
     ///
-    /// The parser refuses this, so it reaches here only from an [`Invocation`]
-    /// built by hand, whose fields are all public. Defaulting it would draw a
-    /// confident ladder whose rule came from nowhere, and the rule is what
-    /// separates a gain from a loss.
+    /// Defaulting it would draw a confident ladder whose rule came from
+    /// nowhere, and the rule is what separates a gain from a loss.
     MissingPloidy {
         /// Which track is short of it.
         track: &'static str,
+        /// What its file is called.
+        path: String,
+        /// Whether the file writes log ratios and no copies, rather than
+        /// copies none of which carries most of it.
+        ratios: bool,
     },
     /// A track drawn from two files was handed one.
     ///
@@ -905,9 +911,23 @@ impl fmt::Display for BuildError {
                 f,
                 "--{track} {path} has {held} {what}s called {name}, so the name does not pick one"
             ),
-            BuildError::MissingPloidy { track } => write!(
+            BuildError::MissingPloidy {
+                track,
+                path,
+                ratios: true,
+            } => write!(
                 f,
-                "a {track} track is drawn against a ploidy, and none was given"
+                "--{track} {path} needs --ploidy: it holds log2 ratios and no copy numbers, \
+                 so where balanced sits is not in the file"
+            ),
+            BuildError::MissingPloidy {
+                track,
+                path,
+                ratios: false,
+            } => write!(
+                f,
+                "--{track} {path} needs --ploidy: no one number of copies carries more of it \
+                 than every other, so where balanced sits is not in the file"
             ),
             BuildError::MissingSecond { track } => write!(
                 f,
@@ -2073,8 +2093,8 @@ fn build_one(
         .filter(|_| counting.is_none() && rescaled.is_none())
         .cloned();
     // A sequence no file gives the length of ends where its rows do, which
-    // is a figure worth drawing and an end worth saying where it came from:
-    // three simulated users read it as the end of the chromosome.
+    // is a figure worth drawing and an end worth saying where it came from,
+    // since unsaid it reads as the end of the chromosome.
     let reached = placed
         .as_ref()
         .filter(|placed| !placed.ends_there)
@@ -2491,22 +2511,24 @@ fn build_genome(
     let mut plot = Plot::over(genome.region())
         .remove_region_label()
         .remove_axis()
-        .theme(theme);
+        .theme(theme.clone());
     if let Some(title) = &invocation.title {
         plot = plot.title(title);
     }
     if let Some(width) = invocation.width {
         plot = plot.width(width);
     }
+    let mut legend = crate::track::legend::Legend::new();
     for track in spread {
-        plot = plot.add_boxed(track.laid(&genome, width)?);
+        plot =
+            plot.add_boxed(track.laid(&genome, width, invocation, &theme, &mut legend, files)?);
     }
     let mut figure = plot.add_genome(genome.clone()).into_figure();
     figure = shaded_genome(figure, invocation, &genome, files)?;
     if invocation.same_scale {
         figure = figure.same_scale();
     }
-    let legend = figure.key();
+    gather(&mut legend, &figure.key());
     if invocation.legend && !legend.is_empty() {
         figure = figure.push(crate::track::legend::LegendTrack::new(legend.clone()));
     }
@@ -2547,8 +2569,15 @@ enum Spreading {
     },
     /// Windows on each sequence.
     Windows(Vec<(String, Vec<crate::Window>)>),
-    /// The segments called on each sequence, at the track's ploidy.
-    Copies(Vec<(String, Vec<crate::CopyNumberSegment>)>),
+    /// The segments called on each sequence, and the ploidy they were read
+    /// at, which balanced sits at.
+    Copies(Vec<(String, Vec<crate::CopyNumberSegment>)>, f64),
+    /// A heatmap's windows on each sequence, each with every sample's value
+    /// there, and the samples, in the order of those values.
+    Heatmap {
+        samples: Vec<String>,
+        sequences: Vec<(String, read::table::WindowValues)>,
+    },
 }
 
 impl Spread {
@@ -2584,7 +2613,14 @@ impl Spread {
                     )
                 })
                 .collect(),
-            Spreading::Copies(sequences) => sequences
+            Spreading::Heatmap { sequences, .. } => sequences
+                .iter()
+                .map(|(name, windows)| {
+                    let end = windows.iter().map(|((_, end), _)| *end).max();
+                    (name.clone(), end.unwrap_or(1))
+                })
+                .collect(),
+            Spreading::Copies(sequences, _) => sequences
                 .iter()
                 .map(|(name, segments)| {
                     (
@@ -2600,8 +2636,17 @@ impl Spread {
         }
     }
 
-    /// The track, laid over `genome`, in a figure `width` pixels wide.
-    fn laid(self, genome: &crate::Genome, width: f64) -> Result<Box<dyn Track>, BuildError> {
+    /// The track, laid over `genome`, in a figure `width` pixels wide, with
+    /// the key to any sheet of samples beside it put in `legend`.
+    fn laid(
+        self,
+        genome: &crate::Genome,
+        width: f64,
+        invocation: &Invocation,
+        theme: &Theme,
+        legend: &mut crate::track::legend::Legend,
+        files: &mut dyn Files,
+    ) -> Result<Box<dyn Track>, BuildError> {
         let Spread { spec, path, held } = self;
         let spec = &spec;
         let name = spec.kind.flag();
@@ -2793,12 +2838,43 @@ impl Spread {
                     WindowTrack::label,
                 ))
             }
-            Spreading::Copies(sequences) => {
-                // Checked by the parser, so this is reached only from an
-                // Invocation built by hand.
-                let Some(ploidy) = spec.ploidy else {
-                    return Err(BuildError::MissingPloidy { track: name });
-                };
+            Spreading::Heatmap { samples, sequences } => {
+                // In the order the genome lays its sequences out, which need
+                // not be the order of the file.
+                let mut laid: Vec<&(String, read::table::WindowValues)> =
+                    sequences.iter().collect();
+                laid.sort_by_key(|(sequence, _)| offset(sequence));
+                let mut windows = Vec::new();
+                let mut values: Vec<Vec<f64>> = vec![Vec::new(); samples.len()];
+                for (sequence, cells) in laid {
+                    let offset = offset(sequence);
+                    for ((start, end), cells) in cells {
+                        windows.push((offset.saturating_add(*start), offset.saturating_add(*end)));
+                        for (row, value) in values.iter_mut().zip(cells) {
+                            row.push(*value);
+                        }
+                    }
+                }
+                let rows = samples
+                    .into_iter()
+                    .zip(values)
+                    .map(|(name, cells)| crate::MatrixRow::new(name, cells))
+                    .collect();
+                let sheet = sheet(spec, files)?;
+                let track = heatmap(
+                    windows,
+                    rows,
+                    spec,
+                    sheet.as_ref(),
+                    &invocation.colors,
+                    theme,
+                    legend,
+                    files,
+                    &mut |_, _| None,
+                )?;
+                Box::new(named(track, label, MatrixTrack::label))
+            }
+            Spreading::Copies(sequences, ploidy) => {
                 let segments: Vec<crate::CopyNumberSegment> = sequences
                     .iter()
                     .flat_map(|(sequence, segments)| {
@@ -2954,11 +3030,23 @@ fn spread_of(
             }
             Spreading::Windows(gathered(invocation, read))
         }
+        Kind::Heatmap => {
+            let read = wrap(name, &path, read::table::genome_windows(&text))?;
+            if read.samples.is_empty() || read.sequences.iter().all(|(_, at)| at.is_empty()) {
+                return Err(BuildError::Empty {
+                    track: name,
+                    path,
+                    wanted: "windows",
+                });
+            }
+            Spreading::Heatmap {
+                samples: read.samples,
+                sequences: gathered(invocation, read.sequences),
+            }
+        }
         Kind::CopyNumber => {
-            let Some(ploidy) = spec.ploidy else {
-                return Err(BuildError::MissingPloidy { track: name });
-            };
             one_sample(&spec, &path, &text)?;
+            let ploidy = ploidy_of(&spec, &path, &text, files)?;
             let read = wrap(
                 name,
                 &path,
@@ -2978,7 +3066,7 @@ fn spread_of(
                     wanted: "called segments",
                 });
             }
-            Spreading::Copies(gathered(invocation, read.sequences))
+            Spreading::Copies(gathered(invocation, read.sequences), ploidy)
         }
         _ => unreachable!("only the kinds drawn across a genome are read across one"),
     };
@@ -3007,6 +3095,50 @@ fn gathered<T>(invocation: &Invocation, sequences: Vec<(String, Vec<T>)>) -> Vec
         }
     }
     joined
+}
+
+/// Where a copy number track's balanced state sits: the `--ploidy` it was
+/// given, or else where its file says, which is said on standard error with
+/// the flag that changes it.
+///
+/// A file whose calls are split between two alleles is balanced at one copy
+/// of each, and one of totals at the number of copies most of the genome
+/// carries, which is two for a diploid tumour and one for a haploid genome
+/// alike. A file of log ratios says nothing of it, nor one whose copies none
+/// carries most of, and is refused asking for `--ploidy`.
+fn ploidy_of(
+    spec: &TrackSpec,
+    path: &str,
+    text: &str,
+    files: &mut dyn Files,
+) -> Result<f64, BuildError> {
+    if let Some(ploidy) = spec.ploidy {
+        return Ok(ploidy);
+    }
+    let name = spec.kind.flag();
+    let balanced = wrap(
+        name,
+        path,
+        read::segments::balanced(text, spec.sample.as_deref()),
+    )?;
+    let Some(copies) = balanced.copies() else {
+        return Err(BuildError::MissingPloidy {
+            track: name,
+            path: path.to_string(),
+            ratios: balanced == read::segments::Balanced::Ratios,
+        });
+    };
+    let why = match balanced {
+        read::segments::Balanced::Alleles => {
+            "one of each of the two alleles its calls are split between"
+        }
+        _ => "the number most of the genome carries",
+    };
+    let unit = if copies == 1.0 { "copy" } else { "copies" };
+    files.note(&format!(
+        "{path}: balanced taken as {copies} {unit}, {why}; --ploidy N to change"
+    ));
+    Ok(copies)
 }
 
 /// Refuses a segment table that names no sample where one was asked for, or
@@ -7400,7 +7532,7 @@ impl std::error::Error for Binary {}
 /// is two files, so neither gets one.
 fn default_label(spec: &TrackSpec) -> Option<String> {
     // A phylogeny is plain to see, and named after its file it put a stray
-    // word in the margin of every tree: three simulated users asked what it was.
+    // word in the margin of every tree that said nothing about it.
     if matches!(spec.kind, Kind::Tanglegram | Kind::Axis | Kind::Tree) {
         return None;
     }
@@ -9083,12 +9215,8 @@ fn built(
             Box::new(named(track, label, IdeogramTrack::label))
         }
         Kind::CopyNumber => {
-            // Checked by the parser, so this is reached only from an
-            // Invocation built by hand, whose fields are all public.
-            let Some(ploidy) = spec.ploidy else {
-                return Err(BuildError::MissingPloidy { track: name });
-            };
             one_sample(spec, &path, &text)?;
+            let ploidy = ploidy_of(spec, &path, &text, files)?;
             let found = wrap(
                 name,
                 &path,
@@ -9227,66 +9355,21 @@ fn built(
             Box::new(named(track, label, PairTrack::label))
         }
         Kind::Heatmap => {
-            let (windows, mut rows) = wrap(name, &path, read::table::windows(&text, region))?;
+            let (windows, rows) = wrap(name, &path, read::table::windows(&text, region))?;
             if rows.is_empty() || windows.is_empty() {
                 return Err(empty("windows"));
             }
-            // Each sample against its own usual value, so a sample sequenced
-            // deeper is not a darker row from end to end and what stands out
-            // is what changed along it. Its median over the windows drawn, as
-            // the stretches it lost do not move a median the way they move a
-            // mean; a sample with no usual value above nought keeps its own.
-            if spec.relative {
-                for row in &mut rows {
-                    let mut drawn: Vec<f64> = row
-                        .values
-                        .iter()
-                        .copied()
-                        .filter(|v| v.is_finite())
-                        .collect();
-                    drawn.sort_by(f64::total_cmp);
-                    let median = match drawn.len() {
-                        0 => continue,
-                        n if n % 2 == 1 => drawn[n / 2],
-                        n => (drawn[n / 2 - 1] + drawn[n / 2]) / 2.0,
-                    };
-                    if median > 0.0 {
-                        row.values.iter_mut().for_each(|value| *value /= median);
-                    }
-                }
-            }
-            let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
-            let mut track = MatrixTrack::windows(windows, rows);
-            if spec.relative {
-                track = track.unit("×");
-            }
-            // A depth read against its sample's usual one is read either side
-            // of one: a loss in one hue and a gain in the other, and the usual
-            // depth pale, where one hue made a deletion as pale as the page.
-            if let Some(center) = spec.center.or(spec.relative.then_some(1.0)) {
-                track = track.scale(crate::CellScale::Diverging {
-                    center,
-                    spread: None,
-                });
-            }
-            // The end of the ramp, or of its gain where it is read either
-            // side of a centre; the parser has seen to it being above that.
-            if let Some(max) = spec.max {
-                track = track.max(max);
-            }
-            if let Some(px) = spec.row_height {
-                track = track.row_height(px);
-            }
-            if spec.no_names {
-                track = track.show_row_names(false);
-            }
-            if let Some(traits) = strip(spec, sheet.as_ref(), &names, context.colors)? {
-                gather(legend, &traits.legend(theme));
-                track = track.traits(traits);
-            }
-            if let Some(tree) = row_tree(spec, &names, files, parsed)? {
-                track = track.tree(tree);
-            }
+            let track = heatmap(
+                windows,
+                rows,
+                spec,
+                sheet.as_ref(),
+                context.colors,
+                theme,
+                legend,
+                files,
+                parsed,
+            )?;
             Box::new(named(track, label, MatrixTrack::label))
         }
         Kind::Pileup => {
@@ -9345,7 +9428,18 @@ fn built(
                 &path,
                 read::series::estimates(&text, context.decimals),
             )?;
-            let mut track = PhylodynamicTrack::new(points).time_decimals(context.decimals);
+            // The track is named after its file, and its axis and key after
+            // what the file's header says they hold: `R` under EpiEstim's
+            // `Mean(R)`, or the column's own word, `mean`, where it says no
+            // more, and never a quantity the file did not name.
+            let held = wrap(name, &path, read::series::estimate_names(&text))?;
+            let mut track = PhylodynamicTrack::new(points)
+                .time_decimals(context.decimals)
+                .axis_title(held.quantity)
+                .estimate_name(held.estimate);
+            if let Some(interval) = held.interval {
+                track = track.interval_name(interval);
+            }
             if spec.log {
                 track = track.scale(PhylodynamicScale::Log10);
             }
@@ -9543,6 +9637,83 @@ fn named<T>(track: T, label: Option<String>, set: fn(T, String) -> T) -> T {
         Some(label) => set(track, label),
         None => track,
     }
+}
+
+/// A heatmap of `rows` over `windows`, drawn as its track's options say:
+/// each sample against its own median with `--relative`, either side of
+/// `--center`, its ramp ending at `--max`, its rows `--row-height` tall and
+/// named unless `--no-names`, with the strips of a `--traits` sheet, whose
+/// key goes in `legend`, and in the order of a `--with-tree`. Over a window
+/// and across a whole genome alike.
+#[allow(clippy::too_many_arguments)]
+fn heatmap(
+    windows: Vec<(u64, u64)>,
+    mut rows: Vec<crate::MatrixRow>,
+    spec: &TrackSpec,
+    sheet: Option<&(read::sheet::Sheet, String)>,
+    colors: &[(String, Vec<(String, String)>)],
+    theme: &Theme,
+    legend: &mut crate::track::legend::Legend,
+    files: &mut dyn Files,
+    parsed: &mut dyn FnMut(&str, &str) -> Option<Tree>,
+) -> Result<MatrixTrack, BuildError> {
+    // Each sample against its own usual value, so a sample sequenced
+    // deeper is not a darker row from end to end and what stands out
+    // is what changed along it. Its median over the windows drawn, as
+    // the stretches it lost do not move a median the way they move a
+    // mean; a sample with no usual value above nought keeps its own.
+    if spec.relative {
+        for row in &mut rows {
+            let mut drawn: Vec<f64> = row
+                .values
+                .iter()
+                .copied()
+                .filter(|v| v.is_finite())
+                .collect();
+            drawn.sort_by(f64::total_cmp);
+            let median = match drawn.len() {
+                0 => continue,
+                n if n % 2 == 1 => drawn[n / 2],
+                n => (drawn[n / 2 - 1] + drawn[n / 2]) / 2.0,
+            };
+            if median > 0.0 {
+                row.values.iter_mut().for_each(|value| *value /= median);
+            }
+        }
+    }
+    let names: Vec<String> = rows.iter().map(|row| row.name.clone()).collect();
+    let mut track = MatrixTrack::windows(windows, rows);
+    if spec.relative {
+        track = track.unit("×");
+    }
+    // A depth read against its sample's usual one is read either side
+    // of one: a loss in one hue and a gain in the other, and the usual
+    // depth pale, where one hue made a deletion as pale as the page.
+    if let Some(center) = spec.center.or(spec.relative.then_some(1.0)) {
+        track = track.scale(crate::CellScale::Diverging {
+            center,
+            spread: None,
+        });
+    }
+    // The end of the ramp, or of its gain where it is read either
+    // side of a centre; the parser has seen to it being above that.
+    if let Some(max) = spec.max {
+        track = track.max(max);
+    }
+    if let Some(px) = spec.row_height {
+        track = track.row_height(px);
+    }
+    if spec.no_names {
+        track = track.show_row_names(false);
+    }
+    if let Some(traits) = strip(spec, sheet, &names, colors)? {
+        gather(legend, &traits.legend(theme));
+        track = track.traits(traits);
+    }
+    if let Some(tree) = row_tree(spec, &names, files, parsed)? {
+        track = track.tree(tree);
+    }
+    Ok(track)
 }
 
 /// Turns parsed records into alignment rows, refusing an empty file.
@@ -10190,19 +10361,83 @@ ctg2\t2000\t0\t900\t+\tchrA\t9000\t100\t1000\t880\t900\t60
         );
     }
 
+    /// A copy number track given no ploidy takes it from a file of called
+    /// copies, and says so: two for calls split between two alleles, else the
+    /// number of copies most of the genome carries, whatever the number. A
+    /// file of log ratios, or of copies two numbers of which carry as much,
+    /// does not say, and is refused naming `--ploidy`, which is then read as
+    /// written.
     #[test]
-    fn a_copy_number_track_built_by_hand_with_no_ploidy_is_refused() {
-        // The parser refuses it, so this is reached only from an Invocation
-        // built by hand, and defaulting it would draw a confident ladder whose
-        // rule came from nowhere.
-        let mut invocation = invocation("chr1:1-1000 --coverage d.bg");
-        invocation.tracks[0].kind = Kind::CopyNumber;
-        invocation.tracks[0].ploidy = None;
-        let error = build(&invocation, |_| {
-            Ok("chromosome\tstart\tend\tcn\nchr1\t0\t500\t2\n".to_string())
-        })
-        .unwrap_err();
-        assert!(matches!(error, BuildError::MissingPloidy { .. }), "{error}");
+    fn a_copy_number_track_with_no_ploidy_takes_it_from_the_file() {
+        // CNVkit's own columns, as `cnvkit.py call` writes them with a VCF.
+        let cns = "chromosome\tstart\tend\tgene\tlog2\tcn\tcn1\tcn2\tdepth\tprobes\tweight\n\
+                   1\t0\t43000000\t-\t0.0000\t2\t1\t1\t60.00\t1720\t1548.0\n\
+                   2\t0\t9000000\t-\t0.5850\t3\t2\t1\t90.00\t360\t324.0\n\
+                   2\t9000000\t36000000\t-\t0.0000\t2\t2\t0\t60.00\t1080\t972.0\n";
+        // Totals alone, most of the genome at three, as a triploid line is.
+        let triploid = "chromosome\tstart\tend\tcn\n\
+                        1\t0\t40000\t3\n1\t40000\t52000\t2\n2\t0\t30000\t3\n2\t30000\t31000\tNA\n";
+        // A haploid genome's single sequence, one stretch lost.
+        let haploid = "chromosome\tstart\tend\tcn\nNC_1\t0\t4000\t1\nNC_1\t4000\t4400\t0\n";
+        let ratios = "ID\tchrom\tloc.start\tloc.end\tnum.mark\tseg.mean\n\
+                      S1\t1\t1\t2000\t9\t0.0\nS1\t1\t2001\t3000\t9\t1.0\n";
+        let tied = "chromosome\tstart\tend\tcn\n1\t0\t500\t2\n1\t500\t1000\t3\n";
+        let held = [
+            ("t.cns", cns),
+            ("triploid.cns", triploid),
+            ("haploid.cns", haploid),
+            ("t.seg", ratios),
+            ("tied.cns", tied),
+        ];
+        let (svg, notes) = drawn_noting("t.cns", &held);
+        assert!(svg.is_ok(), "{svg:?}");
+        let alleles = "t.cns: balanced taken as 2 copies, one of each of the two alleles its \
+                       calls are split between; --ploidy N to change";
+        assert_eq!(notes, [alleles]);
+        // Over a place as across the genome, and read off the whole file.
+        let (svg, notes) = drawn_noting("triploid.cns", &held);
+        let svg = svg.unwrap();
+        let drawn = svg.contains(">loss</text>") && !svg.contains(">gain</text>");
+        assert!(drawn, "triploid drawn at another ploidy");
+        let most = "triploid.cns: balanced taken as 3 copies, the number most of the genome \
+                    carries; --ploidy N to change";
+        assert_eq!(notes, [most]);
+        let (svg, notes) = drawn_noting("1:40,001-52,000 triploid.cns", &held);
+        assert!(
+            svg.unwrap().contains(">loss</text>"),
+            "a window's own mode was taken"
+        );
+        assert!(notes[0].contains("taken as 3 copies"), "{notes:?}");
+        let (svg, notes) = drawn_noting("haploid.cns", &held);
+        assert!(svg.is_ok(), "{svg:?}");
+        assert!(
+            notes[0].contains("taken as 1 copy, the number"),
+            "{notes:?}"
+        );
+        // Nothing in either file says where balanced sits.
+        let said = drawn_from("t.seg", &held).unwrap_err();
+        assert!(
+            matches!(said, BuildError::MissingPloidy { ratios: true, .. }),
+            "{said}"
+        );
+        assert_eq!(
+            said.to_string(),
+            "--copy-number t.seg needs --ploidy: it holds log2 ratios and no copy numbers, so \
+             where balanced sits is not in the file"
+        );
+        let said = drawn_from("tied.cns", &held).unwrap_err().to_string();
+        assert!(
+            said.contains("no one number of copies carries more"),
+            "{said}"
+        );
+        // A ploidy written is taken as written, and nothing is said.
+        let (svg, notes) = drawn_noting("triploid.cns --ploidy 2", &held);
+        assert!(
+            svg.unwrap().contains(">gain</text>"),
+            "--ploidy was not read"
+        );
+        assert!(notes.is_empty(), "{notes:?}");
+        assert!(drawn_from("t.seg --ploidy 2", &held).is_ok());
     }
 
     /// A sheet of metadata is a third file, and the join is names.
@@ -11821,8 +12056,8 @@ chr2\t300\t.\tA\tG\t.\t.\t.
     }
 
     /// A BAM named on its own is its depth, and over a window a few reads
-    /// wide the figure says the reads could be drawn: a simulated user drew
-    /// four hundred bases of depth where the task wanted the reads.
+    /// wide the figure says the reads could be drawn, since four hundred bases
+    /// of depth is easy to draw where the reads themselves were wanted.
     #[test]
     fn a_bam_named_on_its_own_over_a_few_reads_says_they_could_be_drawn() {
         let dir = Scratch::new("bam-note");
@@ -12412,6 +12647,39 @@ chr2\t300\t.\tA\tG\t.\t.\t.
         let held = [("f.tsv", COUNTS), ("d.bg", "chr1\t0\t10\t5\n")];
         let (mixed, _) = drawn_noting("chr1:1-10 --coverage d.bg --frequencies f.tsv", &held);
         assert!(!mixed.unwrap().contains(">week</text>"));
+    }
+
+    /// An estimate's axis and key name what its header says it holds, under
+    /// the file's name: the quantity EpiEstim names inside `Mean(R)`, or the
+    /// estimate's own word where nothing names one, and its interval by its
+    /// columns. A count's axis says it counts.
+    #[test]
+    fn an_estimate_is_titled_and_keyed_as_its_header_names_it() {
+        let epiestim = "t_start\tt_end\tMean(R)\tStd(R)\tQuantile.0.025(R)\tMedian(R)\t\
+                        Quantile.0.975(R)\n2\t8\t1.3\t0.1\t1.1\t1.3\t1.5\n\
+                        3\t9\t1.1\t0.1\t0.9\t1.1\t1.3\n";
+        let mean = "week\tmean\tlower\tupper\n3\t1.06\t0.80\t1.38\n4\t1.19\t0.95\t1.49\n";
+        let held = [
+            ("rt.tsv", epiestim),
+            ("reproduction.tsv", mean),
+            ("f.tsv", COUNTS),
+        ];
+        let svg = drawn_from("--phylodynamics rt.tsv", &held).unwrap();
+        assert!(svg.contains(">rt</text>"), "the file's name: {svg}");
+        assert!(svg.contains(">R</text>"), "the quantity: {svg}");
+        assert!(svg.contains(">2.5% to 97.5%</text>"), "{svg}");
+        let svg = drawn_from("--phylodynamics reproduction.tsv", &held).unwrap();
+        assert!(svg.contains(">reproduction</text>"), "{svg}");
+        assert!(svg.contains(">mean</text>"), "{svg}");
+        assert!(svg.contains(">lower to upper</text>"), "{svg}");
+        assert!(
+            !svg.contains(">R</text>"),
+            "a quantity the file never named: {svg}"
+        );
+        let svg = drawn_from("--frequencies f.tsv --counts", &held).unwrap();
+        assert!(svg.contains(">count</text>"), "{svg}");
+        let svg = drawn_from("--frequencies f.tsv", &held).unwrap();
+        assert!(!svg.contains(">count</text>"), "{svg}");
     }
 
     /// A table of its own place read from a pipe is drawn over its own extent,
@@ -13277,6 +13545,56 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
                 Some((name.to_string(), length.to_string()))
             })
             .collect()
+    }
+
+    /// A heatmap's table of windows with no place is drawn across every
+    /// sequence it names, end to end in the order chromosomes are counted,
+    /// with each sample's row whole and the strips and key of its sheet. It
+    /// was refused for having no place, as a bedGraph of the same first three
+    /// columns was not. A table of one sequence draws it as the sequence
+    /// named for the place does, and its short last window is its end.
+    #[test]
+    fn a_heatmap_with_no_place_is_drawn_across_the_genome() {
+        let table = "chrom\tstart\tend\tS1\tS2\n\
+                     2\t0\t100\t30\t31\n2\t100\t150\t29\t0\n\
+                     1\t0\t100\t28\t.\n1\t100\t200\t27\t33\n";
+        let sheet = "sample\tgroup\nS1\tx\nS2\ty\n";
+        let held = [("w.tsv", table), ("s.tsv", sheet)];
+        let (svg, notes) = drawn_noting("--heatmap w.tsv --relative --traits s.tsv", &held);
+        let svg = svg.unwrap();
+        assert_eq!(
+            sequences_under(&svg),
+            [
+                ("1".to_string(), "200".to_string()),
+                ("2".to_string(), "150".to_string()),
+            ]
+        );
+        assert!(
+            svg.contains("<title>S1, 4 of 4 windows called</title>"),
+            "{svg}"
+        );
+        assert!(
+            svg.contains("<title>S2, 3 of 4 windows called</title>"),
+            "{svg}"
+        );
+        assert!(svg.contains(">group: y</text>"), "the sheet's key: {svg}");
+        assert!(svg.contains("1×"), "--relative was not read: {svg}");
+        assert!(notes.is_empty(), "{notes:?}");
+        // Beside a depth across the same genome, on the same sequences.
+        let depth = "1\t0\t200\t5\n2\t0\t150\t6\n";
+        let held = [("w.tsv", table), ("d.bedgraph", depth)];
+        let both = drawn_from("d.bedgraph --heatmap w.tsv", &held).unwrap();
+        assert_eq!(sequences_under(&both).len(), 2, "{both}");
+
+        let one = "chrom\tstart\tend\tS1\n\
+                   NC_1\t0\t100\t5\nNC_1\t100\t200\t6\nNC_1\t200\t300\t6\nNC_1\t300\t337\t7\n";
+        let held = [("one.tsv", one)];
+        let (alone, notes) = drawn_noting("--heatmap one.tsv --max 10", &held);
+        let (placed, _) = drawn_noting("NC_1 --heatmap one.tsv --max 10", &held);
+        let alone = alone.unwrap();
+        assert_eq!(locus_of(&alone), "NC_1:1-337");
+        assert_eq!(alone, placed.unwrap());
+        assert!(notes.is_empty(), "{notes:?}");
     }
 
     /// A bedGraph with no place is drawn across every sequence it names,
@@ -15261,7 +15579,7 @@ chr1\t.\tgene\t20001\t21000\t.\t-\t.\tID=gene-B;Name=katG
 
     /// Bases too narrow for their letters are blocks of colour, which the key
     /// names; with letters, or with nothing drawn, there is nothing to name.
-    /// No simulated user could say which colour was which base.
+    /// Without the key nothing said which colour was which base.
     #[test]
     fn the_key_names_the_bases_while_they_are_blocks() {
         let fasta = format!(">chr1\n{}\n", "ACGT".repeat(500));

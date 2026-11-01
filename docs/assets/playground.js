@@ -1602,7 +1602,7 @@
       name: "Segmented copy number",
       bounds: { from: 1, to: 2000000, min: 20000 },
       controls: [
-        { kind: "note", label: "A caller's segments, drawn against the ploidy the flag names. Balanced is where the ladder says it is, not where the data averages out, which is why --ploidy is required and not guessed." },
+        { kind: "note", label: "A caller's segments, drawn against the ploidy the flag names. Balanced is where the ladder says it is, not where the data averages out. With no --ploidy, a table that splits its calls between two alleles is balanced at two, one of totals at the copies most of the genome carries, and one of log ratios is refused." },
         { kind: "region" },
         { kind: "choice", flag: "--sample", after: "--copy-number",
           label: "Which sample of the table to draw",

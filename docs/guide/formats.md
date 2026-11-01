@@ -548,7 +548,7 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 | | |
 |:--|:--|
 | Read by | `--variants`; `read::point::variants` |
-| Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ` |
+| Columns | 1 CHROM, 2 POS, 4 REF, 5 ALT (one call per alternate allele), 8 INFO: `AF`, `ANN`, `BCSQ`, `CSQ`; the header's `##INFO=<ID=CSQ` line for the order of `CSQ`'s fields |
 | Ignored | 3 ID, 6 QUAL, 7 FILTER, and 9 onwards, which `--genotypes` reads, so a call that failed a filter is still drawn and a sites-only VCF reads like a cohort's |
 | Coordinates | 1-based: `POS 21563` is 0-based 21562 |
 | With an index | read a window at a time, through the `.tbi` that `tabix -p vcf calls.vcf.gz` writes or the `.csi` of `bcftools index`; the header comes with every window. The same calls as [BCF](#bcf) are read through theirs and draw the same figure |
@@ -563,8 +563,15 @@ NC_045512.2  21990  .   TTTA  T    500   PASS    DP=40
 - **Category** is what an annotator wrote: the `ANN` entry naming this allele
   (from snpEff, or from VEP run with `--vcf_info_field ANN`), or else the
   first; or the first `BCSQ` consequence (from bcftools csq), without the `*`
-  of an uncertain one. VEP's own `CSQ`, which it writes unless told
-  otherwise, is not read, and its calls are named by their shape. With neither, it is
+  of an uncertain one; or the `CSQ` VEP writes unless told otherwise, its
+  fields found by the names its header's `Format: Allele|Consequence|...`
+  gives them, or in VEP's own order, the allele first and the consequence
+  second, where no header line says. VEP writes an entry per transcript in no
+  order of damage, so of the entries naming this allele, as the row spells it
+  or as VEP spells an indel's once the base its alleles share is off, `T` for
+  `C>CT` and `-` for `CA>C`, the most damaging is read, as the first of
+  snpEff's sorted `ANN` is; consequences joined with `&` are kept whole, as
+  they are from `ANN`. With none of them, it is
   the shape of REF against ALT: `substitution`, `insertion` or `deletion` by
   length, `breakend` for square brackets, and `deletion` for `*`. A symbolic
   allele is named by its tag: `<DEL>` is `deletion`, `<INS:ME:ALU>` is
@@ -795,7 +802,7 @@ NC_000962.3  100000  200000  70.4   98.7   0.0
 
 | | |
 |:--|:--|
-| Read by | `--heatmap`; `read::table::windows` |
+| Read by | `--heatmap`; `read::table::windows`, and `read::table::genome_windows` for every sequence, as a heatmap with no place is drawn across the whole genome |
 | Columns | a sequence, a start and an end, then one value per sample; the header names the samples |
 | Coordinates | 0-based, half-open, as BED; passed through |
 | With an index | read a window at a time, through the `.tbi` that `tabix -s1 -b2 -e3 -0 -S1 windows.tsv.gz` writes for a table with its header on the first line; a long table is read whole, since it names its samples on its rows |
@@ -945,7 +952,8 @@ out rather than drawn at nought.
 
 ### The segment table { #the-segment-table }
 
-Copy number over segments, as a caller concluded it. Used with `--ploidy`.
+Copy number over segments, as a caller concluded it, balanced at `--ploidy`
+or where the calls say.
 
 ```text
 chromosome  start      end        gene  log2   cn  cn1  cn2
@@ -971,16 +979,22 @@ chr17       7590000    7700000    -     NA     NA  NA   NA
 | log2 ratio, read last | `log2`, `log2ratio`, `logR`; `seg.mean` in a `.seg` file |
 | sample, where there is one | `sample`, `ID`, `sampleid`, `sample_id`, `name` |
 
-A log2 ratio becomes copies as `ploidy * 2^log2`, and the ploidy is not in the
-file, which is why `--ploidy` is required. The allele split is read first
-because a caller that wrote it did so on purpose, and a total cannot be turned
-back into one. A missing copy number leaves a gap rather than a level nobody
-called.
+A log2 ratio becomes copies as `ploidy * 2^log2`, and the ploidy is not in a
+file of ratios, which is why one with no copy numbers needs `--ploidy`. A file
+of called copies says it itself, and with no `--ploidy` it is read from there
+and said on standard error (`read::segments::balanced`): two where any call is
+split between two alleles, one copy of each, and else the whole number of
+copies the most bases carry, across every sequence of the one sample drawn. Two
+numbers carrying as many bases, or most of them at nought, say nothing, and
+`--ploidy` is asked for. The allele split is read first because a caller that
+wrote it did so on purpose, and a total cannot be turned back into one. A
+missing copy number leaves a gap rather than a level nobody called.
 
 Named with no place, the table is drawn across the whole genome, every
 sequence it calls a segment on end to end in the order chromosomes are
 counted, each as long as its furthest segment or as another file of the figure
-reaches, with `--ploidy` and `--sample` as over a place:
+reaches, with `--ploidy` and `--sample` as over a place, and balanced where the
+file says when `--ploidy` is left out:
 
 ```bash
 karyon tumour.bedgraph tumour.cns --ploidy 2 -o genome.svg
@@ -1030,14 +1044,21 @@ week  mean   lower  upper
 
 | | |
 |:--|:--|
-| Read by | `--phylodynamics`; `read::series::estimates` |
-| Columns | found by name in any case: a time, as for counts; an estimate (`estimate`, `mean`, `median`, `Mean(R)`); and, where there is an interval, its ends (`lower` and `upper`, `hpd_lower` and `hpd_upper`, EpiEstim's `Quantile.0.025(R)` and `Quantile.0.975(R)`) |
+| Read by | `--phylodynamics`; `read::series::estimates`, and `read::series::estimate_names` for what the columns hold |
+| Columns | found by name in any case: a time, as for counts; an estimate (`estimate`, `mean`, `median`, `Mean(R)`, or the quantity itself, `Ne`, `R`, `Rt`, `Re`); and, where there is an interval, its ends (`lower` and `upper`, `hpd_lower` and `hpd_upper`, EpiEstim's `Quantile.0.025(R)` and `Quantile.0.975(R)`) |
 | Coordinates | whole units, drawn as written; with fractions, a continuous time to a thousandth |
 | Refused | a missing time or estimate; a time as for counts |
 
 EpiEstim's table is read as R's `write.csv` writes it, drawn at the end of each
 window, `t_end`. An interval with an empty end, or `NA`, is not drawn, and the
 estimate is.
+
+The axis is titled with what is estimated where the header names it, `R`
+inside `Mean(R)` or a column called `Ne`, and with the estimate's own header
+where it names only a statistic: the table above says `mean`, and not of what.
+The key names the line by that statistic and the ribbon by its columns:
+`lower to upper` here, `95% HPD` where they say so, `2.5% to 97.5%` for
+EpiEstim's quantiles.
 
 ## Sequences and trees
 

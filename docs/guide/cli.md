@@ -25,21 +25,21 @@ Four rules cover every command:
     A figure made only of `--tree`, `--tanglegram` and `--snps` tracks takes no
     place, since none of them is drawn in a window, and neither does a figure
     across the whole genome: with no place, `--manhattan`, `--coverage`,
-    `--windows` and `--copy-number` files are drawn over every sequence they
-    name end to end, in the order chromosomes are counted, each as long as the
-    furthest any file reaches on it, or as a bigWig says, and named under the
-    tracks, as `karyon tumour.bedgraph tumour.cns --ploidy 2`. A sequence a
-    coverage file names no row on is a gap in its track, not a depth of nought,
-    and files that name one sequence draw it as though it were the place
-    written. Anything else needs a place, and one beside them is refused by
-    name: a FASTA, an annotation, calls, a `--heatmap` table of windows. So
-    does a scan read with `--ld` or `--with-recombination`, or a signal with
-    `--format values`, and the option is what is named. A BAM or a CRAM, whose
-    depth across a genome is every read it holds, is refused with the
-    `mosdepth --by` that counts it in windows instead. A sequence drawn to the
-    end of a file's rows, because no file says how long it is, is said to stop
-    there, unless the rows are windows whose last is cut short of the others,
-    which a table of windows does only at a sequence's end.
+    `--windows`, `--copy-number` and `--heatmap` files are drawn over every
+    sequence they name end to end, in the order chromosomes are counted, each
+    as long as the furthest any file reaches on it, or as a bigWig says, and
+    named under the tracks, as `karyon tumour.bedgraph tumour.cns --ploidy 2`.
+    A sequence a coverage file names no row on is a gap in its track, not a
+    depth of nought, and files that name one sequence draw it as though it were
+    the place written. Anything else needs a place, and one beside them is
+    refused by name: a FASTA, an annotation, calls. So does a scan read with
+    `--ld` or `--with-recombination`, or a signal with `--format values`, and
+    the option is what is named. A BAM or a CRAM, whose depth across a genome
+    is every read it holds, is refused with the `mosdepth --by` that counts it
+    in windows instead. A sequence drawn to the end of a file's rows, because
+    no file says how long it is, is said to stop there, unless the rows are
+    windows whose last is cut short of the others, which a table of windows
+    does only at a sequence's end.
 
     Several places draw one panel each, one under the other, with the same
     tracks over each, as `karyon rpoB katG inhA reads.bam genes.gff3
@@ -75,7 +75,7 @@ Four rules cover every command:
 | `.nwk`, `.newick`, `.tree`, `.treefile` | a phylogeny (`--tree`) |
 | `.paf` | synteny (`--synteny`) |
 | `.assoc`, `.glm.linear`, `.regenie` | an association scan (`--manhattan`) |
-| `.cns`, `.seg` | copy number (`--copy-number`), from CNVkit, or the table IGV and GISTIC2 read; `--ploidy` is still required |
+| `.cns`, `.seg` | copy number (`--copy-number`), from CNVkit, or the table IGV and GISTIC2 read; a `.seg` of log ratios needs `--ploidy` |
 | `.ld`, `.bedpe` | pairs of positions (`--pairs`) |
 | `.hic` | a contact map (`--pairs`), read through its index at one resolution |
 | `.slow5` | a read's signal (`--squiggle`) |
@@ -199,7 +199,7 @@ file, or `-` for [standard input](#standard-input), except `--axis` and
 | `--junctions <FILE>` | splice junctions as arcs weighted by their reads | [`SJ.out.tab`](formats.md#sj-out-tab) | [JunctionTrack](../tracks/reads-molecules.md#junctiontrack) |
 | `--sequence <FILE>` | the reference bases | [FASTA](formats.md#fasta) or [2bit](formats.md#2bit) | [SequenceTrack](../tracks/signal-sequence.md#sequencetrack) |
 | `--features <FILE>` | genes and other intervals, a gene drawn once with its exons | [BED](formats.md#bed), [GFF3 or GTF](formats.md#gff3), or [bigBed](formats.md#bigbed) | [FeatureTrack](../tracks/annotation.md#featuretrack) |
-| `--variants <FILE>` | point calls, coloured by the consequence in `ANN` or `BCSQ`, or by the shape of the call | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
+| `--variants <FILE>` | point calls, coloured by the consequence in `ANN`, `BCSQ` or VEP's `CSQ`, or by the shape of the call | [VCF](formats.md#vcf) | [VariantTrack](../tracks/variation.md#varianttrack) |
 | `--genotypes <FILE>` | the call of each sample at each site, a row per sample | [VCF with samples](formats.md#vcf-genotypes) | [GenotypeTrack](../tracks/variation.md#genotypetrack) |
 | `--windows <FILE>` | a statistic in windows | [bedGraph](formats.md#bedgraph) or [bigWig](formats.md#bigwig) | [WindowTrack](../tracks/signal-sequence.md#windowtrack) |
 | `--manhattan <FILE>` | association statistics | [a table of position and value](formats.md#the-association-table) | [ManhattanTrack](../tracks/variation.md#manhattantrack) |
@@ -303,7 +303,7 @@ takes.
 | `--analysis <NAME>` | `Pfam`, `PANTHER` or another member database | `--domains` | the one analysis in the file; refused when it holds several |
 | `--read <NAME>` | a read the SLOW5 file names | `--squiggle` | the first read, and the command says how many the file holds |
 | `--resolution <BASES>` | a size of bin the `.hic` holds, in bases, as `10000` | `--pairs`, after a `.hic` | the finest that cuts the window into 250 bins or fewer, and a note says so where the file holds finer |
-| `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | required |
+| `--ploidy <COPIES>` | a number of copies above 0, as in `2` | `--copy-number` | where the file's calls say, and the command says so: 2 for calls split between two alleles, else the copies most of the genome carries; refused for a file of log ratios alone |
 | `--sample <NAME[,N]>` | a sample the table names; after `--genotypes`, samples of the VCF, comma separated, in the order to draw them | `--copy-number`, `--genotypes` | the one sample, refused when the table holds several; every sample of the VCF, in the order of its header |
 | `--traits <FILE>` | a [sample sheet](formats.md#the-sample-sheet), or `-` | `--matrix`, `--heatmap`, `--genotypes`, `--msa`, `--snps`, `--clades`, `--domains`, `--loci`, `--tree` | no strips |
 | `--columns <A,B,C>` | column names, comma separated | the tracks `--traits` applies to, and only with a sheet | every column, in the sheet's order |
@@ -441,9 +441,13 @@ rather than one of several, as `--sample S07,S01,S12`. A name the VCF does not
 hold is refused with the first five it does. A methylation, bisulfite or
 domain band is named after what it shows unless `--label` names it.
 
-`--copy-number` also needs `--ploidy`, the copy number that counts as balanced.
-The segment file does not say it, and a rule in the wrong place turns every gain
-into a loss.
+`--copy-number` reads where balanced sits from `--ploidy`, the copy number that
+counts as balanced. Left out, it is taken from the file's calls where they say
+it, and the command says so: two where each call is split between two alleles,
+one copy of each, as CNVkit's `cn1` and `cn2` and ASCAT's `nMajor` and `nMinor`
+are, and else the number of copies most of the genome carries. A file of log2
+ratios alone does not say it, and is refused asking for `--ploidy`: a rule in
+the wrong place turns every gain into a loss.
 
 ### How deep a stack of rows goes
 
@@ -1205,10 +1209,10 @@ The command line is checked before any file is opened:
 
 ```text
 $ karyon --features genes.gff3
-karyon: the first argument is the place, as in NC_000962.3:761,000-763,000, or a gene or a sequence drawn whole; --coverage, --copy-number, --windows and --manhattan tracks alone are drawn across the whole genome, and a figure of --tree, --msa, --snps, --logo, --tanglegram, --frequencies, --phylodynamics, --selection or --squiggle tracks goes without one
+karyon: the first argument is the place, as in NC_000962.3:761,000-763,000, or a gene or a sequence drawn whole; --coverage, --copy-number, --windows, --manhattan and --heatmap tracks alone are drawn across the whole genome, and a figure of --tree, --msa, --snps, --logo, --tanglegram, --frequencies, --phylodynamics, --selection or --squiggle tracks goes without one
 
 $ karyon trait.assoc genes.gff3
-karyon: --features genes.gff3 is drawn over a place, and with none a figure is drawn across the whole genome, which --coverage, --copy-number, --windows and --manhattan tracks alone are: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
+karyon: --features genes.gff3 is drawn over a place, and with none a figure is drawn across the whole genome, which --coverage, --copy-number, --windows, --manhattan and --heatmap tracks alone are: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
 
 $ karyon trait.assoc gwas.assoc --ld lead.ld
 karyon: --manhattan gwas.assoc is drawn over a place with --ld, since the linkage to a lead is read over one stretch of one sequence: write the place first, as chr1 for a sequence drawn whole or chr1:1-2,000,000 for a stretch of it
@@ -1245,9 +1249,6 @@ karyon: --aggregate means nothing to a features track; it is an option of depth.
 
 $ karyon NC_000962.3:761,000-763,000 genes.gff3 --genotypes cohort.vcf.gz --color '#8b0000'
 karyon: --color means nothing to a genotypes track
-
-$ karyon chr8:1-1000 --copy-number segments.cns
-karyon: --copy-number needs --ploidy, since where balanced sits is not in the file
 ```
 
 Then the files, in the order the tracks are stacked. Every message names the
@@ -1267,6 +1268,9 @@ karyon: --variants calls.vcf: no variants in 1:1-5000, though the file holds 12 
 
 $ karyon aln:1-9 --msa aln.fa
 karyon: --msa aln.fa: line 3: an alignment has every record the same length, and "sample_02" is 1 shorter than "sample_01", which is 9 columns
+
+$ karyon chr8:1-1000 --copy-number segments.seg
+karyon: --copy-number segments.seg needs --ploidy: it holds log2 ratios and no copy numbers, so where balanced sits is not in the file
 ```
 
 A file that parsed and held nothing for the window is an error too, because an

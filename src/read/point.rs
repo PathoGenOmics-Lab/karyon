@@ -18,10 +18,11 @@
 //! all is drawn full height: a call is a call whether or not anyone measured
 //! what proportion of the reads carried it.
 //!
-//! What a call is called is the annotator's word when there is one, from `ANN`
-//! or from `BCSQ`, and otherwise the shape of the call read off `REF` against
-//! `ALT`, which says whether it is a substitution, an insertion or a deletion
-//! without needing anything annotated at all.
+//! What a call is called is the annotator's word when there is one, from
+//! snpEff's `ANN`, from `BCSQ` or from Ensembl VEP's `CSQ`, and otherwise the
+//! shape of the call read off `REF` against `ALT`, which says whether it is a
+//! substitution, an insertion or a deletion without needing anything
+//! annotated at all.
 //!
 //! # What is dropped and what is refused
 //!
@@ -60,7 +61,7 @@ use super::{columns, lines, number, ReadError};
 /// Reads calls from VCF text.
 ///
 /// VCF `POS` is 1-based, so the variant lands at `POS - 1`. The category is
-/// taken from the `ANN` or `BCSQ` consequence when one is there, and otherwise
+/// taken from the `ANN`, `BCSQ` or `CSQ` consequence when one is there, or else
 /// from the shape of the call: a substitution, an insertion or a deletion,
 /// which is `REF` against `ALT` and needs no annotation. Each call keeps its
 /// `REF` and its own `ALT`, which its tooltip writes as `C>T`.
@@ -71,6 +72,15 @@ use super::{columns, lines, number, ReadError};
 ///
 /// Rows on another sequence than `region.seq()` are skipped.
 pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> {
+    // VEP writes `CSQ` in the order its header declares, and a file whose
+    // header declares none is read in VEP's own order, as `consequence` reads
+    // it. The binding is not in scope in its own initializer, so the call in
+    // the second arm is the function's.
+    let declared = Vep::declared(text);
+    let consequence = |info: &str, alt: &str| match declared {
+        Some(order) => annotated(info, alt, order),
+        None => consequence(info, alt),
+    };
     let mut calls = Vec::new();
     for (line, row) in lines(text) {
         let fields = columns(row);
@@ -164,6 +174,13 @@ pub fn ranked(calls: &[Variant]) -> Vec<String> {
 /// assert_eq!(read::point::ranked_file(vcf), ["missense_variant", "synonymous_variant"]);
 /// ```
 pub fn ranked_file(text: &str) -> Vec<String> {
+    // `CSQ` is read in the order its header declares, as [`variants`] reads
+    // it, so the colours dealt from this ranking name what the calls name.
+    let declared = Vep::declared(text);
+    let consequence = |info: &str, alt: &str| match declared {
+        Some(order) => annotated(info, alt, order),
+        None => consequence(info, alt),
+    };
     let mut found: Vec<String> = Vec::new();
     for (_, row) in lines(text) {
         let fields = columns(row);
@@ -1219,18 +1236,29 @@ fn allele_fractions(
     }
 }
 
-/// The consequence an annotator wrote for this alternate allele, if any.
+/// The consequence an annotator wrote for this alternate allele, if any, as
+/// [`annotated`] reads it, with a `CSQ` in VEP's own order.
+fn consequence(info: &str, alt: &str) -> Option<String> {
+    annotated(info, alt, Vep::OWN)
+}
+
+/// The consequence an annotator wrote for this alternate allele, if any, with
+/// a `CSQ` read in the order `vep` says.
 ///
-/// `ANN`, which snpEff and VEP both write, is one entry per allele per feature,
-/// entries separated by commas and fields by pipes, with the allele in field
-/// one and the consequence in field two. The entry naming this allele is the
-/// one to read, and the first entry is the fallback for an annotator that
-/// trimmed the allele down to something the VCF row does not spell.
+/// `ANN`, which snpEff writes and VEP does where it is told to, is one entry
+/// per allele per feature, entries separated by commas and fields by pipes,
+/// with the allele in field one and the consequence in field two. The entry
+/// naming this allele is the one to read, and the first entry is the fallback
+/// for an annotator that trimmed the allele down to something the VCF row
+/// does not spell.
 ///
 /// `BCSQ`, from `bcftools csq`, puts the consequence first instead, marks a
 /// consequence it is unsure of with a leading `*`, and writes pointer entries
 /// such as `@761154` that carry no fields of their own.
-fn consequence(info: &str, alt: &str) -> Option<String> {
+///
+/// `CSQ`, which VEP writes unless told otherwise, is read as [`Vep::read`]
+/// reads it.
+fn annotated(info: &str, alt: &str, vep: Vep) -> Option<String> {
     let word = |text: &str| {
         let text = text.trim().trim_start_matches('*');
         (!text.is_empty()).then(|| text.to_string())
@@ -1252,14 +1280,111 @@ fn consequence(info: &str, alt: &str) -> Option<String> {
     }
 
     if let Some(value) = info_field(info, "BCSQ") {
-        return value
+        let found = value
             .split(',')
             .filter(|entry| !entry.starts_with('@'))
             .filter_map(|entry| entry.split('|').next())
             .find_map(word);
+        if found.is_some() {
+            return found;
+        }
     }
 
-    None
+    vep.read(info_field(info, "CSQ")?, alt)
+}
+
+/// Where Ensembl VEP's `CSQ` keeps each entry's allele and its consequence,
+/// which its header declares: `##INFO=<ID=CSQ,...,Description="Consequence
+/// annotations from Ensembl VEP. Format: Allele|Consequence|IMPACT|SYMBOL|...">`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Vep {
+    /// The field naming the allele an entry is about, where there is one.
+    allele: Option<usize>,
+    /// The field naming its consequence, where there is one: a `CSQ` told to
+    /// carry other fields alone names none.
+    consequence: Option<usize>,
+}
+
+impl Vep {
+    /// VEP's own order, the allele first and its consequence second, as
+    /// `ANN` has them.
+    const OWN: Vep = Vep {
+        allele: Some(0),
+        consequence: Some(1),
+    };
+
+    /// The order the header of a VCF's text declares, or `None` where it
+    /// declares none: no `CSQ` line, or one that does not say its `Format`.
+    fn declared(text: &str) -> Option<Vep> {
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+        let line = text
+            .lines()
+            .take_while(|line| line.starts_with('#'))
+            .find(|line| line.starts_with("##INFO=<ID=CSQ,"))?;
+        let (_, format) = line.split_once("Format:")?;
+        let format = format.split(['"', '>']).next().unwrap_or(format);
+        let fields: Vec<&str> = format.split('|').map(str::trim).collect();
+        let named = |name: &str| {
+            fields
+                .iter()
+                .position(|field| field.eq_ignore_ascii_case(name))
+        };
+        Some(Vep {
+            allele: named("Allele"),
+            consequence: named("Consequence"),
+        })
+    }
+
+    /// The consequence a `CSQ` value gives `alt`.
+    ///
+    /// VEP writes one entry per allele per transcript, and in no order of
+    /// how damaging each is, so the first entry of an allele can be a gene
+    /// downstream of the one it changes. The most damaging of the allele's
+    /// entries is read, in [`severity`]'s order, the first of those that rank
+    /// alike: what the first entry of snpEff's `ANN` is, which it sorts. An
+    /// entry's consequences joined with `&` are kept whole, as `ANN`'s are,
+    /// and rank as the worst of them.
+    ///
+    /// The allele is the one the row spells, or as VEP spells it once it has
+    /// taken off the first base an indel's alleles share: `T` for `C>CT` and
+    /// `-` for `CA>C`. An entry naming neither is read where no entry names
+    /// either, as every entry of a row of one allele is about that one.
+    fn read(self, value: &str, alt: &str) -> Option<String> {
+        let consequence = self.consequence?;
+        let entries: Vec<Vec<&str>> = value
+            .split(',')
+            .map(|entry| entry.split('|').collect())
+            .collect();
+        let naming = |spelled: &str| -> Vec<&Vec<&str>> {
+            entries
+                .iter()
+                .filter(|entry| {
+                    self.allele
+                        .and_then(|at| entry.get(at))
+                        .is_some_and(|allele| allele.trim() == spelled)
+                })
+                .collect()
+        };
+        let trimmed = match alt.get(1..) {
+            Some("") => "-",
+            Some(rest) => rest,
+            None => alt,
+        };
+        let mut chosen = naming(alt);
+        if chosen.is_empty() {
+            chosen = naming(trimmed);
+        }
+        if chosen.is_empty() {
+            chosen = entries.iter().collect();
+        }
+        chosen
+            .into_iter()
+            .filter_map(|entry| entry.get(consequence))
+            .map(|found| found.trim())
+            .filter(|found| !found.is_empty())
+            .min_by_key(|found| severity(found))
+            .map(String::from)
+    }
 }
 
 /// The category a call gets when nothing annotated it, which is what `REF` and
@@ -1331,6 +1456,19 @@ mod tests {
             ranked_file(vcf),
             ["stop_gained", "synonymous_variant", "deletion"]
         );
+    }
+
+    /// A file whose header puts VEP's fields in another order is ranked by
+    /// the consequences in it, not by the gene names where VEP's own order
+    /// would look for them.
+    #[test]
+    fn a_file_is_ranked_by_csq_in_the_order_its_header_declares() {
+        let vcf = "##INFO=<ID=CSQ,Number=.,Type=String,Description=\"Consequence annotations \
+                   from Ensembl VEP. Format: SYMBOL|Allele|Consequence|IMPACT\">\n\
+                   #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n\
+                   chr1\t100\t.\tC\tT\t.\t.\tCSQ=TP53|T|synonymous_variant|LOW\n\
+                   chr1\t200\t.\tG\tA\t.\t.\tCSQ=TP53|A|stop_gained|HIGH\n";
+        assert_eq!(ranked_file(vcf), ["stop_gained", "synonymous_variant"]);
     }
 
     /// One annotated call in rpoB, the position the whole conversion turns on.
@@ -1579,6 +1717,114 @@ chrA\t60\t.\tC\tA\t.\t.\tANN=A|missense_variant|MODERATE|g
         let region = Region::parse("chrIV:800-1000").unwrap();
         let calls = variants(text, &region).unwrap();
         assert_eq!(calls[0].category.as_deref(), Some("missense"));
+    }
+
+    /// VEP's `CSQ`, as VEP writes it with its default fields: one entry per
+    /// allele per transcript, in no order of damage, under a header that
+    /// declares the fields.
+    const VEP: &str = "\
+##fileformat=VCFv4.2
+##VEP=\"v110\" time=\"2026-10-31 09:12:44\" cache=\"homo_sapiens/110_GRCh38\" ensembl=110.1b1ce7c
+##INFO=<ID=CSQ,Number=.,Type=String,Description=\"Consequence annotations from Ensembl VEP. \
+Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|BIOTYPE|EXON|INTRON|HGVSc|\
+HGVSp|cDNA_position|CDS_position|Protein_position|Amino_acids|Codons|Existing_variation|DISTANCE|\
+STRAND|FLAGS|SYMBOL_SOURCE|HGNC_ID\">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chr17\t7673500\t.\tCA\tC,CAA\t.\tPASS\tCSQ=\
+-|intron_variant|MODIFIER|TP53|ENSG00000141510|Transcript|ENST00000269305|protein_coding||\
+8/10|||||||||-1||HGNC|HGNC:11998,\
+AA|splice_region_variant&intron_variant|LOW|TP53|ENSG00000141510|Transcript|ENST00000269305|\
+protein_coding||8/10|||||||||-1||HGNC|HGNC:11998
+chr17\t7673600\t.\tA\tG\t.\tPASS\tDP=31
+chr17\t7673700\t.\tA\tG,T\t.\tPASS\tCSQ=\
+G|synonymous_variant|LOW|TP53|ENSG00000141510|Transcript|ENST00000269305|protein_coding|\
+8/11|||||||||-1||HGNC|HGNC:11998,\
+T|stop_gained|HIGH|TP53|ENSG00000141510|Transcript|ENST00000269305|protein_coding|8/11||||||||\
+|-1||HGNC|HGNC:11998
+chr17\t7673800\t.\tGA\tG\t.\tPASS\tCSQ=\
+-|intron_variant|MODIFIER|TP53|ENSG00000141510|Transcript|ENST00000269305|protein_coding||\
+7/10|||||||||-1||HGNC|HGNC:11998
+chr17\t7674220\t.\tC\tCT\t.\tPASS\tCSQ=\
+T|frameshift_variant&splice_region_variant|HIGH|TP53|ENSG00000141510|Transcript|\
+ENST00000269305|protein_coding|7/11||||||||||-1||HGNC|HGNC:11998,\
+T|upstream_gene_variant|MODIFIER|WRAP53|ENSG00000141499|Transcript|ENST00000357449|\
+protein_coding|||||||||||2341|1||HGNC|HGNC:25522
+chr17\t7675088\t.\tC\tT\t.\tPASS\tCSQ=\
+T|downstream_gene_variant|MODIFIER|WRAP53|ENSG00000141499|Transcript|ENST00000357449|\
+protein_coding|||||||||||1497|1||HGNC|HGNC:25522,\
+T|missense_variant|MODERATE|TP53|ENSG00000141510|Transcript|ENST00000269305|protein_coding|\
+5/11||ENST00000269305.9:c.524G>A|ENSP00000269305.4:p.Arg175His|714|524|175|R/H|cGc/cAc|\
+rs28934578||-1||HGNC|HGNC:11998,\
+T|intron_variant|MODIFIER|TP53|ENSG00000141510|Transcript|ENST00000413465|protein_coding||\
+4/6|ENST00000413465.6:c.376-91G>A|||||||rs28934578||-1||HGNC|HGNC:11998
+";
+
+    /// A call is named by the most damaging consequence VEP gives its own
+    /// allele, whatever order the transcripts come in, an indel's allele as
+    /// VEP trims it, consequences joined with `&` kept whole, and a row with
+    /// no `CSQ` by its shape.
+    #[test]
+    fn vep_csq_names_each_allele_by_its_most_damaging_consequence() {
+        let calls = variants(VEP, &Region::parse("chr17:7,670,001-7,680,000").unwrap()).unwrap();
+        let named: Vec<(u64, &str)> = calls
+            .iter()
+            .map(|call| (call.pos, call.category.as_deref().unwrap_or("")))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                (7673499, "intron_variant"),
+                (7673499, "splice_region_variant&intron_variant"),
+                (7673599, "substitution"),
+                (7673699, "synonymous_variant"),
+                (7673699, "stop_gained"),
+                (7673799, "intron_variant"),
+                (7674219, "frameshift_variant&splice_region_variant"),
+                (7675087, "missense_variant"),
+            ]
+        );
+        assert_eq!(
+            ranked(&calls)[..3],
+            [
+                "stop_gained",
+                "frameshift_variant&splice_region_variant",
+                "missense_variant"
+            ]
+        );
+    }
+
+    /// The header says where VEP put the allele and the consequence, as
+    /// `--fields` reorders them; with no header line, they are where VEP
+    /// writes them by default, as `ANN` has them; and a `CSQ` that carries no
+    /// consequence names nothing.
+    #[test]
+    fn vep_csq_is_read_in_the_order_its_header_declares() {
+        let row = "chr1\t100\t.\tC\tA,T\t.\t.\t\
+                   CSQ=TP53|stop_gained|A|HIGH,TP53|synonymous_variant|T|LOW\n";
+        let declared = format!(
+            "##INFO=<ID=CSQ,Number=.,Type=String,Description=\"Consequence annotations \
+             from Ensembl VEP. Format: SYMBOL|Consequence|Allele|IMPACT\">\n\
+             #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n{row}"
+        );
+        let window = Region::parse("chr1:1-200").unwrap();
+        let calls = variants(&declared, &window).unwrap();
+        let named: Vec<&str> = calls
+            .iter()
+            .filter_map(|call| call.category.as_deref())
+            .collect();
+        assert_eq!(named, ["stop_gained", "synonymous_variant"]);
+        // Read in VEP's own order, the gene's name is taken for the allele,
+        // matches neither, and the first field of each is no consequence.
+        assert_eq!(Vep::declared(row), None);
+        let info = "CSQ=A|missense_variant|MODERATE|g,A|stop_lost&NMD_transcript_variant|HIGH|g";
+        assert_eq!(
+            consequence(info, "A").as_deref(),
+            Some("stop_lost&NMD_transcript_variant")
+        );
+        let unnamed = "##INFO=<ID=CSQ,Number=.,Type=String,Description=\"Format: \
+                       Allele|IMPACT|SYMBOL\">\nchr1\t100\t.\tC\tA\t.\t.\tCSQ=A|HIGH|g\n";
+        let calls = variants(unnamed, &window).unwrap();
+        assert_eq!(calls[0].category.as_deref(), Some("substitution"));
     }
 
     #[test]

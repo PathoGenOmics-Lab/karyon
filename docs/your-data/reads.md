@@ -21,10 +21,10 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
   read covers.
 - **genes**: each gene once, with its name and its direction.
 - **calls**: each variant at its position, as tall as its allele frequency,
-  coloured by the consequence an annotator wrote in its `ANN` or `BCSQ`, as
-  snpEff and `bcftools csq` write them, from the most damaging down, or by
-  its shape, a substitution, an insertion or a deletion, where none is
-  written.
+  coloured by the consequence an annotator wrote in its `ANN`, `BCSQ` or
+  `CSQ`, as snpEff, `bcftools csq` and Ensembl VEP write them, from the most
+  damaging down, or by its shape, a substitution, an insertion or a deletion,
+  where none is written.
 
 ## Change it
 

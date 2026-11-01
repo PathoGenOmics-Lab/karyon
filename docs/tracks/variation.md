@@ -22,7 +22,7 @@ Point events along the sequence, drawn as lollipops whose height is a value, or 
 |:--|:--|
 | Rust | `.add_variants(variants)` on `plot()`; `VariantTrack::new(variants)` |
 | Command line | `--variants FILE`, with `--style`, `--height`, and `--color`, which paints every call one colour, each consequence keeping its shape, of which there are four: five or more consequences in view are refused, but for ticks |
-| Reads | VCF: `AF` as the value, and the `ANN` or `BCSQ` consequence, or the shape of the call, as the category (`read::point::variants`); bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window (`read::tabix`); a BCF, its sites over the window through the `.csi` beside it, as the VCF `bcftools view -G` prints (`read::bcf::window`) |
+| Reads | VCF: `AF` as the value, and the `ANN`, `BCSQ` or `CSQ` consequence, or the shape of the call, as the category (`read::point::variants`); bgzipped with a `.tbi` or `.csi` beside it, only the rows over the window (`read::tabix`); a BCF, its sites over the window through the `.csi` beside it, as the VCF `bcftools view -G` prints (`read::bcf::window`) |
 
 === "Rust"
 
@@ -226,8 +226,8 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 | | |
 |:--|:--|
 | Rust | `.add_copy_number(segments, ploidy)` on `plot()`; `CopyNumberTrack::at_ploidy(segments, ploidy)`, `CopyNumberTrack::diploid(segments)`, `CopyNumberTrack::haploid(segments)` |
-| Command line | `--copy-number FILE --ploidy COPIES`, or a `.cns` or `.seg` named on its own, with `--sample`, `--height`; with no place, across the whole genome. Named on its own, `tumour.cns` is labelled `tumour copy number`, apart from a depth `tumour.bedgraph` beside it, and a key under the figure names what it draws |
-| Reads | a segment table with a header: CNVkit `.cns`, ASCAT, or `.seg` (`read::segments::copy_numbers`, and `read::segments::genome_copy_numbers` for every sequence) |
+| Command line | `--copy-number FILE`, or a `.cns` or `.seg` named on its own, with `--ploidy`, `--sample`, `--height`; with no place, across the whole genome. Named on its own, `tumour.cns` is labelled `tumour copy number`, apart from a depth `tumour.bedgraph` beside it, and a key under the figure names what it draws |
+| Reads | a segment table with a header: CNVkit `.cns`, ASCAT, or `.seg` (`read::segments::copy_numbers`, and `read::segments::genome_copy_numbers` for every sequence), and where it says balanced sits (`read::segments::balanced`) |
 
 === "Rust"
 
@@ -269,7 +269,7 @@ Segmented copy number on a ladder of whole copies, with a lane along the foot ma
 
 #### Notes
 
-Where balanced sits has no default, in `at_ploidy` or on the command line, where `--ploidy` is required. The crate does not know what it is drawing, and a rule in the wrong place does not merely mis-scale the ladder: it swaps every gain for a loss. `diploid` and `haploid` say it for you.
+Where balanced sits has no default in `at_ploidy`. The crate does not know what it is drawing, and a rule in the wrong place does not merely mis-scale the ladder: it swaps every gain for a loss. `diploid` and `haploid` say it for you. The command line takes it from `--ploidy`, or else from the file where its calls say it, and says so on standard error: two where they are split between two alleles, as a diploid's are, and else the number of copies most of the genome carries, which is one for a haploid genome and three for a triploid line. `read::segments::balanced` reads it. A file of log ratios alone does not say it, and is refused asking for `--ploidy`.
 
 The key is the marks drawn: `legend` gives the whole track's, and the `key` a figure gathers gives the ones the segments in view use, so a zoom into a gain is not keyed with a loss it left out. The thick bar of a balanced total is keyed `total copies` as a line, the thin bar of the minor allele `minor allele` as a line half as thick (`Marker::ThinLine`), and the lane's states only while the lane is shown: a lost allele in the ink of `loh_color`, and a stretch with no copies at all in the ink of the text, which is not the loss of one copy and is not painted as one. A tooltip says `1 copy` and `2 copies`.
 

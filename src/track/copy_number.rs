@@ -49,6 +49,11 @@
 //! autosome, one for most bacteria, and neither for a polyploid or for a tumour
 //! whose ploidy the caller fitted. A rule in the wrong place does not merely
 //! mis-scale the figure: it swaps gain for loss, and says so confidently.
+//! A table of called copies can say it, and
+//! [`read::segments::balanced`](crate::read::segments::balanced) reads it
+//! there for a caller who wants the file's word, as the command line does
+//! where `--ploidy` is left out; the track takes whichever number it is
+//! handed.
 //!
 //! # What a pixel column throws away, and what is done about it
 //!
