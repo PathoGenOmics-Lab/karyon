@@ -136,9 +136,10 @@ Read the command one flag at a time:
 
 - `NC_000962.3:761,000-762,999` is the window every track is drawn over.
 - `--coverage depth.bedgraph` opens the first band. The three options after it
-  belong to it: `--label` names it in the left gutter, `--aggregate min` keeps
-  a dropout visible where one pixel covers several bases, and `--height` sets
-  how tall it is.
+  belong to it: `--label` names it in the left gutter, `--aggregate min` draws
+  the lowest depth of each pixel that covers several bases, the profile
+  without the pale wash up to the highest drawn without it, and `--height`
+  sets how tall it is.
 - `--sequence`, `--features` and `--variants` open the next three bands, each
   named by the `--label` that follows it.
 - `--title` and `-o` describe the figure, so where they sit does not matter.
@@ -331,7 +332,7 @@ takes.
 | `--max-rows <N|all>` | a number of rows from 1, or `all` | `--pileup`, `--msa`, `--snps`, `--genotypes`, `--bisulfite`, `--tree` | 40 for the first five; no cap on a tree |
 | `--no-names` | nothing | `--features`, `--msa`, `--snps`, `--matrix`, `--heatmap`, `--genotypes`, `--split-reads`, `--structural`, `--bisulfite`, `--domains`, `--loci`, `--clades` | names drawn |
 | `--isoforms` | nothing | `--features` | each gene once, with every exon its transcripts use |
-| `--aggregate <HOW>` | `max`, `mean` or `min`, which for a bigWig also picks the summary its zoom level is drawn from | `--coverage` | `max` |
+| `--aggregate <HOW>` | `max`, `mean` or `min`: the one value drawn for a pixel that covers many bases, which for a bigWig also picks the summary its zoom level is drawn from | `--coverage` | the profile along the lowest value of a pixel holding several, under a pale wash up to the highest, keyed as `lowest value in a pixel` and `highest value in a pixel`; `max` on a ring |
 | `--style <HOW>` | `area`, `line` or `bars` for coverage; `steps` or `line` for windows; `tick` or `lollipop` for variants; `differences` or `all` for an alignment; `stacked` or `line` for frequencies; `triangle` or `arcs` for pairs | `--coverage`, `--windows`, `--variants`, `--msa`, `--frequencies`, `--pairs` | `area`, `steps`, `lollipop`, `differences` and `stacked`; for pairs, a triangle where most places were measured against the next one, and linkage and a `.hic` always |
 | `--log` | nothing | `--coverage`, `--phylodynamics`, `--pairs` | a linear scale |
 | `--max <V>` | a number above nought: the top of the scale, as `100` for a depth; for `--windows` the top, with the bottom as far below the line; for `--matrix`, `--heatmap` and `--pairs` the value drawn at full colour, as `1` for an r²; a heatmap read either side of a centre takes one above it. A profile of `--coverage` or `--recombination` that runs past it is struck along the top where it was cut, and its top label reads `30+`, the pin itself where it is not a round tick; a cell of `--matrix` or `--heatmap` past it carries a dot, and the key reads `150+`. `--windows`, `--manhattan` and `--pairs` draw what runs past it at it, and do not mark it | `--coverage`, `--recombination`, `--manhattan`, `--windows`, `--matrix`, `--heatmap`, `--pairs` | the largest value in view, rounded up; for windows the furthest either side; for colours the largest value, and 1 for an r² |
@@ -1017,7 +1018,8 @@ which a pixel holds two bins or more, the coarsest such, rather than from its
 values as written: a chromosome 900 pixels wide is a few thousand bins of the
 summary the file keeps for that scale, where its values as written may be
 millions of spans. Each bin is drawn with what `--aggregate` takes of a pixel,
-its most, its least or its mean, with the bases no value covers counted as
+its most, its least or its mean, and without it with its least and its most,
+the profile and the top of its pale wash, with the bases no value covers counted as
 nought, so the figure is the one the values as written would draw, but for a
 bin that straddles two columns and is drawn in both: a peak may come out a
 column wider than it is. Its scale runs to the most of the values under the

@@ -806,8 +806,12 @@ TRACK OPTIONS, each describing the track before it, once
     --isoforms           draw each transcript of an annotation on a row of its
                          own, named as the file names it, rather than each gene
                          once with every exon any of its transcripts uses
-    --aggregate <HOW>    max, mean or min, when a pixel covers many bases; of
-                         a bigWig, also which summary of a zoom level is drawn
+    --aggregate <HOW>    max, mean or min: the one value drawn for a pixel
+                         that covers many bases. Without it, the profile runs
+                         along the lowest value of a pixel holding several,
+                         under a pale wash up to the highest, and the key
+                         says so; a ring takes the max. Of a bigWig, also
+                         which summary of a zoom level is drawn
     --style <HOW>        area, line or bars for coverage, steps or line for
                          windows, tick or lollipop for variants, differences
                          or all for an alignment, stacked or line for
