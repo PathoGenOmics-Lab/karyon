@@ -60,8 +60,9 @@ The program writes its own completion script for bash, zsh and fish, and its
 own manual page, from the tables its parser and its help are built from, so
 each matches the version that wrote it. A script completes the flags, the
 words a flag takes, as `--theme light`, and the names of files after a flag
-that reads one. A release archive carries all four already written, the
-scripts in `completions/` and the page in `man/`.
+that reads one. No release has been published yet; each release archive
+will carry all four already written, the scripts in `completions/` and the
+page in `man/`.
 
 === "bash"
 
@@ -150,7 +151,8 @@ cargo install --git https://github.com/PathoGenOmics-Lab/karyon --rev <sha>
 ```
 
 Rendering is deterministic: the same input and the same version give a
-byte-identical SVG, so a pinned figure can be checked with a plain `diff`.
+byte-identical SVG or PDF, so a pinned figure can be checked with a plain
+`diff`.
 
 ## Build from a clone
 
@@ -184,9 +186,9 @@ figure saves the view you are looking at.
 | Rust | 1.74 or newer (the MSRV), edition 2021. An older toolchain stops with a message naming the version it needs. |
 | Dependencies | None. The `[dependencies]` table in `Cargo.toml` is empty. |
 | System libraries | None: no cairo, fontconfig, OpenSSL, Python or headless browser. |
-| Platforms | Any target with Rust's standard library, WebAssembly included. Linux, macOS and Windows are built and tested on every pull request, and the Windows release archive needs no Visual C++ runtime installed. |
-| Input | Text formats, gzipped or not, and BAM, BCF, bigWig, bigBed and 2bit read directly through their indexes. CRAM comes in through `samtools`, piped. |
-| Output | Standalone SVG that names its fonts rather than embedding them. |
+| Platforms | Any target with Rust's standard library, WebAssembly included. Linux, macOS and Windows are built and tested on every pull request. No release has been published yet; when one is, its Windows archive will carry its own C runtime, so there will be no Visual C++ redistributable to install. |
+| Input | Text formats, gzipped or not, and BAM, BCF, bigWig, bigBed, 2bit and Juicer's `.hic` read directly through their indexes. CRAM comes in through `samtools`, piped. |
+| Output | Standalone SVG, which names its fonts rather than embedding them, or PDF, which embeds a subset of each [Liberation face](../how-it-works/pdf.md#text) it sets its text in, under the SIL Open Font License. A name ending in `.pdf` writes PDF. |
 
 ## Next
 

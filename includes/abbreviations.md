@@ -4,7 +4,7 @@
 *[GFF3]: the General Feature Format: one annotated feature per line with its attributes in the ninth column. 1-based and inclusive
 *[VCF]: the Variant Call Format: one line per position where a sample differs from the reference. 1-based
 *[SAM]: the text form of an alignment file, as samtools view writes it. 1-based
-*[BAM]: the compressed binary form of SAM. karyon does not read it: pipe it through samtools view
+*[BAM]: the compressed binary form of SAM, which karyon reads as it is, through the .bai or .csi index beside it when there is one
 *[CRAM]: a reference-compressed alignment format. karyon does not read it: pipe it through samtools view
 *[PAF]: the Pairwise mApping Format minimap2 writes: one line per alignment between two sequences
 *[FASTA]: sequences as plain text, each one preceded by a line beginning with a greater-than sign

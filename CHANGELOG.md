@@ -1838,6 +1838,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The site says a figure comes out as SVG or PDF: the home page, the
+  description most pages give a search engine and the installation page's
+  requirements said SVG alone, and the requirements said the output names its
+  fonts rather than embedding them, which the PDF now does, a subset of each
+  Liberation face its text is set in. The installation page spoke of the
+  Windows release archive, and of the archives carrying the completion
+  scripts, as if one could be downloaded; none has been published, and the
+  page says what each will hold when one is. It names Juicer's `.hic` among
+  the files read through an index and says a PDF is as deterministic as an
+  SVG; the home page counts 38 track types, where it counted 36; the playground
+  counts its thirty-four examples, where its guide said thirty-three; and the
+  tooltip on BAM, on every page, says karyon reads one as it is, where it said
+  to pipe it through `samtools view`.
 - The README's licence badge reads `license: MIT, fonts OFL-1.1`, as the
   crate's licence is `MIT AND OFL-1.1` since it carries the Liberation faces a
   PDF embeds. It read `license: MIT`.

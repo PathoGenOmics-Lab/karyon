@@ -77,7 +77,7 @@ compiled to WebAssembly.
 
 ## How to use it
 
-1. **Start from an example, or write a command.** *Examples* opens thirty-three
+1. **Start from an example, or write a command.** *Examples* opens thirty-four
    figures that between them use every track flag the command line has. The
    command box takes everything you would type after `karyon` in a terminal.
 2. **Edit the files.** Each tab under the command is one input file, and the

@@ -4,7 +4,7 @@ title: Genome figures where every row lines up
 description: >-
   karyon is a Rust library and command line program that stacks tracks such as
   coverage, genes, variants, reads and phylogenies over one shared coordinate
-  axis and writes a standalone SVG.
+  axis and writes a standalone SVG or PDF.
 hide:
   - navigation
   - toc
