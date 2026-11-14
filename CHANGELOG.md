@@ -1737,6 +1737,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The README's licence badge reads `license: MIT, fonts OFL-1.1`, as the
+  crate's licence is `MIT AND OFL-1.1` since it carries the Liberation faces a
+  PDF embeds. It read `license: MIT`.
 - A recombination rate drawn flat because the whole window lies inside one
   interval of its map says so under its track, on the figure, as well as on
   the terminal: `genetic_map.txt: the window lies inside one interval of the
