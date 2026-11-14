@@ -1870,6 +1870,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   none, so the site's description stood in for each of them, and three ran
   past the length a search result shows, one of them, the variation tracks,
   leaving out `PairTrack`, which the page describes.
+- On a phone, a figure the program in the page does not draw keeps the size
+  it was drawn at, in a frame that scrolls sideways under a line saying so, so
+  its labels read at the 10.5 and 11.5 pixels they were drawn at. Fitted to a
+  phone's column it was shown at under half its width, those labels at about
+  5 pixels. That is the two figures on the variation tracks page, and every
+  figure of the short path when the browser runs no JavaScript or no
+  WebAssembly or the program never arrives; a figure the program draws is
+  laid out at the width of the column already, and is left as it is, as is
+  every figure on a wider screen. The height written beside twenty-four
+  pictures of those figures is theirs again, where it was an older drawing's,
+  up to 35 pixels short, so a page no longer moves when one of them loads.
 - The README's licence badge reads `license: MIT, fonts OFL-1.1`, as the
   crate's licence is `MIT AND OFL-1.1` since it carries the Liberation faces a
   PDF embeds. It read `license: MIT`.

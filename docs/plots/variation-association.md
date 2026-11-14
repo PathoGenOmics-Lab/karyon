@@ -41,7 +41,7 @@ position.
     **[Point variants](../tracks/variation.md#varianttrack)**
     Point events as lollipops whose height is a value, or as plain ticks when there are too many for heads, with categories coloured in the order they first appear.
 
--   [![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB, the cells of the other allele forming blocks down the clades of the tree](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" loading="lazy" }](../tracks/variation.md#genotypetrack)
+-   [![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB, the cells of the other allele forming blocks down the clades of the tree](../assets/start/genotypes.svg){ .k-light width="720" height="732" loading="lazy" }![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="732" loading="lazy" }](../tracks/variation.md#genotypetrack)
 
     **[Genotypes by sample](../tracks/variation.md#genotypetrack)**
     The call of each sample at each site of a VCF, a row per sample and each call at its position, with sites closer than a cell pooled a pixel at a time.

@@ -15,8 +15,8 @@ karyon NC_000962.3 sampleA.bedgraph sampleB.bedgraph --same-scale -o genome.svg
 ```
 
 <figure class="k-start" markdown>
-![The depth of two samples along a whole chromosome in 10 kb windows, on one scale: the first drops to nothing over one stretch and doubles over another, the second is level throughout and deeper than the first](../assets/start/genome.svg){ .k-light width="720" height="227" }
-![The same figure on the dark page](../assets/start/genome-dark.svg){ .k-dark width="720" height="227" }
+![The depth of two samples along a whole chromosome in 10 kb windows, on one scale: the first drops to nothing over one stretch and doubles over another, the second is level throughout and deeper than the first](../assets/start/genome.svg){ .k-light width="720" height="256" }
+![The same figure on the dark page](../assets/start/genome-dark.svg){ .k-dark width="720" height="256" }
 </figure>
 
 The place is the whole sequence, by its name, and each file is a row. The first
@@ -50,8 +50,8 @@ karyon tumour.bedgraph --label depth tumour.cns --ploidy 2 --label copies -o cop
 ```
 
 <figure class="k-start" markdown>
-![A sample's depth in windows and its copy number across twelve chromosomes in alternating shades, each named under them: the depth rises over a gain on the second half of chromosome 3 and over all of 11, stands up in a tower over an amplification on 5, and falls over losses on 8 and 9, and the copies step the same way on a ladder of whole copies, with the loss of one allele marked along its foot on 7, 8 and 9 and a stretch with no copies on 12, and a key under them naming the thick grey bar of the total copies, the thin one of the minor allele and each colour](../assets/start/genome-copies.svg){ .k-light width="720" height="236" }
-![The same figure on the dark page](../assets/start/genome-copies-dark.svg){ .k-dark width="720" height="236" }
+![A sample's depth in windows and its copy number across twelve chromosomes in alternating shades, each named under them: the depth rises over a gain on the second half of chromosome 3 and over all of 11, stands up in a tower over an amplification on 5, and falls over losses on 8 and 9, and the copies step the same way on a ladder of whole copies, with the loss of one allele marked along its foot on 7, 8 and 9 and a stretch with no copies on 12, and a key under them naming the thick grey bar of the total copies, the thin one of the minor allele and each colour](../assets/start/genome-copies.svg){ .k-light width="720" height="253" }
+![The same figure on the dark page](../assets/start/genome-copies-dark.svg){ .k-dark width="720" height="253" }
 </figure>
 
 `tumour.bedgraph` is the depth `mosdepth --by 500000` counts, and `tumour.cns`

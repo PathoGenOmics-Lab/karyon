@@ -33,8 +33,8 @@ karyon rpoB reads.bam genes.gff3 calls.vcf.gz -o rpoB.svg
 ```
 
 <figure class="k-start" markdown>
-![The depth of the reads over the gene rpoB, with a stretch no read covers, the gene as an arrow, and seven variant calls as lollipops as tall as their allele frequency](assets/start/reads.svg){ .k-light width="720" height="248" }
-![The same figure on the dark page](assets/start/reads-dark.svg){ .k-dark width="720" height="248" }
+![The depth of the reads over the gene rpoB, with a stretch no read covers, the gene as an arrow, and seven variant calls as lollipops as tall as their allele frequency](assets/start/reads.svg){ .k-light width="720" height="277" }
+![The same figure on the dark page](assets/start/reads-dark.svg){ .k-dark width="720" height="277" }
 </figure>
 
 Open `rpoB.svg` in a web browser. Point at a call or a gene, and the browser
