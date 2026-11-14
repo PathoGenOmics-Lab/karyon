@@ -54,6 +54,67 @@ fn main() -> std::io::Result<()> {
 A project that depends on the library never builds the command line program,
 so adding karyon adds nothing else to your dependency tree.
 
+## Tab completion and the manual page
+
+The program writes its own completion script for bash, zsh and fish, and its
+own manual page, from the tables its parser and its help are built from, so
+each matches the version that wrote it. A script completes the flags, the
+words a flag takes, as `--theme light`, and the names of files after a flag
+that reads one. A release archive carries all four already written, the
+scripts in `completions/` and the page in `man/`.
+
+=== "bash"
+
+    ```bash
+    mkdir -p ~/.local/share/bash-completion/completions
+    karyon completions bash > ~/.local/share/bash-completion/completions/karyon
+    ```
+
+    That is where the bash-completion package looks. Without it, load the
+    script from `~/.bashrc` instead:
+
+    ```bash
+    eval "$(karyon completions bash)"
+    ```
+
+=== "zsh"
+
+    ```zsh
+    mkdir -p ~/.zfunc
+    karyon completions zsh > ~/.zfunc/_karyon
+    ```
+
+    Then in `~/.zshrc`, before `compinit` runs, or in place of the line that
+    runs it:
+
+    ```zsh
+    fpath=(~/.zfunc $fpath)
+    autoload -Uz compinit && compinit
+    ```
+
+=== "fish"
+
+    ```fish
+    mkdir -p ~/.config/fish/completions
+    karyon completions fish > ~/.config/fish/completions/karyon.fish
+    ```
+
+    fish loads it from there by itself, the first time a shell completes
+    karyon.
+
+The manual page goes where `man` looks for one: beside each folder on your
+`PATH`, in `../share/man`. For the program Cargo put in `~/.cargo/bin`:
+
+```bash
+mkdir -p ~/.cargo/share/man/man1
+karyon man > ~/.cargo/share/man/man1/karyon.1
+man karyon
+```
+
+A command is only ever the first word, where the place goes, so a gene or a
+sequence called `help`, `completions` or `man` is still drawn: write it after
+a file, as `karyon genes.gff3 man`.
+
 ## Get a Rust toolchain
 
 Skip this if `rustc --version` already prints 1.74 or newer.

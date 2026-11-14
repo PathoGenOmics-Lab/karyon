@@ -5,11 +5,12 @@ name: Close abandoned issues
 # entries are questions somebody stopped caring about is a list nobody reads,
 # and then the real reports get missed along with them.
 #
-# This is the only scheduled workflow in this repository, and it is deliberate.
-# Everything else runs on a push, on a pull request or by hand, because a
-# workflow that fires on a timer is one nobody is watching when it goes wrong. A
-# stale sweep is the one job with nothing to hang off except time, so it gets
-# the exception rather than the rule getting quietly dropped for convenience.
+# It runs when someone starts it, from the Actions tab or with `gh workflow run
+# stale.yml`, and never on a timer. Every workflow in this repository runs on a
+# push, on a pull request or by hand, because a workflow that fires on a timer
+# is one nobody is watching when it goes wrong, and a sweep that closes issues
+# is the last one to leave unwatched. Started by hand, it is run and watched on
+# purpose rather than met after the fact.
 #
 # It is set up so that being wrong is cheap:
 #
@@ -23,15 +24,8 @@ name: Close abandoned issues
 #     would delete the on-ramp for the first person who wants to help.
 #   * Pull requests are left alone entirely.
 #   * A closed issue reopens on a comment from anyone, and the message says so.
-#
-# `workflow_dispatch` is here as well, so the sweep can be run and watched on
-# purpose rather than only ever being met after the fact.
 
 on:
-  schedule:
-    # Mondays at 06:00 UTC. Weekly is far more often than this repository needs;
-    # it is the cheapest way to keep each batch small enough to read.
-    - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:

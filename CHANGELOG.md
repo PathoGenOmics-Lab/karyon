@@ -8,6 +8,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The crate carries what builds, documents and shows the library and the
+  program at work, named in an `include` list in `Cargo.toml`: the sources, the
+  Liberation faces in `fonts/`, the examples, the README, the licence and this
+  changelog. It carried everything but `assets/` and `.github/`, so the website
+  came with it, `docs/` with its figures and data, `mkdocs.yml` and the files
+  MkDocs builds the site from, more than half of a package of 482 files and
+  4.08 MB; it is 187 files and 2.15 MB now. The tests stay in the repository,
+  with the fixtures under `src/read/` the readers are checked against, since
+  that is where the suite runs: some unit tests read pages of the guide with
+  `include_str!`, which a build never compiles and a test run from the package
+  could not find. The examples build and run from the package as they do from
+  a checkout.
+- The sweep that marks and closes issues nobody has touched runs when someone
+  starts it, from the Actions tab or with `gh workflow run stale.yml`, and no
+  longer every Monday at 06:00 UTC, so no workflow in the repository runs on a
+  timer.
+- The crate's homepage is the guide, https://pathogenomics-lab.github.io/karyon/,
+  where it was the repository, which `repository` names already. Its
+  categories are `science::bioinformatics`, which crates.io has as a
+  subcategory of science, `visualization`, and `command-line-utilities` for
+  the program, and `visualization` takes the place of `sequence` among its
+  keywords: `sequence` is too general a word to find it by, and
+  `visualization` is one its description does not say. `documentation` is
+  left unset, so crates.io links the API reference on docs.rs.
 - A PDF embeds the faces its text is set in. It named Helvetica, Courier and
   Symbol and embedded none, so `pdffonts` showed `no` under `emb` for every face
   and a journal's preflight flagged the file or turned it away, and the guide
@@ -584,6 +608,33 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Each release archive carries the completion scripts for bash, zsh and fish,
+  in `completions/`, and the manual page, in `man/`, written by the binary it
+  holds as the release is built. The x86_64 macOS binary does not run on the
+  arm64 runner that cross-builds it, so a build for the runner, from the same
+  commit, writes them there; the text is the same on every platform. The
+  release notes and the installation page say where they are.
+- `karyon completions bash`, `zsh` or `fish` prints a script that completes
+  karyon's command lines in that shell, and `karyon man` prints the help as a
+  manual page in section 1. Both are written from the tables the parser and
+  the help are built from, so neither is a list to keep: the flags are the
+  help's entries, which tests already hold to the parser's; a flag that reads
+  a file completes the names of files; and a flag that takes one of a few
+  words completes the ones the parser names when it refuses another, as
+  `light` and `dark` after `--theme`, and nothing where any value goes. Tests
+  hold every flag the parser answers to to each script and to an entry of the
+  page, every word of `karyon help all` to the page in its order, and the
+  page's roff to what mandoc's lint asks. `karyon help all` has a COMMANDS
+  section on `help`, `completions` and `man`, which the page's synopsis is
+  made from, and `-o`'s entry starts with what it is, the file the figure is
+  written to, which is what a shell shows beside it; `karyon --help` names the
+  two new commands on one line, with `--squiggle` joined to the line above it
+  to keep to forty. As `help` is, each is a command only as the first word,
+  where the place goes: a gene or a sequence called `man`, drawn until now by
+  `karyon man genes.gff3`, is drawn by `karyon genes.gff3 man`, and the first
+  spelling is refused with the second. The installation page says where each
+  script and the page go, and the playground answers either command with a
+  line saying it is for a shell.
 - A page of the Your data guide for a plasmid or another circular sequence,
   opening with `karyon pEX1 --circular pEX1.gff3`, its figure on the light
   page and the dark one, and a table of the changes made most, linked from
@@ -1698,6 +1749,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The README's licence badge reads `license: MIT, fonts OFL-1.1`, as the
+  crate's licence is `MIT AND OFL-1.1` since it carries the Liberation faces a
+  PDF embeds. It read `license: MIT`.
 - A recombination rate drawn flat because the whole window lies inside one
   interval of its map says so under its track, on the figure, as well as on
   the terminal: `genetic_map.txt: the window lies inside one interval of the

@@ -326,6 +326,21 @@ pub enum ArgError {
         /// The track that is short of it.
         track: &'static str,
     },
+    /// `karyon completions` with no shell after it, or with a word that is
+    /// none of the shells it writes for.
+    ///
+    /// The word may be a file: `karyon completions reads.bam` is a gene
+    /// called completions written first, and the refusal says how to draw it.
+    NoShell(Option<String>),
+    /// A word after a command that takes nothing more, as `karyon man
+    /// reads.bam`, which is most often a gene or a sequence of the command's
+    /// name written first, where the place goes.
+    AfterCommand {
+        /// The command: `man`, or `completions` after its shell.
+        command: &'static str,
+        /// The word that came after it.
+        word: String,
+    },
 }
 
 /// The widest figure that is drawn, in pixels.
@@ -676,6 +691,31 @@ impl fmt::Display for ArgError {
                 f,
                 "--columns picks out of the sheet --traits names, and this {track} track was given no sheet"
             ),
+            ArgError::NoShell(None) => write!(
+                f,
+                "karyon completions writes a script for one shell, {}, as in karyon completions bash",
+                Shell::named()
+            ),
+            ArgError::NoShell(Some(word)) => write!(
+                f,
+                "karyon completions writes a script for {}, and {word} is none of them; a gene or \
+                 sequence called completions is drawn when it is written after a file, as in \
+                 karyon genes.gff3 completions",
+                Shell::named()
+            ),
+            ArgError::AfterCommand { command, word } => {
+                let takes = if *command == "completions" {
+                    "a shell and nothing after it"
+                } else {
+                    "nothing after it"
+                };
+                write!(
+                    f,
+                    "karyon {command} takes {takes}, and {word} came next; a gene or sequence \
+                     called {command} is drawn when it is written after a file, as in karyon \
+                     genes.gff3 {command}"
+                )
+            }
         }
     }
 }
@@ -2339,6 +2379,40 @@ pub enum Request {
     HelpOn(String),
     /// Print the version.
     Version,
+    /// Print a script that completes karyon's command lines in a shell, as
+    /// `karyon completions zsh`.
+    Completions(Shell),
+    /// Print the help as a manual page, as `karyon man`.
+    Manual,
+}
+
+/// A shell `karyon completions` writes a script for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shell {
+    /// GNU bash, whose script registers a function with `complete -F`.
+    Bash,
+    /// zsh, whose script is a completion function for `compinit`.
+    Zsh,
+    /// fish, whose script is a list of `complete` commands.
+    Fish,
+}
+
+impl Shell {
+    /// Every shell there is a script for, with the word it is asked for by.
+    pub const ALL: [(Shell, &'static str); 3] = [
+        (Shell::Bash, "bash"),
+        (Shell::Zsh, "zsh"),
+        (Shell::Fish, "fish"),
+    ];
+
+    /// The shells, as a message names them: `bash, zsh or fish`.
+    fn named() -> String {
+        let words: Vec<&str> = Shell::ALL.iter().map(|(_, word)| *word).collect();
+        match words.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+            _ => words.join(""),
+        }
+    }
 }
 
 /// Every flag the grammar answers to, for a mistyped one to be matched against.
@@ -2856,12 +2930,28 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
         return Err(ArgError::NoArguments);
     }
     // `karyon help` and `karyon help coverage`, the way most command lines
-    // take a topic.
-    if args[0] == "help" {
-        return Ok(match args.get(1) {
-            Some(topic) => Request::HelpOn(topic.clone()),
-            None => Request::Help,
-        });
+    // take a topic, and `karyon completions zsh` and `karyon man` beside it.
+    // A command is the first word and no other, which is where the place
+    // goes, so a gene or a sequence of one of these names is drawn when it is
+    // written after a file instead, as `karyon genes.gff3 man`.
+    match args[0].as_str() {
+        "help" => {
+            return Ok(match args.get(1) {
+                Some(topic) => Request::HelpOn(topic.clone()),
+                None => Request::Help,
+            });
+        }
+        "completions" => return completions(&args[1..]),
+        "man" => {
+            return match args.get(1) {
+                Some(word) => Err(ArgError::AfterCommand {
+                    command: "man",
+                    word: word.clone(),
+                }),
+                None => Ok(Request::Manual),
+            };
+        }
+        _ => {}
     }
     if let Some(at) = args.iter().position(|a| a == "-h" || a == "--help") {
         // After a track flag, the help asked for is that track's.
@@ -4309,6 +4399,23 @@ fn parse_line(args: &[String]) -> Result<Request, ArgError> {
     })))
 }
 
+/// What `karyon completions` asks for: one shell, and nothing after it.
+fn completions(words: &[String]) -> Result<Request, ArgError> {
+    let Some(word) = words.first() else {
+        return Err(ArgError::NoShell(None));
+    };
+    let Some((shell, _)) = Shell::ALL.iter().find(|(_, name)| name == word) else {
+        return Err(ArgError::NoShell(Some(word.clone())));
+    };
+    match words.get(1) {
+        Some(more) => Err(ArgError::AfterCommand {
+            command: "completions",
+            word: more.clone(),
+        }),
+        None => Ok(Request::Completions(*shell)),
+    }
+}
+
 /// Why a command line asking for a circle cannot have one, where it cannot.
 ///
 /// In the order a reader would fix them: a track with no ring, then an option
@@ -4557,7 +4664,10 @@ fn indexed_by(word: &str) -> Option<Option<String>> {
 /// `--codons`, as the flags naming a track's second file do, and as `-o`
 /// does, the file the figure is written to: `-o --title` wrote the figure to
 /// a file called `--title` and said nothing.
-fn takes_a_file(flag: &str) -> bool {
+///
+/// Public for the scripts `karyon completions` writes, which offer the names
+/// of files after these flags and after no others.
+pub fn takes_a_file(flag: &str) -> bool {
     file_read_by(flag).is_some() || matches!(flag, "--traits" | "--links" | "-o" | "--output")
 }
 
@@ -6495,6 +6605,39 @@ mod tests {
             Request::HelpOn(topic) if topic == "tree"
         ));
         assert!(matches!(parse(&args("help")).unwrap(), Request::Help));
+    }
+
+    /// `completions` and `man` are commands as the first word, as `help` is,
+    /// and places anywhere else, so a gene or a sequence of any of the three
+    /// names is still drawn: written after a file, as the refusals say.
+    #[test]
+    fn a_command_is_the_first_word_and_a_place_after_a_file() {
+        for (shell, word) in Shell::ALL {
+            assert!(matches!(
+                parse(&args(&format!("completions {word}"))).unwrap(),
+                Request::Completions(asked) if asked == shell
+            ));
+        }
+        assert!(matches!(parse(&args("man")).unwrap(), Request::Manual));
+        let none = parse(&args("completions")).unwrap_err().to_string();
+        assert!(none.contains("one shell, bash, zsh or fish"), "{none}");
+        for (line, command) in [
+            ("completions reads.bam", "completions"),
+            ("completions tcsh", "completions"),
+            ("completions bash reads.bam", "completions"),
+            ("man reads.bam genes.gff3", "man"),
+        ] {
+            let said = parse(&args(line)).unwrap_err().to_string();
+            assert!(
+                said.contains(&format!("as in karyon genes.gff3 {command}")),
+                "{line}: {said}"
+            );
+        }
+        for word in ["help", "completions", "man"] {
+            let it = draw(&format!("genes.gff3 {word}"));
+            assert_eq!(it.named.as_deref(), Some(word));
+            assert_eq!(it.tracks.len(), 1);
+        }
     }
 
     #[test]

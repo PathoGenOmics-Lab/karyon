@@ -300,16 +300,14 @@ fn the_checker_catches_a_file_broken_in_each_way_it_checks() {
 
 /// Every figure the project commits, in order.
 ///
-/// `assets/` is left out of the published crate, so a copy from crates.io
-/// checks the site's figures alone; a checkout has to have both.
+/// Both folders are in every checkout, which is where this runs: the
+/// published crate carries neither the figures nor these tests.
 fn committed_figures() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut figures = Vec::new();
     for (folder, fewest) in [("assets", 40), ("docs/assets/start", 20)] {
-        let Ok(entries) = fs::read_dir(root.join(folder)) else {
-            assert_eq!(folder, "assets", "{folder} is part of the crate");
-            continue;
-        };
+        let entries =
+            fs::read_dir(root.join(folder)).unwrap_or_else(|error| panic!("{folder}: {error}"));
         let before = figures.len();
         for entry in entries {
             let path = entry.unwrap().path();
