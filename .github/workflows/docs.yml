@@ -64,9 +64,18 @@ permissions:
 
 # One deployment at a time, and never cancel one halfway: an interrupted
 # publish leaves the site in whatever state it reached.
+#
+# Only the runs that can publish queue for it. A group holds one run going and
+# one waiting, and a run that arrives takes the waiting one's place, so while a
+# pull request's build shared the group it could cancel the publish of a merge
+# waiting behind another: when #106, #107 and #108 were merged within fifteen
+# seconds, Dependabot rebased its pull request onto the new main, its build
+# took the waiting place, and the site stayed at #106. A pull request's build
+# publishes nothing, so it waits in a group of its own, and a newer push to the
+# same pull request cancels the build it makes stale.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('pages-pr-{0}', github.event.pull_request.number) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
