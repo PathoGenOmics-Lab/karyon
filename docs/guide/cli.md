@@ -1,3 +1,9 @@
+---
+description: >-
+  Draw a figure from your files without writing Rust: name a place, stack one
+  track per file and write SVG or PDF, with every flag in full.
+---
+
 # Command line
 
 Draw a figure straight from your files without writing any Rust: name a region,

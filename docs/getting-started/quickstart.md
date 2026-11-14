@@ -1,3 +1,9 @@
+---
+description: >-
+  A figure from Rust: make a project, add the library and write one chain of
+  calls that stacks depth, a reference, genes and variants.
+---
+
 # A first program
 
 A figure from Rust: make a project, add the library and write one chain of

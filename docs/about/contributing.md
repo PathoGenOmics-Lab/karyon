@@ -1,3 +1,9 @@
+---
+description: >-
+  How to report a figure that came out wrong, what a change has to pass before
+  it is merged, and the conventions karyon's code keeps.
+---
+
 # Contributing
 
 How to report a figure that came out wrong, what a change has to pass before

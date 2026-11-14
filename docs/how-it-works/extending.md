@@ -1,3 +1,9 @@
+---
+description: >-
+  Add a track type karyon lacks: the one small trait every shipped track
+  implements, what a track draws with, and a whole track written out.
+---
+
 # Writing a track
 
 Add a track type the crate does not have. The thirty-eight that ship are

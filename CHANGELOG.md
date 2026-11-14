@@ -1865,6 +1865,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   counts its thirty-four examples, where its guide said thirty-three; and the
   tooltip on BAM, on every page, says karyon reads one as it is, where it said
   to pipe it through `samtools view`.
+- Every page of the site gives a search engine and a link preview a sentence
+  of its own on what a reader finds there. Twenty-eight of the fifty-four gave
+  none, so the site's description stood in for each of them, and three ran
+  past the length a search result shows, one of them, the variation tracks,
+  leaving out `PairTrack`, which the page describes.
 - The README's licence badge reads `license: MIT, fonts OFL-1.1`, as the
   crate's licence is `MIT AND OFL-1.1` since it carries the Liberation faces a
   PDF embeds. It read `license: MIT`.

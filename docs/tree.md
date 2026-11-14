@@ -1,4 +1,8 @@
 ---
+description: >-
+  Open a phylogenetic tree in your browser and explore it, rectangular,
+  circular or unrooted, from a handful of tips to a million, with nothing
+  uploaded.
 hide:
   - navigation
   - toc

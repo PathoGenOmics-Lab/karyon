@@ -1,6 +1,8 @@
 ---
 title: A whole sequence
-description: Draw the depth of reads along a whole chromosome in windows, for one sample or several, across every chromosome at once with its copy number, or round the chromosome as a circle, to see what stands out at a glance.
+description: >-
+  Draw read depth along a whole chromosome for one sample or several, across
+  every chromosome at once with its copy number, or round it as a circle.
 ---
 
 # A whole sequence

@@ -1,4 +1,7 @@
 ---
+description: >-
+  Write a karyon command, edit the files it reads and watch the figure it
+  draws, in your browser, with nothing to install and nothing uploaded.
 hide:
   - navigation
   - toc

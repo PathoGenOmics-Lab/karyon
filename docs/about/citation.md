@@ -1,3 +1,9 @@
+---
+description: >-
+  How to cite karyon and the version you used, who made it, and the methods
+  and file formats it builds on, which deserve citing too.
+---
+
 # Citation
 
 How to cite karyon and the version you used, who made it, and the methods and

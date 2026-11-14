@@ -1,6 +1,9 @@
 ---
 title: Variation tracks
-description: VariantTrack, GenotypeTrack, StructuralTrack, CopyNumberTrack, SnpTrack, MatrixTrack, ManhattanTrack and SelectionTrack, with their options, command line flags and pitfalls.
+description: >-
+  VariantTrack, GenotypeTrack, StructuralTrack, CopyNumberTrack, SnpTrack,
+  MatrixTrack, ManhattanTrack, PairTrack and SelectionTrack, with their
+  options.
 ---
 
 # Variation tracks

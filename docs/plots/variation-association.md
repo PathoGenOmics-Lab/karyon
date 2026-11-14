@@ -1,3 +1,9 @@
+---
+description: >-
+  Plots for calls and their patterns across samples: variants, genotypes, copy
+  number, variable sites, association scans, linkage and selection.
+---
+
 # Variation and association
 
 Plots for calls and the patterns they make across samples: point and

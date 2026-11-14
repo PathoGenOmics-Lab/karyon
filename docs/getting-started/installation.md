@@ -1,3 +1,9 @@
+---
+description: >-
+  Install the karyon program or add the library to a Rust project, set up tab
+  completion and the manual page, and pin a commit for reproducible figures.
+---
+
 # Installation
 
 Install the `karyon` program with one command, or add the library to a Rust

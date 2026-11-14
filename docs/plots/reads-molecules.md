@@ -1,3 +1,9 @@
+---
+description: >-
+  Plots that keep the evidence one molecule at a time: read pileups, split
+  reads, methylation by molecule, splice junctions and nanopore signal.
+---
+
 # Reads and molecules
 
 Plots that keep the evidence one molecule at a time, before reads are

@@ -1,5 +1,8 @@
 ---
 title: Changelog
+description: >-
+  Every change to karyon, version by version and newest first, with the reason
+  for each, starting with what is not released yet.
 search:
   exclude: true
 ---
