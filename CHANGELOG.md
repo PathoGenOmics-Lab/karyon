@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The sweep that marks and closes issues nobody has touched runs when someone
+  starts it, from the Actions tab or with `gh workflow run stale.yml`, and no
+  longer every Monday at 06:00 UTC, so no workflow in the repository runs on a
+  timer.
 - The crate's homepage is the guide, https://pathogenomics-lab.github.io/karyon/,
   where it was the repository, which `repository` names already. Its
   categories are `science::bioinformatics`, which crates.io has as a

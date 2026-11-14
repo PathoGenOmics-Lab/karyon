@@ -29,9 +29,9 @@
 # it from ever merging itself, and stops it quietly.
 #
 # `schedule` here is Dependabot's own timer and not a cron in GitHub Actions.
-# Nothing in this file causes a workflow to run on a schedule. The stale sweep
-# is the only workflow in this repository allowed a cron, and it carries its own
-# justification for being the exception.
+# Nothing in this file causes a workflow to run on a schedule, and no workflow
+# in this repository runs on one: each runs on a push, on a pull request or by
+# hand.
 #
 # Security updates are a separate mechanism, enabled in the repository settings,
 # and are unaffected by any of this: a vulnerable dependency still gets its own
