@@ -46,6 +46,7 @@ pub enum SelectionEvidence {
 /// by synonymous and nonsynonymous rate parameters from codon models; the
 /// ratio is the quantity encoded visually.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a site draws nothing until it is in a track"]
 pub struct SelectionSite {
     /// Tested position, 0-based.
     pub pos: u64,
@@ -182,6 +183,7 @@ impl SelectionSite {
 /// assert!(svg.contains("surface loop"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct SelectionTrack {
     sites: Vec<SelectionSite>,
     label: Option<String>,
@@ -300,6 +302,7 @@ impl SelectionTrack {
     }
 
     /// Returns sites that cross the selected evidence threshold.
+    #[must_use]
     pub fn selected_sites(&self) -> Vec<&SelectionSite> {
         self.sites
             .iter()

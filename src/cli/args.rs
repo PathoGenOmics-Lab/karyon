@@ -1284,6 +1284,7 @@ impl Kind {
     /// table as a scan; CNVkit's `.cns` and a `.seg` as copy number. A name
     /// that could be several things, `.tsv` or `.txt`, says nothing, and the
     /// file has to be given its flag.
+    #[must_use]
     pub fn for_file(name: &str) -> Option<Kind> {
         let lower = name.to_ascii_lowercase();
         let lower = lower
@@ -1840,6 +1841,7 @@ pub enum RowCap {
 
 impl RowCap {
     /// Parses what `--max-rows` takes.
+    #[must_use]
     pub fn parse(word: &str) -> Option<RowCap> {
         if word == "all" {
             return Some(RowCap::All);
@@ -2350,6 +2352,7 @@ impl Invocation {
     ///     .collect();
     /// assert_eq!(files, ["reads.bam", "genes.gff3"]);
     /// ```
+    #[must_use]
     pub fn files(&self) -> Vec<&std::path::Path> {
         let mut files: Vec<&std::path::Path> = Vec::new();
         for source in self.tracks.iter().flat_map(TrackSpec::sources) {
@@ -2754,6 +2757,7 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
 
 /// How karyon says what another tool's flag asks for, when it is a flag
 /// karyon knows another tool's name for.
+#[must_use]
 pub fn spelled_elsewhere(given: &str) -> Option<&'static str> {
     let word = given
         .trim_start_matches('-')
@@ -2771,6 +2775,7 @@ pub fn spelled_elsewhere(given: &str) -> Option<&'static str> {
 /// swap of two neighbouring letters as one, so `--coverge`, `--colour`,
 /// `-title` and `--lable` each find theirs and a word that is no flag at all
 /// finds nothing rather than a guess.
+#[must_use]
 pub fn nearest_flag(given: &str) -> Option<&'static str> {
     let allowed = if given.len() > 8 { 2 } else { 1 };
     let mut best: Option<(usize, &'static str)> = None;
@@ -2842,6 +2847,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
 /// track has no use for is refused by name, and that refusal is the one thing
 /// that means no. A line that fails for any other reason, such as a second
 /// file not yet named, took the option.
+#[must_use]
 pub fn takes(kind: Kind, flag: &str, value: Option<&str>) -> bool {
     let line = |with: bool| {
         let mut line = vec!["chr1:1-10".to_string(), kind.dashed().to_string()];
@@ -4667,6 +4673,7 @@ fn indexed_by(word: &str) -> Option<Option<String>> {
 ///
 /// Public for the scripts `karyon completions` writes, which offer the names
 /// of files after these flags and after no others.
+#[must_use]
 pub fn takes_a_file(flag: &str) -> bool {
     file_read_by(flag).is_some() || matches!(flag, "--traits" | "--links" | "-o" | "--output")
 }

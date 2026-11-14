@@ -155,6 +155,7 @@ impl MatrixRow {
 /// assert!(svg.contains("ERR001"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct MatrixTrack {
     sites: Vec<u64>,
     /// Where each column ends, for a matrix of windows; `None` for sites.

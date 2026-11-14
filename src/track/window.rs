@@ -58,6 +58,7 @@ pub struct Window {
 
 impl Window {
     /// A window over `[start, end)` holding `value`.
+    #[must_use]
     pub fn new(start: u64, end: u64, value: f64) -> Self {
         Window { start, end, value }
     }
@@ -90,6 +91,7 @@ pub enum WindowStyle {
 /// assert!(svg.contains("pN/pS"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct WindowTrack {
     windows: Vec<Window>,
     label: Option<String>,

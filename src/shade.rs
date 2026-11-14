@@ -65,6 +65,7 @@ const ONE_EDGE_UNDER_PX: f64 = 6.0;
 /// assert!(svg.contains("<title>deletion, 4,001 to 5,000</title>"));
 /// ```
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a shade marks nothing until a figure or a plot is given it"]
 pub struct Shade {
     start: u64,
     end: u64,

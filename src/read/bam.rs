@@ -472,6 +472,7 @@ pub fn header_of<R: Read + Seek>(reader: R) -> Result<Header, ReadError> {
 }
 
 /// The records as SAM text, the header's lines first.
+#[must_use]
 pub fn sam(header: &Header, records: &[Record]) -> String {
     let mut out = String::new();
     if header.text.trim().is_empty() {
@@ -591,6 +592,7 @@ fn tag_text(name: [u8; 2], kind: u8, value: &[u8]) -> String {
 
 /// The depth over `region`, one count per base, as `samtools depth -a` counts
 /// by default.
+#[must_use]
 pub fn depth(records: &[Record], region: &Region) -> Vec<u32> {
     let (start, end) = (region.start() as i64, region.end() as i64);
     let mut depth = vec![0u32; (end - start).max(0) as usize];
@@ -619,6 +621,7 @@ pub fn depth(records: &[Record], region: &Region) -> Vec<u32> {
 }
 
 /// Depth as bedGraph, one line per run of the same count.
+#[must_use]
 pub fn bedgraph(sequence: &str, region: &Region, depth: &[u32]) -> String {
     let mut out = String::new();
     let mut run = 0;

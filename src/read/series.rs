@@ -78,6 +78,7 @@ pub const DECIMALS: u32 = 3;
 ///
 /// A table whose header names no time, or whose times do not read as numbers,
 /// has none; reading it says what is wrong with it.
+#[must_use]
 pub fn fractional_times(text: &str) -> bool {
     let mut rows = lines(text);
     let Some((_, head)) = rows.next() else {

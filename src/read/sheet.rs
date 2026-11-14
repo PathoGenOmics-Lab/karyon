@@ -102,6 +102,7 @@ impl Sheet {
     /// is one colour in every strip of a figure and in its key. It is what
     /// [`Traits::from_sheet`](crate::track::traits::Traits::from_sheet) hands
     /// each column it makes.
+    #[must_use]
     pub fn levels(&self, column: &str) -> Vec<String> {
         // A set beside the list, because a column of depths has as many
         // values as rows and a search of the list per row is quadratic.

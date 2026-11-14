@@ -92,6 +92,7 @@ pub enum TraitStyle {
 
 /// One metadata column drawn beside the rows of a track.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a column draws nothing until a tree or a trait table is given it"]
 pub struct TraitColumn {
     pub(crate) key: String,
     pub(crate) label: String,
@@ -1042,6 +1043,7 @@ pub struct Join {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Default)]
+#[must_use = "a trait table draws nothing until a track is given it"]
 pub struct Traits {
     rows: BTreeMap<String, Annotations>,
     /// The rows in the order their levels are met, which deals the palette.
@@ -1403,6 +1405,7 @@ impl Traits {
     ///
     /// Taken from the column rather than written down beside it, so a legend
     /// cannot go on saying what the ramp used to be.
+    #[must_use]
     pub fn ramp_ends(&self, column: &TraitColumn) -> (String, String) {
         let domain = self.domain(column, STRIP_LEVELS);
         if domain.maximum <= domain.minimum {

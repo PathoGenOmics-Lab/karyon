@@ -49,6 +49,7 @@ use super::{gzip, ReadError};
 /// That subfield is what makes a file one an index can point into. Plain gzip
 /// has none, and a gzip file of one member has to be inflated from its start
 /// to reach any byte of it, so an index beside one cannot be used.
+#[must_use]
 pub fn is_bgzf(data: &[u8]) -> bool {
     if !gzip::is_gzip(data) || data.len() < 12 || data[3] & 0x04 == 0 {
         return false;

@@ -117,6 +117,7 @@ pub enum Identity {
 
 impl Identity {
     /// Parses a unit name, as `--identity` spells it.
+    #[must_use]
     pub fn parse(word: &str) -> Option<Identity> {
         Some(match word {
             "percent" | "percentage" => Identity::Percent,

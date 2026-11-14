@@ -322,6 +322,7 @@ impl Extent {
     /// A value that is not a number is left out rather than spread to the
     /// span it joins, since `NaN` compared with anything is neither more nor
     /// less, and an extent with nothing left in it is not one.
+    #[must_use]
     pub fn join(extents: impl IntoIterator<Item = Extent>) -> Vec<Extent> {
         let mut joined: Vec<Extent> = Vec::new();
         for extent in extents {

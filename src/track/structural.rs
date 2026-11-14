@@ -100,6 +100,7 @@ impl SvKind {
 
 /// One structural variant call.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a variant draws nothing until it is in a track"]
 pub struct StructuralVariant {
     /// First breakpoint, 0-based.
     pub start: u64,
@@ -172,6 +173,7 @@ impl StructuralVariant {
 /// assert!(svg.contains("<path"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct StructuralTrack {
     variants: Vec<StructuralVariant>,
     label: Option<String>,
@@ -304,6 +306,7 @@ impl StructuralTrack {
     }
 
     /// The colour of one kind of call.
+    #[must_use]
     pub fn color_of(&self, kind: SvKind, theme: &Theme) -> String {
         if let Some((_, color)) = self.colors.iter().find(|(existing, _)| *existing == kind) {
             return color.clone();

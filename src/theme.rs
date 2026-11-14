@@ -47,6 +47,7 @@ use crate::style::{Emphasis, LinePattern, MarkStyle, RenderProfile, Symbol, Visu
 /// Every field is public: start from [`Theme::light`] or [`Theme::dark`] and
 /// overwrite what you need, rather than building one from scratch.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a theme changes nothing until a figure is given it"]
 pub struct Theme {
     /// Page background. Set it to `"none"` for a transparent SVG.
     pub background: String,
@@ -364,6 +365,7 @@ impl BaseColors {
     /// real distinction. Convention is still the default because a figure that
     /// recolours the bases surprises everyone, but see
     /// [`BaseColors::colorblind_safe`] before sending anything to print.
+    #[must_use]
     pub fn conventional() -> Self {
         BaseColors {
             a: "#33a02c".into(),
@@ -383,6 +385,7 @@ impl BaseColors {
     /// barely moves. Thymine moves furthest, from red to vermillion, so a
     /// reader expecting a red thymine finds an orange-red one: label it or say
     /// so in the caption.
+    #[must_use]
     pub fn colorblind_safe() -> Self {
         BaseColors {
             a: "#009e73".into(),
@@ -407,6 +410,7 @@ impl Default for BaseColors {
 /// dark figure look like a light one someone forgot to invert. Mixing the
 /// theme's own background and foreground gives the same ladder in whichever
 /// direction the page runs.
+#[must_use]
 pub fn mix(a: &str, b: &str, t: f64) -> String {
     let (Some(from), Some(to)) = (parse_hex(a), parse_hex(b)) else {
         return a.to_string();
@@ -447,6 +451,7 @@ fn parse_hex(color: &str) -> Option<(u8, u8, u8)> {
 /// figure; the hue belongs in the edge and a wash of it in the body. Small
 /// marks are the other way round and want the colour undiluted, which is why
 /// this is a function rather than a rule.
+#[must_use]
 pub fn wash(color: &str, theme: &Theme) -> String {
     mix(color, theme.surface(), WASH)
 }
@@ -465,6 +470,7 @@ const WASH: f64 = 0.62;
 /// is a different quantity and is not monotone in relative luminance across
 /// hues, so on a mid saturated orange or green it picks the less legible of the
 /// two by a wide margin.
+#[must_use]
 pub fn contrast_ink(color: &str) -> &'static str {
     let Some((r, g, b)) = parse_hex(color) else {
         return "#ffffff";

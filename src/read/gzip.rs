@@ -38,6 +38,7 @@
 use super::ReadError;
 
 /// Whether `data` starts the way every gzip member does.
+#[must_use]
 pub fn is_gzip(data: &[u8]) -> bool {
     data.len() >= 3 && data[0] == 0x1f && data[1] == 0x8b && data[2] == 8
 }

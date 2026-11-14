@@ -162,6 +162,7 @@ pub fn plot(locus: &str) -> Result<Plot, Error> {
 /// assert!(svg.contains(">95</text>"));
 /// # Ok::<(), karyon::Error>(())
 /// ```
+#[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
 pub fn plot_tree() -> Plot {
     let region = Region::new("phylogeny", 0, 1).expect("a one-base window is a window");
     Plot::over(region).remove_region_label()
@@ -187,6 +188,7 @@ pub fn plot_tree() -> Plot {
 /// assert!(!svg.contains(">alignment:1-8</text>"), "no locus is written");
 /// assert!(svg.contains(">column</text>"));
 /// ```
+#[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
 pub fn plot_alignment(sequences: impl Into<Vec<MsaSequence>>) -> Plot<MsaTrack> {
     let sequences: Vec<MsaSequence> = sequences.into();
     let columns = sequences
@@ -261,6 +263,7 @@ impl Slot for Empty {
 /// `label` and [`Plot::adjust`] are not on a plot with nothing pending.
 pub trait Named: Slot {
     /// Returns the track with `label` shown in the left gutter.
+    #[must_use = "a track draws nothing until it is pushed into a figure"]
     fn named(self, label: String) -> Self;
 }
 
@@ -334,6 +337,11 @@ tracks![
 /// [`Figure`] that [`Plot::into_figure`] hands back.
 ///
 /// See the [module documentation](self) for what a plot fills in on its own.
+//
+// The type is not #[must_use], as Figure is, because Plot::save hands the plot
+// back so that one stack can be saved twice, and most chains end on
+// `.save(path)?;` and drop it. On the type the attribute would flag every one
+// of those, so it is on each method that builds a plot instead.
 pub struct Plot<T = Empty> {
     figure: Figure,
     /// The track added last, not yet handed to the figure. It waits here so
@@ -362,6 +370,7 @@ impl Plot<Empty> {
     /// Starts a plot over `region`.
     ///
     /// [`plot`] is the same thing from a locus string.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn over(region: Region) -> Self {
         Plot {
             figure: Figure::new(region),
@@ -420,54 +429,63 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Sets the image width in pixels. Defaults to 900.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn width(mut self, width: f64) -> Self {
         self.figure = self.figure.width(width);
         self
     }
 
     /// Sets the title drawn above the tracks.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.figure = self.figure.title(title);
         self
     }
 
     /// Replaces the theme. [`Theme::dark`] is the other one that ships.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn theme(mut self, theme: Theme) -> Self {
         self.figure = self.figure.theme(theme);
         self
     }
 
     /// Applies a named palette, type scale and track density together.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn profile(mut self, profile: RenderProfile) -> Self {
         self.figure = self.figure.profile(profile);
         self
     }
 
     /// Scales fonts, margins, label gutters, gaps and rounded corners together.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn visual_scale(mut self, factor: f64) -> Self {
         self.figure = self.figure.visual_scale(factor);
         self
     }
 
     /// Sets how tightly repeated data rows are packed.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn density(mut self, density: Density) -> Self {
         self.figure = self.figure.density(density);
         self
     }
 
     /// Replaces the whitespace around the plotting area.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn margin(mut self, margin: Margin) -> Self {
         self.figure = self.figure.margin(margin);
         self
     }
 
     /// Sets the width of the left gutter holding track labels.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn label_width(mut self, width: f64) -> Self {
         self.figure = self.figure.label_width(width);
         self
     }
 
     /// Sets the vertical gap between tracks in pixels.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn track_gap(mut self, gap: f64) -> Self {
         self.figure = self.figure.track_gap(gap);
         self
@@ -475,6 +493,7 @@ impl<T: Slot> Plot<T> {
 
     /// Draws the tracks that measure the same thing on one scale, as
     /// [`Figure::same_scale`] does: several depths read off one ceiling.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn same_scale(mut self) -> Self {
         self.figure = self.figure.same_scale();
         self
@@ -498,6 +517,7 @@ impl<T: Slot> Plot<T> {
     /// assert!(svg.contains("<title>deletion, 1,001 to 2,000</title>"));
     /// assert!(svg.contains("Shaded: deletion, 1,001 to 2,000.</desc>"));
     /// ```
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn shade(mut self, shade: Shade) -> Self {
         self.figure = self.figure.shade(shade);
         self
@@ -507,6 +527,7 @@ impl<T: Slot> Plot<T> {
     ///
     /// Worth doing when the horizontal axis is not genomic coordinates, as it
     /// is not for a squiggle or an alignment column index.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn remove_region_label(mut self) -> Self {
         self.figure = self.figure.show_region_label(false);
         self
@@ -519,6 +540,7 @@ impl<T: Slot> Plot<T> {
     /// suppresses the automatic axis only: an axis put somewhere with
     /// [`Plot::add_axis`], or handed over to [`Plot::add_track`], stays where
     /// it was put.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn remove_axis(mut self) -> Self {
         self.wants_axis = false;
         self
@@ -563,12 +585,14 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Renders the figure to a standalone SVG document.
+    #[must_use = "the SVG is returned, not written; save writes a file"]
     pub fn to_svg(self) -> String {
         self.into_figure().to_svg()
     }
 
     /// Renders the figure as a one-page PDF, converted from its SVG; see
     /// [`Pdf`](crate::Pdf) for what carries over.
+    #[must_use = "the PDF is returned, not written; save writes a file"]
     pub fn to_pdf(self) -> crate::Pdf {
         self.into_figure().to_pdf()
     }
@@ -628,6 +652,7 @@ impl<T: Slot> Plot<T> {
     ///
     /// assert_eq!(figure.into_figure().track_count(), 3);
     /// ```
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn done(self) -> Plot<Empty> {
         self.settle()
     }
@@ -642,6 +667,7 @@ impl<T: Slot> Plot<T> {
     /// It is not the way to add the coordinate ruler. An [`AxisTrack`] pushed
     /// through here is in addition to the one the plot puts in, which draws
     /// two. [`Plot::add_axis`] is the one that knows.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_track(self, track: impl Track + 'static) -> Plot<Empty> {
         let mut plot = self.settle();
         plot.figure = plot.figure.push(track);
@@ -649,6 +675,7 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Adds a boxed track, mirroring [`Figure::push_boxed`].
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_boxed(self, track: Box<dyn Track>) -> Plot<Empty> {
         let mut plot = self.settle();
         plot.figure = plot.figure.push_boxed(track);
@@ -665,6 +692,7 @@ impl<T: Slot> Plot<T> {
     /// be added with [`Plot::add_tree`] and keyed at all. This asks each
     /// track for its key in the theme the figure is drawn in, as the command
     /// line does, and adds nothing where no track has one.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_key(self) -> Plot<Empty> {
         let mut plot = self.settle();
         plot.wants_key = true;
@@ -677,6 +705,7 @@ impl<T: Slot> Plot<T> {
     /// coordinates, so a tree or a panel of sites below them is not taken for
     /// something it measures. Adding one explicitly is how it goes anywhere
     /// else; the axis is not put in a second time.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_axis(self) -> Plot<AxisTrack> {
         let mut plot = self.settle();
         plot.wants_axis = false;
@@ -684,6 +713,7 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Per-read methylation calls at a set of sites, one row per molecule.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_bisulfite(
         self,
         sites: impl Into<Vec<u64>>,
@@ -693,12 +723,14 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Intervals carried by whole clades of a tree, aligned to its leaf rows.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_clades(self, tree: Tree, blocks: impl Into<Vec<CladeBlock>>) -> Plot<CladeTrack> {
         self.settle().park(CladeTrack::new(tree, blocks.into()))
     }
 
     /// A codon ruler over a coding sequence, numbering residues rather than
     /// bases.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_codons(self, start: u64, end: u64, strand: Strand) -> Plot<CodonTrack> {
         self.settle().park(CodonTrack::new(start, end, strand))
     }
@@ -708,6 +740,7 @@ impl<T: Slot> Plot<T> {
     /// `ploidy` is where balanced sits and there is no default for it: this
     /// crate does not know what it is drawing, and a rule in the wrong place
     /// swaps every gain for a loss.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_copy_number(
         self,
         segments: impl Into<Vec<CopyNumberSegment>>,
@@ -721,6 +754,7 @@ impl<T: Slot> Plot<T> {
     ///
     /// `seq[i]` and `scores[i]` describe the base at `start + i`. A score that
     /// is not a number is a base nobody scored, and is drawn as one.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_dynseq(
         self,
         start: u64,
@@ -731,43 +765,51 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Splice junctions as arcs, weighted by the reads that crossed them.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_junctions(self, junctions: impl Into<Vec<Junction>>) -> Plot<JunctionTrack> {
         self.settle().park(JunctionTrack::new(junctions))
     }
 
     /// Read depth, one value per base, starting at the left edge of the region.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_coverage(self, values: impl Into<Vec<f64>>) -> Plot<CoverageTrack> {
         let start = self.figure.region().start();
         self.settle().park(CoverageTrack::new(start, values))
     }
 
     /// Read depth whose first value is at `start` rather than at the left edge.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_coverage_at(self, start: u64, values: impl Into<Vec<f64>>) -> Plot<CoverageTrack> {
         self.settle().park(CoverageTrack::new(start, values))
     }
 
     /// Alignment blocks as a dotplot, query against target.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_dotplot(self, blocks: impl Into<Vec<AlignmentBlock>>) -> Plot<DotplotTrack> {
         self.settle().park(DotplotTrack::new(blocks))
     }
 
     /// Domains, motifs or other interval architectures, one sequence per row.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_domains(self, rows: impl Into<Vec<DomainArchitecture>>) -> Plot<DomainTrack> {
         self.settle().park(DomainTrack::new(rows))
     }
 
     /// Gene models and other intervals, packed into as few rows as they need.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_features(self, features: impl Into<Vec<Feature>>) -> Plot<FeatureTrack> {
         self.settle().park(FeatureTrack::new(features))
     }
 
     /// Every sequence of a genome laid end to end, for a whole genome view.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_genome(self, genome: Genome) -> Plot<GenomeTrack> {
         self.settle().park(GenomeTrack::new(genome))
     }
 
     /// The call of each sample at each site, a row per sample, each call at
     /// its site's position.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_genotypes(
         self,
         samples: impl Into<Vec<String>>,
@@ -777,38 +819,45 @@ impl<T: Slot> Plot<T> {
     }
 
     /// A chromosome drawn as stained bands, with the region marked on it.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_ideogram(self, length: u64, bands: impl Into<Vec<Band>>) -> Plot<IdeogramTrack> {
         self.settle().park(IdeogramTrack::new(length, bands))
     }
 
     /// A key for the colours used elsewhere in the figure.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_legend(self, legend: Legend) -> Plot<LegendTrack> {
         self.settle().park(LegendTrack::new(legend))
     }
 
     /// One gene cluster per row, with homology ribbons between them.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_loci(self, loci: impl Into<Vec<Locus>>) -> Plot<LocusTrack> {
         self.settle().park(LocusTrack::new(loci))
     }
 
     /// A sequence logo, one stack per column, starting at the left edge of the
     /// region.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_logo(self, columns: impl Into<Vec<LogoColumn>>) -> Plot<LogoTrack> {
         let start = self.figure.region().start();
         self.settle().park(LogoTrack::new(start, columns))
     }
 
     /// A sequence logo whose first column is at `start`.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_logo_at(self, start: u64, columns: impl Into<Vec<LogoColumn>>) -> Plot<LogoTrack> {
         self.settle().park(LogoTrack::new(start, columns))
     }
 
     /// Association statistics, one point per position.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_manhattan(self, points: impl Into<Vec<Association>>) -> Plot<ManhattanTrack> {
         self.settle().park(ManhattanTrack::new(points))
     }
 
     /// A value per sample per site, as a grid of coloured cells.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_matrix(
         self,
         sites: impl Into<Vec<u64>>,
@@ -818,40 +867,47 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Methylation calls, one row per strand.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_methylation(self, sites: impl Into<Vec<MethylSite>>) -> Plot<MethylationTrack> {
         self.settle().park(MethylationTrack::new(sites))
     }
 
     /// A multiple sequence alignment, one row per sequence.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_msa(self, sequences: impl Into<Vec<MsaSequence>>) -> Plot<MsaTrack> {
         self.settle().park(MsaTrack::new(sequences))
     }
 
     /// Open reading frames found in the sequence, three rows per strand,
     /// starting at the left edge of the region.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_orfs(self, seq: impl Into<Vec<u8>>) -> Plot<OrfTrack> {
         let start = self.figure.region().start();
         self.settle().park(OrfTrack::new(start, seq))
     }
 
     /// Open reading frames in a sequence whose first base is at `start`.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_orfs_at(self, start: u64, seq: impl Into<Vec<u8>>) -> Plot<OrfTrack> {
         self.settle().park(OrfTrack::new(start, seq))
     }
 
     /// Pairs of places and a value between them, as a triangle hung under
     /// the axis until [`PairTrack::style`] says arcs.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_pairs(self, pairs: impl Into<Vec<Pair>>) -> Plot<PairTrack> {
         self.settle().park(PairTrack::new(pairs))
     }
 
     /// Aligned reads, stacked into rows that do not overlap.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_pileup(self, reads: impl Into<Vec<Read>>) -> Plot<PileupTrack> {
         self.settle().park(PileupTrack::new(reads))
     }
 
     /// A fitted population, reproductive-number or growth trajectory through
     /// time, with optional uncertainty intervals.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_phylodynamics(
         self,
         points: impl Into<Vec<PhylodynamicPoint>>,
@@ -860,22 +916,26 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Site-wise molecular-selection estimates and their independent evidence.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_selection(self, sites: impl Into<Vec<SelectionSite>>) -> Plot<SelectionTrack> {
         self.settle().park(SelectionTrack::new(sites))
     }
 
     /// Reference bases, starting at the left edge of the region.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_sequence(self, seq: impl Into<Vec<u8>>) -> Plot<SequenceTrack> {
         let start = self.figure.region().start();
         self.settle().park(SequenceTrack::new(start, seq))
     }
 
     /// Reference bases whose first base is at `start`.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_sequence_at(self, start: u64, seq: impl Into<Vec<u8>>) -> Plot<SequenceTrack> {
         self.settle().park(SequenceTrack::new(start, seq))
     }
 
     /// Alleles at variable sites, one row per sample.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_snps(
         self,
         names: impl IntoIterator<Item = impl Into<String>>,
@@ -886,23 +946,27 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Reads whose alignment is split across the region, with the joins drawn.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_split_reads(self, reads: impl Into<Vec<SplitRead>>) -> Plot<SplitReadTrack> {
         self.settle().park(SplitReadTrack::new(reads.into()))
     }
 
     /// Raw signal against sample index, starting at the left edge of the
     /// region.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_squiggle(self, signal: impl Into<Vec<f64>>) -> Plot<SquiggleTrack> {
         let start = self.figure.region().start() as usize;
         self.settle().park(SquiggleTrack::new(start, signal))
     }
 
     /// Raw signal whose first sample is at index `start`.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_squiggle_at(self, start: usize, signal: impl Into<Vec<f64>>) -> Plot<SquiggleTrack> {
         self.settle().park(SquiggleTrack::new(start, signal))
     }
 
     /// Structural variants, each drawn as the rearrangement it is.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_structural(
         self,
         variants: impl Into<Vec<StructuralVariant>>,
@@ -911,6 +975,7 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Observed lineage counts and denominators through time.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_surveillance(
         self,
         observations: impl Into<Vec<SurveillanceObservation>>,
@@ -919,16 +984,19 @@ impl<T: Slot> Plot<T> {
     }
 
     /// Alignment blocks as ribbons between two sequences.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_synteny(self, blocks: impl Into<Vec<AlignmentBlock>>) -> Plot<SyntenyTrack> {
         self.settle().park(SyntenyTrack::new(blocks))
     }
 
     /// Two trees face to face, with their shared leaves joined.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_tanglegram(self, left: Tree, right: Tree) -> Plot<TanglegramTrack> {
         self.settle().park(TanglegramTrack::new(left, right))
     }
 
     /// Transcription units, from start site to terminator.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_transcription_units(
         self,
         units: impl Into<Vec<TranscriptionUnit>>,
@@ -938,16 +1006,19 @@ impl<T: Slot> Plot<T> {
     }
 
     /// A phylogeny, with its leaves as the rows of the tracks beside it.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_tree(self, tree: Tree) -> Plot<TreeTrack> {
         self.settle().park(TreeTrack::new(tree))
     }
 
     /// Variant calls, one mark per position.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_variants(self, variants: impl Into<Vec<Variant>>) -> Plot<VariantTrack> {
         self.settle().park(VariantTrack::new(variants))
     }
 
     /// A statistic computed in windows, drawn as steps or as a line.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn add_windows(self, windows: impl Into<Vec<Window>>) -> Plot<WindowTrack> {
         self.settle().park(WindowTrack::new(windows))
     }
@@ -978,6 +1049,7 @@ impl<T: Named> Plot<T> {
     ///
     /// Calling it before any track has been added does not compile, because
     /// [`Empty`] is not a track for the closure to take.
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn adjust(mut self, f: impl FnOnce(T) -> T) -> Self {
         self.pending = self.pending.map(f);
         self
@@ -996,6 +1068,7 @@ impl<T: Named> Plot<T> {
     ///
     /// assert!(svg.contains("depth"));
     /// ```
+    #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
     pub fn label(self, label: impl Into<String>) -> Self {
         let label = label.into();
         self.adjust(|track| track.named(label))

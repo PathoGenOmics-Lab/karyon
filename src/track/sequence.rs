@@ -67,6 +67,7 @@ fn letter_width(base: u8) -> f64 {
 /// assert!(svg.contains(">A</text>"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct SequenceTrack {
     start: u64,
     seq: Vec<u8>,

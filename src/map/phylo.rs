@@ -48,6 +48,7 @@ pub enum PhyloConnector {
 /// assert!(svg.contains("Peru; 1 mapped tip"));
 /// # Ok::<(), karyon::Error>(())
 /// ```
+#[must_use = "a map is drawn only by to_svg, to_pdf, save_svg or save_pdf"]
 pub struct PhyloMap {
     tree: Tree,
     locations: Vec<GeoLocation>,
@@ -321,11 +322,13 @@ impl PhyloMap {
     }
 
     /// Renders the complete composition to a standalone SVG document.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg(&self) -> String {
         self.to_svg_with_id_prefix("")
     }
 
     /// Renders with generated SVG ids prefixed for nesting in [`Panels`](crate::Panels).
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let theme = self.theme.clone().scaled(self.visual_scale);
         let scene = PhyloScene::new(&self.tree, self.shape, self.phylo_time().as_ref());
@@ -391,6 +394,7 @@ impl PhyloMap {
 
     /// Renders the composition as a one-page PDF, converted from
     /// [`PhyloMap::to_svg`]; see [`Pdf`] for what carries over.
+    #[must_use = "the PDF is returned, not written; save_pdf writes a file"]
     pub fn to_pdf(&self) -> Pdf {
         crate::pdf::drawn(&self.to_svg())
     }

@@ -380,6 +380,7 @@ impl Tree {
     /// How many trees a text holds, counted without reading them: the tree
     /// statements of a NEXUS file, or the trees of a Newick file, each ended
     /// by its semicolon.
+    #[must_use]
     pub fn count_trees(input: &str) -> usize {
         count_trees(input)
     }
@@ -443,6 +444,7 @@ impl Tree {
     }
 
     /// Leaf indices, left to right as the tree is drawn.
+    #[must_use]
     pub fn leaves(&self) -> Vec<usize> {
         let mut order = Vec::new();
         let mut stack = vec![self.root];
@@ -462,6 +464,7 @@ impl Tree {
     }
 
     /// Leaf names in drawn order, unnamed leaves coming back empty.
+    #[must_use]
     pub fn leaf_names(&self) -> Vec<String> {
         self.leaves()
             .into_iter()
@@ -475,6 +478,7 @@ impl Tree {
     }
 
     /// Ancestors of `node`, from its parent back to the root.
+    #[must_use]
     pub fn ancestors(&self, node: usize) -> Vec<usize> {
         let mut ancestors = Vec::new();
         let mut current = self.nodes.get(node).and_then(|clade| clade.parent);
@@ -486,6 +490,7 @@ impl Tree {
     }
 
     /// Descendants of `node` in drawn order, excluding `node` itself.
+    #[must_use]
     pub fn descendants(&self, node: usize) -> Vec<usize> {
         let Some(clade) = self.nodes.get(node) else {
             return Vec::new();
@@ -926,6 +931,7 @@ impl Tree {
     }
 
     /// Copies the clade rooted at `node` into a standalone tree.
+    #[must_use]
     pub fn subtree(&self, node: usize) -> Option<Tree> {
         self.extract(node)
     }
@@ -959,6 +965,7 @@ impl Tree {
     /// terminals beyond it. It is the same walk the circular and rectangular
     /// projections cannot do, and the same one the drawing uses, so a caller
     /// that wants to place something itself gets what the figure got.
+    #[must_use]
     pub fn unrooted(&self, cladogram: bool) -> Unrooted {
         crate::track::tree::unrooted_layout(self, cladogram)
     }
@@ -969,6 +976,7 @@ impl Tree {
     /// branch lengths comes out as a phylogram. `cladogram` ignores the lengths
     /// and uses the number of branches instead, which is what to do when the
     /// lengths are missing or meaningless.
+    #[must_use]
     pub fn layout(&self, cladogram: bool) -> Vec<Placement> {
         let leaves = self.leaves();
         let mut rows: Vec<Option<f64>> = vec![None; self.nodes.len()];

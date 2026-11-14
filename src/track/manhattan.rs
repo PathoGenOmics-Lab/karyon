@@ -54,6 +54,7 @@ pub struct Association {
 
 impl Association {
     /// A point at a 0-based position.
+    #[must_use]
     pub fn new(pos: u64, value: f64) -> Self {
         Association { pos, value }
     }
@@ -63,6 +64,7 @@ impl Association {
     /// A p-value of zero has no logarithm, so it is floored at the smallest
     /// positive double rather than becoming infinity. Anything at that floor is
     /// already far above any threshold you would draw.
+    #[must_use]
     pub fn from_p_value(pos: u64, p: f64) -> Self {
         let p = if p.is_finite() {
             p.max(f64::MIN_POSITIVE)
@@ -142,6 +144,7 @@ const LOCUSZOOM_UNKNOWN: &str = "#aaaaaa";
 /// assert!(svg.contains("<circle"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct ManhattanTrack {
     points: Vec<Association>,
     label: Option<String>,
@@ -491,6 +494,7 @@ impl ManhattanTrack {
     ///
     /// Empty when no threshold was set, since without one no point is
     /// significant and calling some of them so would be an invention.
+    #[must_use]
     pub fn significant(&self) -> Vec<Association> {
         let Some(threshold) = self.threshold else {
             return Vec::new();

@@ -46,6 +46,7 @@ pub struct Move {
 
 impl Move {
     /// A base beginning at `sample`.
+    #[must_use]
     pub fn new(sample: usize, base: u8) -> Self {
         Move { sample, base }
     }
@@ -66,6 +67,7 @@ impl Move {
 /// assert!(svg.contains("<path") || svg.contains("<rect"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct SquiggleTrack {
     start: usize,
     signal: Vec<f64>,
@@ -261,6 +263,7 @@ impl SquiggleTrack {
     /// The dwell time is the measurement a homopolymer breaks: ten adenines in
     /// a row look like one long adenine, and the only thing that says there
     /// were ten is how long the current stayed put.
+    #[must_use]
     pub fn dwells(&self) -> Vec<(u8, usize)> {
         let end = self.start + self.signal.len();
         self.moves

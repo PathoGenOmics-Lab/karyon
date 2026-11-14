@@ -154,6 +154,7 @@ pub enum Centering {
 
 impl Centering {
     /// The median, which is what an EDLogo uses.
+    #[must_use]
     pub fn median() -> Self {
         Centering::Quantile(0.5)
     }
@@ -200,6 +201,7 @@ impl LogoColumn {
     }
 
     /// A DNA column, in the conventional A, C, G, T order.
+    #[must_use]
     pub fn acgt(a: f64, c: f64, g: f64, t: f64) -> Self {
         LogoColumn::new([("A", a), ("C", c), ("G", g), ("T", t)])
     }
@@ -286,6 +288,7 @@ impl LogoStack {
 /// assert_eq!(by_hand.stacks().len(), 1);
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct LogoTrack {
     start: u64,
     columns: Vec<LogoColumn>,
@@ -463,6 +466,7 @@ impl LogoTrack {
     /// Worth reporting next to the figure: it carries the fitted mixture
     /// weights and, through [`DashFit::shrinkage`], how far each column
     /// actually moved.
+    #[must_use]
     pub fn dash_fit(&self) -> Option<DashFit> {
         let dash = self.stabilization.as_ref()?;
         let symbols = self.symbols();
@@ -596,6 +600,7 @@ impl LogoTrack {
     ///
     /// The order is what fixes the colours, so adding a column of new symbols
     /// never recolours the ones already there.
+    #[must_use]
     pub fn symbols(&self) -> Vec<String> {
         let mut seen: Vec<String> = Vec::new();
         for column in &self.columns {
@@ -624,6 +629,7 @@ impl LogoTrack {
     ///
     /// Exposed because the numbers are worth checking, and because a caller may
     /// want them for a table rather than a picture.
+    #[must_use]
     pub fn stacks(&self) -> Vec<LogoStack> {
         let symbols = self.symbols();
         let alphabet = self.effective_alphabet_size();

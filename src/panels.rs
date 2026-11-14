@@ -96,6 +96,7 @@ struct Panel {
 /// // Two nested figures inside one document.
 /// assert_eq!(svg.matches("<svg").count(), 3);
 /// ```
+#[must_use = "a sheet is drawn only by to_svg, to_pdf, save_svg or save_pdf"]
 pub struct Panels {
     panels: Vec<Panel>,
     gap: f64,
@@ -525,6 +526,7 @@ impl Panels {
     }
 
     /// Renders the sheet.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg(&self) -> String {
         self.to_svg_with_id_prefix("")
     }
@@ -539,6 +541,7 @@ impl Panels {
     /// rectangles. The prefix goes in front of each of them. See
     /// [`Figure::to_svg_with_id_prefix`](crate::Figure::to_svg_with_id_prefix)
     /// for the same thing one level down.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let layout = self.layout();
         let theme = self.theme.clone().scaled(self.visual_scale);
@@ -663,6 +666,7 @@ impl Panels {
     /// Renders the sheet as a one-page PDF, every panel clipped to its own
     /// box, converted from [`Panels::to_svg`]; see [`Pdf`] for what carries
     /// over.
+    #[must_use = "the PDF is returned, not written; save_pdf writes a file"]
     pub fn to_pdf(&self) -> Pdf {
         crate::pdf::drawn(&self.to_svg())
     }

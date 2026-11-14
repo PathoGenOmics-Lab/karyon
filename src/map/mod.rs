@@ -60,6 +60,7 @@ pub struct GeoPosition {
 
 impl GeoPosition {
     /// Stores a latitude and longitude in decimal degrees.
+    #[must_use]
     pub fn new(latitude: f64, longitude: f64) -> Self {
         GeoPosition {
             latitude,
@@ -109,6 +110,7 @@ pub enum GeoProjection {
 
 impl GeoProjection {
     /// A globe centred on `latitude`, `longitude`.
+    #[must_use]
     pub fn orthographic(latitude: f64, longitude: f64) -> Self {
         GeoProjection::Orthographic {
             center_latitude: if latitude.is_finite() {
@@ -131,6 +133,7 @@ impl GeoProjection {
 
 /// One named sample location on a [`Map`].
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a location draws nothing until it is pushed into a map"]
 pub struct GeoLocation {
     name: String,
     position: GeoPosition,
@@ -215,6 +218,7 @@ impl GeoLocation {
 
 /// A connection between two named [`GeoLocation`] entries.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a flow draws nothing until it is pushed into a map"]
 pub struct GeoFlow {
     from: String,
     to: String,
@@ -308,6 +312,7 @@ impl GeoFlow {
 /// assert!(svg.contains("latitude -12.046"));
 /// assert!(svg.contains("source Lima, target Madrid"));
 /// ```
+#[must_use = "a map is drawn only by to_svg, to_pdf, save_svg or save_pdf"]
 pub struct Map {
     locations: Vec<GeoLocation>,
     flows: Vec<GeoFlow>,
@@ -482,11 +487,13 @@ impl Map {
     }
 
     /// Renders the map to a standalone SVG document.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg(&self) -> String {
         self.to_svg_with_id_prefix("")
     }
 
     /// Renders the map with generated SVG ids prefixed for nesting.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let theme = self.theme.clone().scaled(self.visual_scale);
         let mut svg = SvgWriter::with_id_prefix(prefix);
@@ -573,6 +580,7 @@ impl Map {
 
     /// Renders the map as a one-page PDF, converted from
     /// [`Map::to_svg`]; see [`Pdf`] for what carries over.
+    #[must_use = "the PDF is returned, not written; save_pdf writes a file"]
     pub fn to_pdf(&self) -> Pdf {
         crate::pdf::drawn(&self.to_svg())
     }

@@ -123,6 +123,7 @@ pub enum Symbol {
 
 /// Measured visual sizes used throughout a drawing.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "tokens change nothing until a theme holds them"]
 pub struct VisualTokens {
     /// Hairline guides and row separators.
     pub hairline: f64,
@@ -219,6 +220,7 @@ pub enum AxisFormat {
 
 impl AxisFormat {
     /// Formats one finite value for an axis.
+    #[must_use]
     pub fn format(self, value: f64) -> String {
         if !value.is_finite() {
             return "0".to_string();
@@ -259,6 +261,7 @@ fn compact_number(value: f64) -> String {
 
 /// A labelled line drawn across a quantitative track.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a reference line draws nothing until an axis is given it"]
 pub struct ReferenceLine {
     /// Value at which the line is drawn.
     pub value: f64,
@@ -302,6 +305,7 @@ impl ReferenceLine {
 
 /// Shared configuration for quantitative axes.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "an axis changes nothing until a track is given it"]
 pub struct QuantitativeAxis {
     /// Optional lower bound.
     pub min: Option<f64>,
@@ -357,6 +361,7 @@ impl QuantitativeAxis {
     }
 
     /// Formats a value together with the unit.
+    #[must_use]
     pub fn label(&self, value: f64) -> String {
         format!("{}{}", self.format.format(value), self.unit)
     }
@@ -367,6 +372,7 @@ impl QuantitativeAxis {
     /// beside a band a few lines tall, and it is most of why a narrow value
     /// axis reads as clutter. It goes on the highest tick, which is the one
     /// the eye reaches first and the one a reader asks "of what" about.
+    #[must_use]
     pub fn labels(&self, values: &[f64]) -> Vec<String> {
         let top = values
             .iter()
@@ -445,6 +451,7 @@ impl QuantitativeAxis {
     /// Multiples of a step of 1, 2, 2.5 or 5 times a power of ten, the finest
     /// one that keeps the count at most one more than [`QuantitativeAxis::ticks`].
     /// A range too narrow to hold two of them gets its own two ends instead.
+    #[must_use]
     pub fn values(&self, min: f64, max: f64) -> Vec<f64> {
         if !(min.is_finite() && max.is_finite()) {
             return Vec::new();

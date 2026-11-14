@@ -207,6 +207,7 @@ impl CdsRow {
 /// assert_eq!(translation_table(gff, "chrM", 3_400, 3_500), Some(2));
 /// assert_eq!(translation_table(gff, "chrM", 5_000, 5_100), None);
 /// ```
+#[must_use]
 pub fn translation_table(text: &str, sequence: &str, start: u64, end: u64) -> Option<u8> {
     if flavour(text, None) == Flavour::Bed {
         return None;
@@ -780,6 +781,7 @@ fn assemble(
 /// assert_eq!(reach(gff, &window, None), (100, 900));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[must_use]
 pub fn reach(text: &str, region: &Region, format: Option<Format>) -> (u64, u64) {
     let mut reach = (region.start(), region.end());
     if flavour(text, format) == Flavour::Bed {
@@ -831,6 +833,7 @@ pub fn reach(text: &str, region: &Region, format: Option<Format>) -> (u64, u64) 
 /// assert!(!parentless(&rooted, Some(&window)));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[must_use]
 pub fn parentless(text: &str, region: Option<&Region>) -> bool {
     let mut declared = std::collections::BTreeSet::new();
     let mut named = Vec::new();
@@ -976,6 +979,7 @@ pub struct Named {
 /// its `gene_name`, `gene_id`, `transcript_name` and `transcript_id`, and a
 /// BED row by its fourth column. The name is matched exactly, and failing
 /// that in any case, so `RPOB` finds `rpoB` where nothing is called `RPOB`.
+#[must_use]
 pub fn named(text: &str, name: &str) -> Named {
     let mut each = named_each(text, &[name]);
     Named {

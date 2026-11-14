@@ -48,6 +48,7 @@ pub enum Terminator {
 
 /// One RNA molecule: where it starts, where it ends, and what it codes for.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a unit draws nothing until it is in a track"]
 pub struct TranscriptionUnit {
     tss: u64,
     end: u64,
@@ -233,6 +234,7 @@ fn unit_title(unit: &TranscriptionUnit) -> String {
 /// assert!(svg.contains("esxB"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct TranscriptionUnitTrack {
     units: Vec<TranscriptionUnit>,
     row_height: f64,

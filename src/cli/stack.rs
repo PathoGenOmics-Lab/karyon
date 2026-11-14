@@ -7276,6 +7276,7 @@ pub struct Held {
 
 impl Held {
     /// Holds no files yet.
+    #[must_use]
     pub fn new() -> Self {
         Held::default()
     }
@@ -7400,6 +7401,7 @@ pub enum Binary {
 
 impl Binary {
     /// The format a file's first bytes, and for bgzip its name, say it is.
+    #[must_use]
     pub fn of(bytes: &[u8], path: Option<&Path>) -> Option<Binary> {
         let named = |ending: &str| {
             path.and_then(|path| path.extension())

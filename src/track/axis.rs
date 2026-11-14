@@ -50,6 +50,7 @@ use crate::track::{DrawContext, Track};
 /// assert!(svg.contains("kb"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct AxisTrack {
     height: f64,
     tick_length: f64,

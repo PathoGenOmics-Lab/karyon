@@ -85,6 +85,7 @@ pub enum VariantStyle {
 
 /// A point event at a single base.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a variant draws nothing until it is in a track"]
 pub struct Variant {
     /// Position, 0-based. A VCF line at `POS` becomes `POS - 1`.
     pub pos: u64,
@@ -152,6 +153,7 @@ impl Variant {
 /// assert!(svg.contains("missense"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct VariantTrack {
     variants: Vec<Variant>,
     label: Option<String>,
@@ -310,6 +312,7 @@ impl VariantTrack {
     }
 
     /// Distinct categories, in order of first appearance.
+    #[must_use]
     pub fn categories(&self) -> Vec<&str> {
         let mut seen: Vec<&str> = Vec::new();
         for variant in &self.variants {

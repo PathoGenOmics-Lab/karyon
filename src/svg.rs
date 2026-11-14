@@ -111,6 +111,7 @@ pub struct TextStyle<'a> {
 
 impl SvgWriter {
     /// An empty document.
+    #[must_use]
     pub fn new() -> Self {
         SvgWriter::default()
     }
@@ -808,6 +809,7 @@ impl SvgWriter {
     }
 
     /// Wraps everything written so far into a standalone SVG document.
+    #[must_use = "the finished document is returned and nothing else holds it"]
     pub fn finish(
         mut self,
         width: f64,
@@ -924,6 +926,7 @@ impl SvgWriter {
 ///
 /// SVG files of a genome-wide figure are mostly digits, so this is the single
 /// biggest lever on output size.
+#[must_use]
 pub fn num(v: f64) -> String {
     if !v.is_finite() {
         return "0".to_string();
@@ -959,6 +962,7 @@ pub fn num(v: f64) -> String {
 /// rather than becoming nought: an attribute has no way to write `NaN` and a
 /// shape has to go somewhere, but a label has a reader, and telling them
 /// nothing was measured is different from telling them nought was.
+#[must_use]
 pub fn text_rounded(value: f64, decimals: u32) -> String {
     if !value.is_finite() {
         return format!("{value}");
@@ -984,6 +988,7 @@ pub fn text_rounded(value: f64, decimals: u32) -> String {
 /// are the same, and the reason for the upper one is sharper here, since
 /// nothing rounds first: `f64::MAX` reaches the page as three hundred and nine
 /// digits unless something stops it.
+#[must_use]
 pub fn text_exact(value: f64) -> String {
     if !value.is_finite() {
         return format!("{value}");
@@ -1008,6 +1013,7 @@ pub fn text_exact(value: f64) -> String {
 /// numeric character reference cannot encode the others either. Such a
 /// character is dropped, because the alternative is a document no parser will
 /// open over a byte that would have drawn nothing.
+#[must_use]
 pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -1052,6 +1058,7 @@ pub fn escape(text: &str) -> String {
 ///
 /// Text set in a heavier weight is measured with [`text_width_strong`], and
 /// numbers in the monospaced stack with [`mono_width`].
+#[must_use]
 pub fn text_width(text: &str, font_size: f64) -> f64 {
     measure(text, font_size, false)
 }
@@ -1062,12 +1069,14 @@ pub fn text_width(text: &str, font_size: f64) -> f64 {
 /// measured as the light weight they ran up to a twentieth past their room.
 /// Never narrower than Helvetica-Bold, whose widths Arial Bold and
 /// Liberation Sans Bold share, the face a PDF sets a bold label in.
+#[must_use]
 pub fn text_width_strong(text: &str, font_size: f64) -> f64 {
     measure(text, font_size, true)
 }
 
 /// Advance width of a string in the monospaced stack: six tenths of an em a
 /// character, which JetBrains Mono, Liberation Mono and Menlo all share.
+#[must_use]
 pub fn mono_width(text: &str, font_size: f64) -> f64 {
     0.6 * font_size * text.chars().count() as f64
 }
@@ -1106,6 +1115,7 @@ fn advance(c: char, strong: bool) -> u16 {
 /// A category inside a coloured cell is read as a word or not at all, and a
 /// point less type costs far less than the end of the word: "Wastewat…" beside
 /// "Human" is a figure that looks broken.
+#[must_use]
 pub fn fit_text_shrinking(text: &str, room: f64, font_size: f64, smallest: f64) -> (String, f64) {
     let smallest = smallest.min(font_size);
     let mut size = font_size;
@@ -1117,6 +1127,7 @@ pub fn fit_text_shrinking(text: &str, room: f64, font_size: f64, smallest: f64) 
 
 /// Fits visible text to `room`, using one ellipsis while preserving the full
 /// source string for callers to expose through a tooltip or accessible label.
+#[must_use]
 pub fn fit_text(text: &str, room: f64, font_size: f64) -> String {
     if font_size <= 0.0 {
         return String::new();
@@ -1234,6 +1245,7 @@ pub(crate) const BEYOND_ASCII: [(char, u16, u16); 10] = [
 /// assert_eq!(finite_within(9.0, 0.0, 1.0, 0.25), 1.0);
 /// assert_eq!(finite_within(f64::NAN, 0.0, 1.0, 0.25), 0.25);
 /// ```
+#[must_use]
 pub fn finite_within(value: f64, minimum: f64, maximum: f64, fallback: f64) -> f64 {
     if value.is_finite() {
         value.clamp(minimum, maximum)

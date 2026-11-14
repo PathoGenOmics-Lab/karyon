@@ -163,6 +163,7 @@ pub enum NodeGlyphTarget {
 /// inherited.  The visible capsule normalises weights only for geometry; exact
 /// supplied weights remain in the tooltip.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a mixture draws nothing until a tree track is given it"]
 pub struct BranchRateMixture {
     rate_keys: Vec<String>,
     weight_keys: Vec<String>,
@@ -246,6 +247,7 @@ impl BranchRateMixture {
 /// reversal or uncertainty.  The tooltip calls them recurrent events and
 /// leaves that interpretation with the analysis.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a layer draws nothing until a tree track is given it"]
 pub struct HomoplasyLayer {
     key: String,
     label: String,
@@ -300,6 +302,7 @@ impl HomoplasyLayer {
 /// Newick list becomes several ordered event symbols. Values are direct branch
 /// data and are never inherited.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a layer draws nothing until a tree track is given it"]
 pub struct BranchEventLayer {
     key: String,
     label: String,
@@ -345,6 +348,7 @@ impl BranchEventLayer {
 /// support, rate uncertainty or any upstream statistic with a meaningful
 /// fixed domain.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a layer draws nothing until a tree track is given it"]
 pub struct BranchIntervalLayer {
     estimate_key: String,
     lower_key: String,
@@ -410,6 +414,7 @@ impl BranchIntervalLayer {
 /// glyphs and, optionally, a branch marker when the maximum-posterior state
 /// changes between a parent and child above the confidence threshold.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a layer draws nothing until a tree track is given it"]
 pub struct AncestralStateLayer {
     keys: Vec<String>,
     label: String,
@@ -467,6 +472,7 @@ impl AncestralStateLayer {
 /// glyphs read one numeric annotation per supplied key, preserve key order and
 /// normalise only the visible geometry; exact values remain in SVG tooltips.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a glyph draws nothing until a tree track is given it"]
 pub struct NodeGlyph {
     keys: Vec<String>,
     label: String,
@@ -571,6 +577,7 @@ impl NodeGlyph {
 
 /// A translucent field identifying one named or indexed clade.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a highlight draws nothing until a tree track is given it"]
 pub struct CladeHighlight {
     /// The clade as it was named, found in the tree when the highlight is
     /// handed to a track.
@@ -640,6 +647,7 @@ impl SupportStyle {
 /// place at the end rather than being dropped, because a row silently missing
 /// from a figure is worse than a row out of order. A duplicate name is matched
 /// once, so two rows called the same thing both survive.
+#[must_use]
 pub fn leaf_order(tree: &Tree, names: &[String]) -> Vec<usize> {
     let mut taken = vec![false; names.len()];
     let mut order: Vec<usize> = Vec::with_capacity(names.len());
@@ -904,6 +912,7 @@ pub(crate) fn tree_levels(tree: &Tree, key: &str) -> BTreeMap<String, usize> {
 /// that turns its layer on, such as [`TreeTrack::time_unit`] before
 /// [`TreeTrack::time`], counts the same as one written after it.
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct TreeTrack {
     // Every setting is kept in a field of its own, written by its own method
     // and by nothing else, and the time axis, the dN/dS colouring, the branch

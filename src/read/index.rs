@@ -504,6 +504,7 @@ impl Index {
     /// of sequence `reference`, as pairs of virtual offsets, in order and
     /// merged where they touch. Empty for a sequence the index has no bins
     /// for.
+    #[must_use]
     pub fn chunks(&self, reference: usize, start: u64, end: u64) -> Vec<(u64, u64)> {
         let Some(sequence) = self.references.get(reference) else {
             return Vec::new();

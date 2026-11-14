@@ -70,6 +70,7 @@ impl Stain {
     ///
     /// Unknown values become [`Stain::Gneg`], the palest shade, on the grounds
     /// that inventing a dark band is worse than drawing nothing.
+    #[must_use]
     pub fn from_name(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
             "gpos25" => Stain::Gpos25,
@@ -146,6 +147,7 @@ fn band_title(band: &Band) -> String {
 
 /// One cytogenetic band, in 0-based half-open coordinates.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a band draws nothing until it is in an ideogram"]
 pub struct Band {
     /// First base, 0-based.
     pub start: u64,
@@ -202,6 +204,7 @@ impl Band {
 /// assert!(svg.contains("<path"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct IdeogramTrack {
     length: u64,
     bands: Vec<Band>,

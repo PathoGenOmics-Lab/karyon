@@ -89,6 +89,7 @@ impl Polar {
     ///
     /// `gap` is how many degrees are left blank at twelve o'clock. A little of
     /// it makes the origin visible as a seam; none of it closes the circle.
+    #[must_use]
     pub fn new(length: u64, cx: f64, cy: f64, gap: f64) -> Self {
         let gap = gap.clamp(0.0, 90.0).to_radians();
         Polar {
@@ -155,6 +156,7 @@ impl Polar {
     /// side of coordinate zero runs the short way, through the top of the circle,
     /// and not the long way round the rest of the sequence. It comes back as
     /// one path of two subpaths, so it is still a single element.
+    #[must_use]
     pub fn sector(&self, from: u64, to: u64, inner: f64, outer: f64) -> String {
         if to < from {
             return format!(
@@ -176,6 +178,7 @@ impl Polar {
     /// A head longer than a third of the span is a third of it, so a short
     /// gene stays a bar with a point rather than a triangle, and a strand
     /// that is neither gives the sector with no head.
+    #[must_use]
     pub fn arrow(
         &self,
         (from, to): (u64, u64),
@@ -252,6 +255,7 @@ impl Polar {
     ///
     /// Two, because one arc cannot return to where it started: an SVG arc with
     /// the same start and end point draws nothing at all.
+    #[must_use]
     pub fn circle(&self, radius: f64) -> String {
         let (top_x, top_y) = self.at(0.0, radius);
         let (bottom_x, bottom_y) = self.at(PI, radius);
@@ -269,6 +273,7 @@ impl Polar {
     /// Both ends are arcs at `radius` and the two sides are curves pulled
     /// towards the centre, which is what keeps a chord readable when a dozen of
     /// them cross: a straight one would be a chord of noise.
+    #[must_use]
     pub fn ribbon(&self, from: (u64, u64), to: (u64, u64), radius: f64) -> String {
         let (a0, a1) = self.chord_span(from.0, from.1);
         let (b0, b1) = self.chord_span(to.0, to.1);
@@ -501,6 +506,7 @@ fn chord_end_label(from: u64, to: u64) -> String {
 /// assert!(svg.starts_with("<svg"));
 /// assert!(svg.contains("H37Rv"));
 /// ```
+#[must_use = "a circular plot is drawn only by to_svg, to_pdf, save_svg or save_pdf"]
 pub struct Rings {
     length: u64,
     rings: Vec<Box<dyn Ring>>,
@@ -847,6 +853,7 @@ impl Rings {
     }
 
     /// Renders the plot to a standalone SVG document.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg(&self) -> String {
         self.to_svg_with_id_prefix("")
     }
@@ -855,6 +862,7 @@ impl Rings {
     ///
     /// Needed only when nesting it beside another drawing; see
     /// [`Figure::to_svg_with_id_prefix`](crate::Figure::to_svg_with_id_prefix).
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let (width, height) = self.dimensions();
         let centre = width / 2.0;
@@ -983,6 +991,7 @@ impl Rings {
 
     /// Renders the plot as a one-page PDF, converted from
     /// [`Rings::to_svg`]; see [`Pdf`] for what carries over.
+    #[must_use = "the PDF is returned, not written; save_pdf writes a file"]
     pub fn to_pdf(&self) -> Pdf {
         crate::pdf::drawn(&self.to_svg())
     }
@@ -999,6 +1008,7 @@ impl Rings {
 
 /// A ruler of positions around the outside.
 #[derive(Debug, Clone)]
+#[must_use = "a ring draws nothing until it is pushed into a Rings plot"]
 pub struct AxisRing {
     thickness: f64,
     ticks: usize,
@@ -1129,6 +1139,7 @@ impl Ring for AxisRing {
 /// nothing and its strand says nothing a reader looks for; see
 /// [`Feature::is_genic`].
 #[derive(Debug, Clone)]
+#[must_use = "a ring draws nothing until it is pushed into a Rings plot"]
 pub struct FeatureRing {
     features: Vec<Feature>,
     thickness: f64,
@@ -1367,6 +1378,7 @@ const HEAD: f64 = 1.75;
 
 /// A quantity in windows, drawn as a ring either side of a baseline circle.
 #[derive(Debug, Clone)]
+#[must_use = "a ring draws nothing until it is pushed into a Rings plot"]
 pub struct SignalRing {
     windows: Vec<Window>,
     thickness: f64,
@@ -1576,6 +1588,7 @@ impl Ring for SignalRing {
 
 /// Points on the sequence, drawn as radial ticks.
 #[derive(Debug, Clone)]
+#[must_use = "a ring draws nothing until it is pushed into a Rings plot"]
 pub struct MarkerRing {
     positions: Vec<(u64, usize)>,
     thickness: f64,

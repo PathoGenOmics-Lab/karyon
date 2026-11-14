@@ -36,6 +36,7 @@ pub enum SurveillanceStyle {
 
 /// One lineage observation at one integer time coordinate.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "an observation draws nothing until it is in a track"]
 pub struct SurveillanceObservation {
     /// Time coordinate interpreted through the figure's x scale.
     pub time: u64,
@@ -94,6 +95,7 @@ impl SurveillanceObservation {
 
 /// A multi-lineage temporal surveillance panel.
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct SurveillanceTrack {
     observations: Vec<SurveillanceObservation>,
     label: Option<String>,

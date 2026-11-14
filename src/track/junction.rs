@@ -97,6 +97,7 @@ impl Motif {
 /// The fields are private and [`Junction::new`] is the only way in, so a
 /// junction cannot be assembled without stating how many reads crossed it.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a junction draws nothing until it is in a track"]
 pub struct Junction {
     start: u64,
     end: u64,
@@ -253,6 +254,7 @@ impl Junction {
 /// assert!(svg.contains("9 reads"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct JunctionTrack {
     junctions: Vec<Junction>,
     label: Option<String>,

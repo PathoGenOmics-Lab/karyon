@@ -8,6 +8,25 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The builders and the values they build are `#[must_use]`: every track,
+  `Figure`, `Rings` and its rings, `Panels`, `Map`, `PhyloMap`, `Theme`,
+  `Shade`, `Legend`, a tree's layers, and the values a track is built from that
+  have builder methods of their own, as `Feature`, `Variant` and `Read`. A
+  builder method takes the value and hands back the changed one, so a call
+  whose result was dropped, `track.label("depth");` on a line of its own,
+  changed nothing and dropped the track with it, and nothing said so; now the
+  compiler does, and says what was lost: a track draws nothing until it is
+  pushed into a figure. `Plot` carries the attribute on each method that builds
+  it rather than on the type, because `Plot::save` hands the plot back and a
+  chain that ends in `.save(path)?;` drops it on purpose. A function whose only
+  work is the value it returns is `#[must_use]` as well: `to_svg`, `to_pdf` and
+  `Pdf::from_svg`, the constructors of values with no builder methods, as
+  `Window::new` and `Scale::new`, and the free functions that compute a value
+  and do nothing else, as `svg::escape` and `theme::mix`. A getter is left
+  alone, since dropping what it returns loses nothing. This changes what code
+  using the crate may write: a builder call, a render or a constructor whose
+  result is dropped is a warning, and an error under `-D warnings`. Assign it
+  or hand it on, or write `let _ =` where dropping it is what was meant.
 - The crate carries what builds, documents and shows the library and the
   program at work, named in an `include` list in `Cargo.toml`: the sources, the
   Liberation faces in `fonts/`, the examples, the README, the licence and this

@@ -152,6 +152,7 @@ pub(crate) fn feature_title(feature: &Feature) -> String {
 /// forward, since a track that has to pick one may as well pick the common one.
 ///
 /// A track that wants its own pair still has one: this is only the default.
+#[must_use]
 pub fn strand_color(strand: Strand, theme: &Theme) -> &str {
     match strand {
         Strand::Reverse => theme.color(1),
@@ -174,6 +175,7 @@ pub enum Strand {
 impl Strand {
     /// Reads the `+`, `-` and `.` of BED and GFF, and anything else as
     /// [`Strand::Unknown`].
+    #[must_use]
     pub fn from_symbol(symbol: char) -> Self {
         match symbol {
             '+' => Strand::Forward,
@@ -203,6 +205,7 @@ impl Strand {
 /// assert_eq!(gene.exons.len(), 3);
 /// ```
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a feature draws nothing until it is in a track"]
 pub struct Feature {
     /// First base, 0-based.
     pub start: u64,
@@ -405,6 +408,7 @@ fn joined(spans: impl IntoIterator<Item = (u64, u64)>) -> Vec<(u64, u64)> {
 /// assert!(svg.contains("rpoB"));
 /// ```
 #[derive(Debug)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct FeatureTrack {
     features: Vec<Feature>,
     label: Option<String>,

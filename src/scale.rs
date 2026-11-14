@@ -46,6 +46,7 @@ pub struct Scale {
 
 impl Scale {
     /// Builds the scale that maps `region` onto `width` pixels starting at `x0`.
+    #[must_use]
     pub fn new(region: &Region, x0: f64, width: f64) -> Self {
         Scale {
             start: region.start() as f64,

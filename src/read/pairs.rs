@@ -93,6 +93,7 @@ fn column(header: &[&str], names: &[&str]) -> Option<usize> {
 
 /// Whether a column of values called `name` is a correlation, which runs
 /// from nought to one whatever the data: r², r, D'.
+#[must_use]
 pub fn is_correlation(name: &str) -> bool {
     ["r2", "r^2", "r²", "r", "dp", "d'"]
         .iter()
@@ -106,6 +107,7 @@ pub fn is_correlation(name: &str) -> bool {
 /// A table of linkage with a lead, as `--ld-snp` writes one, names the lead
 /// on every row, and a scan whose own table names no variant can still call
 /// its lead by name.
+#[must_use]
 pub fn names(text: &str) -> Vec<(u64, String)> {
     let mut rows = lines(text);
     let Some((_, first)) = rows.next() else {

@@ -127,6 +127,7 @@ impl Default for Margin {
 /// assert!(svg.starts_with("<svg"));
 /// assert!(svg.ends_with("</svg>"));
 /// ```
+#[must_use = "a figure is drawn only by to_svg, to_pdf, save_svg or save_pdf"]
 pub struct Figure {
     region: Region,
     width: f64,
@@ -351,6 +352,7 @@ impl Figure {
     /// extent for each, for a sheet whose panels share their scales: join
     /// the extents of every panel with [`Extent::join`] and hand them to each
     /// panel's [`Figure::share_extents`].
+    #[must_use]
     pub fn extents(&self) -> Vec<Extent> {
         Extent::join(self.tracks.iter().filter_map(|t| t.extent(&self.region)))
     }
@@ -573,6 +575,7 @@ impl Figure {
     }
 
     /// Renders the figure to a standalone SVG document.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg(&self) -> String {
         self.to_svg_with_id_prefix("")
     }
@@ -585,6 +588,7 @@ impl Figure {
     /// second one's clips would resolve to the first one's rectangles, cropping
     /// its tracks to the wrong bands. [`Panels`](crate::Panels) does this for
     /// you; do it yourself if you assemble a sheet by hand.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let theme = self.theme.clone().scaled(self.visual_scale);
         let layout = self.layout_with_theme(&theme);
@@ -838,6 +842,7 @@ impl Figure {
 
     /// Renders the figure as a one-page PDF, converted from
     /// [`Figure::to_svg`]; see [`Pdf`] for what carries over.
+    #[must_use = "the PDF is returned, not written; save_pdf writes a file"]
     pub fn to_pdf(&self) -> Pdf {
         crate::pdf::drawn(&self.to_svg())
     }
@@ -874,6 +879,7 @@ impl Figure {
     /// What the tracks leave off the page at the zoom the figure is drawn
     /// at, a sentence each, in the order the tracks are stacked: see
     /// [`Track::notes`].
+    #[must_use]
     pub fn notes(&self) -> Vec<String> {
         let px_per_bp = self.px_per_bp();
         self.tracks
@@ -886,6 +892,7 @@ impl Figure {
     /// drawn at, a sentence each, in the order the tracks are stacked: see
     /// [`Track::footnotes`]. The figure draws them; this is for a caller who
     /// also says them, as the command line does on its terminal.
+    #[must_use]
     pub fn footnotes(&self) -> Vec<String> {
         let px_per_bp = self.px_per_bp();
         self.tracks

@@ -143,6 +143,7 @@ impl Format {
     /// The aliases are the ones the files themselves come labelled with: `bg`
     /// for bedGraph, and `gtf` for GFF3, which is close enough in the columns
     /// these readers use.
+    #[must_use]
     pub fn parse(word: &str) -> Option<Format> {
         Some(match word {
             "bedgraph" | "bg" => Format::BedGraph,
@@ -228,6 +229,7 @@ pub fn lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
 ///
 /// Every format here is tab separated on paper, and space separated in about
 /// half the files that exist.
+#[must_use]
 pub fn columns(line: &str) -> Vec<&str> {
     if line.contains('\t') {
         line.split('\t').collect()

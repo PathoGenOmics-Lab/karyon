@@ -140,6 +140,7 @@ pub enum Segment {
 /// Positions are 0-based, so a SAM `POS` becomes `POS - 1`. The sequence is
 /// optional: without it the read still draws, it just cannot show mismatches.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a read draws nothing until it is in a pileup"]
 pub struct Read {
     /// Leftmost aligned reference position, 0-based.
     pub start: u64,
@@ -217,6 +218,7 @@ impl Read {
     /// Soft and hard clips produce nothing: they advance the read but the track
     /// has nowhere to draw them, so they are consumed silently rather than
     /// shifting everything downstream.
+    #[must_use]
     pub fn segments(&self) -> Vec<Segment> {
         let mut segments = Vec::with_capacity(self.cigar.len());
         let mut reference = self.start;
@@ -317,6 +319,7 @@ pub enum ReadColoring {
 /// assert!(svg.contains("<rect"));
 /// ```
 #[derive(Debug)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct PileupTrack {
     reads: Vec<Read>,
     reference_start: u64,

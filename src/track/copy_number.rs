@@ -108,6 +108,7 @@ impl CopyNumber {
     /// total is three plus something nobody measured. Keeping the surviving
     /// number as a total would put that missing something at nought, which is
     /// this crate's named mistake with an extra step in front of it.
+    #[must_use]
     pub fn allelic(a: f64, b: f64) -> CopyNumber {
         if !a.is_finite() || !b.is_finite() {
             return CopyNumber::Total(f64::NAN);
@@ -169,6 +170,7 @@ pub struct CopyNumberSegment {
 
 impl CopyNumberSegment {
     /// A segment with a total and no allele split.
+    #[must_use]
     pub fn total(start: u64, end: u64, total: f64) -> Self {
         CopyNumberSegment {
             start: start.min(end),
@@ -178,6 +180,7 @@ impl CopyNumberSegment {
     }
 
     /// A segment with an allele-specific call.
+    #[must_use]
     pub fn allelic(start: u64, end: u64, a: f64, b: f64) -> Self {
         CopyNumberSegment {
             start: start.min(end),
@@ -263,6 +266,7 @@ enum Allele {
 /// assert!(svg.contains("allele split not called"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct CopyNumberTrack {
     segments: Vec<CopyNumberSegment>,
     ploidy: f64,
@@ -485,6 +489,7 @@ impl CopyNumberTrack {
     }
 
     /// The spans where one allele is gone and copies remain.
+    #[must_use]
     pub fn loh_spans(&self) -> Vec<(u64, u64)> {
         self.segments
             .iter()
@@ -494,6 +499,7 @@ impl CopyNumberTrack {
     }
 
     /// The spans with no copies at all.
+    #[must_use]
     pub fn homozygous_deletions(&self) -> Vec<(u64, u64)> {
         self.segments
             .iter()

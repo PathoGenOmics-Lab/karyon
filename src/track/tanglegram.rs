@@ -93,6 +93,7 @@ pub enum TangleLabels {
 /// assert!(svg.contains("gene tree"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct TanglegramTrack {
     left: Tree,
     right: Tree,
@@ -294,6 +295,7 @@ impl TanglegramTrack {
     /// A tip in one tree and not the other has nothing to be joined to and is
     /// left out of the ties, though it is still drawn on the tree that has it:
     /// a taxon missing from one analysis is a fact about the analysis.
+    #[must_use]
     pub fn shared(&self) -> Vec<String> {
         let right = self.right.leaf_names();
         self.left
@@ -304,6 +306,7 @@ impl TanglegramTrack {
     }
 
     /// Tips the two trees do not have in common.
+    #[must_use]
     pub fn unshared(&self) -> Vec<String> {
         let shared = self.shared();
         let mut odd: Vec<String> = self
@@ -319,6 +322,7 @@ impl TanglegramTrack {
     }
 
     /// Each shared tip as its row in the left tree and its row in the right.
+    #[must_use]
     pub fn ties(&self) -> Vec<(String, usize, usize)> {
         let left = self.left.leaf_names();
         let right = self.right.leaf_names();

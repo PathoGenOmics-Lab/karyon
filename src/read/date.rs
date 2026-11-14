@@ -36,6 +36,7 @@ fn days_in(year: i64, month: u32) -> u32 {
 /// assert_eq!(decimal_year("2021-07-02"), Some(2021.0 + 182.0 / 365.0));
 /// assert!(decimal_year("2021-02-29").is_none());
 /// ```
+#[must_use]
 pub fn decimal_year(text: &str) -> Option<f64> {
     let text = text.trim().trim_matches(|c| c == '"' || c == '\'');
     let parts: Vec<&str> = text.split(['-', '/']).collect();

@@ -45,6 +45,7 @@ use crate::track::{DrawContext, Feature, Rect, Strand, Track};
 
 /// One locus, from one genome.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a locus draws nothing until it is in a track"]
 pub struct Locus {
     /// Which genome this row came from.
     pub name: String,
@@ -126,6 +127,7 @@ impl Homology {
     /// is not clamped into anything: `clamp` propagates a NaN, and a NaN
     /// identity used to reach the ramp and come back off the far end of it, so
     /// it becomes [`Homology::unstated`] instead.
+    #[must_use]
     pub fn new(row: usize, from: usize, to: usize, identity: f64) -> Self {
         Homology {
             row,
@@ -141,6 +143,7 @@ impl Homology {
     /// figure says the strength is unstated without anyone having to point at
     /// it. For a list of pairs with no identity column, which is the common
     /// shape of a hand-made homology file.
+    #[must_use]
     pub fn unstated(row: usize, from: usize, to: usize) -> Self {
         Homology {
             row,
@@ -172,6 +175,7 @@ impl Homology {
 /// assert!(svg.contains("H37Rv"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct LocusTrack {
     loci: Vec<Locus>,
     links: Vec<Homology>,
@@ -339,6 +343,7 @@ impl LocusTrack {
     /// For handing to a [`Legend`](crate::Legend), so the key and the ribbons
     /// cannot drift apart: a legend that names its own colours is a legend
     /// that goes stale the first time the ramp is touched.
+    #[must_use]
     pub fn ramp_ends(&self, theme: &Theme) -> (String, String) {
         let (low, high) = self.identity_range;
         (
@@ -387,6 +392,7 @@ impl LocusTrack {
     /// this locus has that its neighbours do not. Rows at the two ends are
     /// judged against their one neighbour, so a gene is unmatched only when
     /// nothing it could have matched did.
+    #[must_use]
     pub fn unmatched(&self, row: usize) -> Vec<usize> {
         let Some(locus) = self.loci.get(row) else {
             return Vec::new();
