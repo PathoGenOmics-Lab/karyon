@@ -1838,6 +1838,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The changelog's version headings no longer link to release pages that do
+  not exist. No version has been tagged or released, so each of the fourteen
+  links, from `releases/tag/v0.1.0` to `v0.14.0`, answered 404 on the site and
+  on GitHub. They wait in a comment at the foot of the changelog, which says
+  how to bring each one back once its tag is pushed, and a heading reads
+  `[0.14.0] - 2026-07-31`, as `[Unreleased]` already did.
 - The site says a figure comes out as SVG or PDF: the home page, the
   description most pages give a search engine and the installation page's
   requirements said SVG alone, and the requirements said the output names its
@@ -3858,6 +3864,16 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+<!--
+Each version heading above is written to link to its release page on GitHub,
+through the lines below. No version has been tagged or released yet, so every
+one of those pages answers 404, and the lines wait in this comment, which
+leaves each heading as plain text. At the first release, push its tag, write a
+line for it in the same form and move it out of this comment, with the line of
+every older version that gets a tag too. Once a tag exists, an [Unreleased]
+line can link the comparison of the newest tag with main, as Keep a Changelog
+suggests.
+
 [0.14.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.14.0
 [0.13.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.13.0
 [0.12.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.12.0
@@ -3873,3 +3889,4 @@ First release. Everything below is new.
 [0.3.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.3.0
 [0.2.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.2.0
 [0.1.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.1.0
+-->
