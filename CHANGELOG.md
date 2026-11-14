@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `read::split::names` returns its count of names directly, where it returned a
+  `Result` that was never an error: it passes over a line that is not a SAM
+  record rather than refusing it, which `read::split::reads` does. Code that
+  put a `?` or an `.unwrap()` after it takes them off.
 - `Track` and `Ring` ask for `Send + Sync`, so `Figure`, `Plot` and `Rings`,
   which hold their tracks and rings as trait objects, are `Send` and `Sync`
   too: a figure can be built on a worker thread and drawn on another, or kept
@@ -42,17 +46,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `?` takes any of them into a `Box<dyn Error + Send + Sync>`; a test holds all
   of that, so a change that loses it fails to compile.
 - Every public function that returns a `Result` says what makes it fail in an
-  `# Errors` section of its documentation, where thirty-six did not, among them
-  most of the readers in `read`: `read::point::variants` names the row that has
-  fewer than eight columns, a `POS` of nought or an `AF` with the wrong count
-  of values, and `read::signal::spans` the line that is none of its three
-  shapes. `read::split::names` says it never fails, where `read::split::reads`
-  refuses the same lines it passes over. `Genome::region`, `plot_tree`,
-  `plot_alignment`, `SignalRing::from_spans` and `cli::stack::build_sheet` each
-  built a region from nought to at least one with `Region::new` and an `expect`
-  that could never fire, which made them functions that may panic with no word
-  on when; they build it now in a way that cannot fail, so none of them can
-  panic.
+  `# Errors` section of its documentation, where thirty-five did not, among
+  them most of the readers in `read`: `read::point::variants` names the row
+  that has fewer than eight columns, a `POS` of nought or an `AF` with the
+  wrong count of values, and `read::signal::spans` the line that is none of its
+  three shapes. `Genome::region`, `plot_tree`, `plot_alignment`,
+  `SignalRing::from_spans` and `cli::stack::build_sheet` each built a region
+  from nought to at least one with `Region::new` and an `expect` that could
+  never fire, which made them functions that may panic with no word on when;
+  they build it now in a way that cannot fail, so none of them can panic.
 - The enums expected to grow are `#[non_exhaustive]`: `Error`, the command
   line's `ArgError` and `BuildError` and its refusals, `Request`, and the
   kinds, styles, scores, projections and keys a track or a figure is told to
