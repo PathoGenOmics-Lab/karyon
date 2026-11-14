@@ -109,6 +109,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `include_str!`, which a build never compiles and a test run from the package
   could not find. The examples build and run from the package as they do from
   a checkout.
+- A pull request's build of the site no longer queues with the publish of
+  main. It shared the one group the publish waits in, and a group keeps only
+  the newest run waiting, so a pull request rebased onto a fresh merge could
+  cancel that merge's publish and leave the site a version behind. Pull
+  requests now build in a group each, where a newer push cancels the stale
+  build, and only main and a manual run queue to publish.
 - The sweep that marks and closes issues nobody has touched runs when someone
   starts it, from the Actions tab or with `gh workflow run stale.yml`, and no
   longer every Monday at 06:00 UTC, so no workflow in the repository runs on a
