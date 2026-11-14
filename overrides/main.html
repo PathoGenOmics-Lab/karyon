@@ -1,0 +1,44 @@
+{#-
+  Every page, as the theme draws it, with what a link preview reads added to
+  the head: the Open Graph tags Slack, Mastodon, LinkedIn and most chat apps
+  read, and the card X asks for. The title is the page's own, as its <title>
+  gives it, and so is the description, falling back to the site's as the
+  description meta does. The picture is one for the whole site,
+  docs/assets/social-card.png, photographed from overrides/social/card.html;
+  the note beside that page says how to draw it again.
+-#}
+{% extends "base.html" %}
+
+{% block extrahead %}
+  {%- if page and page.meta and page.meta.title -%}
+    {%- set preview_title = page.meta.title ~ " - " ~ config.site_name -%}
+  {%- elif page and page.title and not page.is_homepage -%}
+    {%- set preview_title = (page.title | striptags) ~ " - " ~ config.site_name -%}
+  {%- else -%}
+    {%- set preview_title = config.site_name -%}
+  {%- endif -%}
+  {%- if page and page.meta and page.meta.description -%}
+    {%- set preview_text = page.meta.description -%}
+  {%- else -%}
+    {%- set preview_text = config.site_description -%}
+  {%- endif -%}
+  {%- set preview_image = config.site_url ~ "assets/social-card.png" -%}
+  {%- set preview_alt = "The karyon logo and the words Genome figures where every row lines up, over a figure of read depth, genes and variant calls drawn on one coordinate axis" %}
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="{{ config.site_name | e }}">
+  <meta property="og:title" content="{{ preview_title | e }}">
+  <meta property="og:description" content="{{ preview_text | e }}">
+  {%- if page and page.canonical_url %}
+  <meta property="og:url" content="{{ page.canonical_url | e }}">
+  {%- endif %}
+  <meta property="og:image" content="{{ preview_image | e }}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="{{ preview_alt | e }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ preview_title | e }}">
+  <meta name="twitter:description" content="{{ preview_text | e }}">
+  <meta name="twitter:image" content="{{ preview_image | e }}">
+  <meta name="twitter:image:alt" content="{{ preview_alt | e }}">
+{% endblock %}

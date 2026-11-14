@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>karyon, the picture a shared link shows</title>
+<!--
+  The picture a link to the site shows when it is shared in Slack, Mastodon,
+  LinkedIn or X: docs/assets/social-card.png, 1200 by 630 pixels, named by the
+  link preview tags in overrides/main.html. It is this page, photographed by a
+  browser; README.md beside it says how. The page is the home page's hero at
+  night: the logo, the title and a strip of the figure the short path draws,
+  docs/assets/start/reads-dark.svg, which is drawn on the same ground.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Space+Grotesk:wght@700&display=block">
+<style>
+  :root {
+    --ground: #0d0822;
+    --fg: #efeaff;
+    --fg-light: #c3b8ee;
+    --ramp: linear-gradient(90deg, #2b3be8, #6b3fe0 38%, #b04ed8 68%, #ff4fa3);
+  }
+
+  html,
+  body {
+    margin: 0;
+  }
+
+  body {
+    position: relative;
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    background: var(--ground);
+    color: var(--fg);
+    font-family: Inter, sans-serif;
+  }
+
+  /* The hero's sky: a glow of each end of the ramp and a faint pixel grid. */
+  .sky {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(920px 440px at 50% 125%, rgba(255, 79, 163, 0.26), transparent 70%),
+      radial-gradient(800px 520px at 82% -14%, rgba(107, 63, 224, 0.42), transparent 65%),
+      radial-gradient(680px 400px at 10% 6%, rgba(43, 59, 232, 0.28), transparent 65%);
+  }
+
+  .sky::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(200, 180, 255, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(200, 180, 255, 0.055) 1px, transparent 1px);
+    background-size: 24px 24px;
+    -webkit-mask: linear-gradient(to bottom, #000 30%, transparent 80%);
+            mask: linear-gradient(to bottom, #000 30%, transparent 80%);
+  }
+
+  /* Pixel art of 117 cells by 79, three pixels a cell, so no cell is cut. */
+  .logo {
+    position: absolute;
+    left: 64px;
+    top: 52px;
+    width: 351px;
+    height: 237px;
+    filter: drop-shadow(0 0 18px rgba(176, 78, 216, 0.55)) drop-shadow(0 0 2px rgba(255, 79, 163, 0.55));
+  }
+
+  .words {
+    position: absolute;
+    left: 474px;
+    right: 56px;
+    top: 66px;
+  }
+
+  h1 {
+    margin: 0;
+    font: 700 66px/1.02 "Space Grotesk", sans-serif;
+    letter-spacing: -0.03em;
+  }
+
+  h1 span {
+    background: var(--ramp);
+    -webkit-background-clip: text;
+            background-clip: text;
+    color: transparent;
+  }
+
+  .lead {
+    margin: 22px 0 0;
+    font: 500 32px/1.25 Inter, sans-serif;
+    color: var(--fg-light);
+  }
+
+  /* The figure's rows, from the depth to the ruler, at 1.4 times its size. */
+  .strip {
+    position: absolute;
+    left: 96px;
+    top: 330px;
+    width: 1008px;
+    height: 272px;
+    overflow: hidden;
+  }
+
+  .strip img {
+    position: absolute;
+    left: 0;
+    top: -57px;
+    width: 1008px;
+  }
+
+  .ramp {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 4px;
+    background: var(--ramp);
+  }
+</style>
+</head>
+<body>
+  <div class="sky"></div>
+  <img class="logo" src="../../docs/assets/karyon_logo_dark.svg" alt="karyon">
+  <div class="words">
+    <h1>Genome figures where <span>every row lines up</span></h1>
+    <p class="lead">SVG or PDF, from Rust or the command line</p>
+  </div>
+  <div class="strip"><img src="../../docs/assets/start/reads-dark.svg" alt=""></div>
+  <div class="ramp"></div>
+</body>
+</html>

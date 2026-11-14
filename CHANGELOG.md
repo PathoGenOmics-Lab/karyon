@@ -697,6 +697,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A link to a page of the site, pasted into Slack, Mastodon, LinkedIn, X or a
+  chat app, unfolds into a card: the page's title and description over a
+  picture of the site at night, the logo, the home page's title and a strip of
+  the figure Start here draws, 1200 by 630 pixels in 258 KB. No page said what
+  a preview should show, so a shared link came with no picture. Every page now
+  carries the Open Graph tags and the card X reads, from `overrides/main.html`;
+  the picture is a page of its own, `overrides/social/card.html`, photographed
+  by a browser, with a note beside it saying how to draw it again.
 - Each release archive carries the completion scripts for bash, zsh and fish,
   in `completions/`, and the manual page, in `man/`, written by the binary it
   holds as the release is built. The x86_64 macOS binary does not run on the
