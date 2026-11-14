@@ -38,6 +38,7 @@ use crate::track::{DrawContext, Strand, Track};
 
 /// One methylation call at one position on one strand.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct MethylSite {
     /// Position of the modified base, 0-based.
     pub pos: u64,
@@ -51,6 +52,7 @@ pub struct MethylSite {
 
 impl MethylSite {
     /// A call at `pos`.
+    #[must_use]
     pub fn new(pos: u64, strand: Strand, fraction: f64, coverage: u32) -> Self {
         MethylSite {
             pos,
@@ -82,6 +84,7 @@ impl MethylSite {
 /// assert!(svg.contains("6mA"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct MethylationTrack {
     sites: Vec<MethylSite>,
     label: Option<String>,
@@ -227,6 +230,7 @@ impl MethylationTrack {
     /// The position returned is the forward strand's. Its partner is the
     /// nearest reverse call within [`MethylationTrack::pair_within`], so a
     /// palindrome whose two modified bases are a base apart still pairs.
+    #[must_use]
     pub fn hemimethylated(&self, by: f64) -> Vec<u64> {
         let mut found = Vec::new();
         for site in self.confident().filter(|site| !site.is_reverse()) {

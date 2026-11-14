@@ -58,6 +58,7 @@ use crate::{Aggregate, CoverageStyle, Format, Region, VariantStyle, WindowStyle}
 
 /// What went wrong before anything was read.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ArgError {
     /// No arguments at all.
     NoArguments,
@@ -753,6 +754,7 @@ fn across_genome() -> String {
 
 /// Where a track's data comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Source {
     /// A file on disk.
     Path(PathBuf),
@@ -762,6 +764,7 @@ pub enum Source {
 
 /// Which track a `--<track>` flag asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Kind {
     /// Per-base signal from bedGraph or `samtools depth`.
     Coverage,
@@ -1284,6 +1287,7 @@ impl Kind {
     /// table as a scan; CNVkit's `.cns` and a `.seg` as copy number. A name
     /// that could be several things, `.tsv` or `.txt`, says nothing, and the
     /// file has to be given its flag.
+    #[must_use]
     pub fn for_file(name: &str) -> Option<Kind> {
         let lower = name.to_ascii_lowercase();
         let lower = lower
@@ -1625,6 +1629,7 @@ impl Kind {
 
 /// Either kind of style flag, since `--style` spells both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Style {
     /// A filled area under the values.
     Area,
@@ -1813,6 +1818,7 @@ fn article(track: &str) -> &'static str {
 /// command line takes are its own, and `both` reads better at a shell than the
 /// library's `SymbolsAndLabels`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TreeSupport {
     /// Tooltips only, which is the default.
     None,
@@ -1840,6 +1846,7 @@ pub enum RowCap {
 
 impl RowCap {
     /// Parses what `--max-rows` takes.
+    #[must_use]
     pub fn parse(word: &str) -> Option<RowCap> {
         if word == "all" {
             return Some(RowCap::All);
@@ -1861,6 +1868,7 @@ impl RowCap {
 
 /// One track, and everything written about it before the next one started.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TrackSpec {
     /// Which track.
     pub kind: Kind,
@@ -2173,6 +2181,7 @@ impl TrackSpec {
 /// from p-values it is a p-value, and the line is drawn at `-log10` of it. The
 /// convention asked for by name is already on the scale the scan is drawn on.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Threshold {
     /// A number, as it was written.
     At(f64),
@@ -2202,6 +2211,7 @@ pub enum Palette {
 
 /// A place a figure is drawn over, as the command line writes it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Place {
     /// Coordinates, as `NC_000962.3:761,000-763,000`.
     Locus(Region),
@@ -2211,6 +2221,7 @@ pub enum Place {
 
 /// A stretch `--shade` asks for, as it was written.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Shading {
     /// Where it is.
     pub place: ShadePlace,
@@ -2222,6 +2233,7 @@ pub struct Shading {
 
 /// Where a shade is, in the forms a place is written in, and two more.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ShadePlace {
     /// Coordinates on a sequence, as the place is written, or one base, as
     /// `chr1:1,500`, which is no figure but is a column worth marking.
@@ -2236,6 +2248,7 @@ pub enum ShadePlace {
 
 /// A whole command line, parsed and not yet acted on.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Invocation {
     /// The region every track is drawn over.
     ///
@@ -2350,6 +2363,7 @@ impl Invocation {
     ///     .collect();
     /// assert_eq!(files, ["reads.bam", "genes.gff3"]);
     /// ```
+    #[must_use]
     pub fn files(&self) -> Vec<&std::path::Path> {
         let mut files: Vec<&std::path::Path> = Vec::new();
         for source in self.tracks.iter().flat_map(TrackSpec::sources) {
@@ -2365,6 +2379,7 @@ impl Invocation {
 
 /// What the command line asked for, which is not always a figure.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Request {
     /// Draw this.
     Draw(Box<Invocation>),
@@ -2754,6 +2769,7 @@ const ELSEWHERE: &[(&[&str], &str)] = &[
 
 /// How karyon says what another tool's flag asks for, when it is a flag
 /// karyon knows another tool's name for.
+#[must_use]
 pub fn spelled_elsewhere(given: &str) -> Option<&'static str> {
     let word = given
         .trim_start_matches('-')
@@ -2771,6 +2787,7 @@ pub fn spelled_elsewhere(given: &str) -> Option<&'static str> {
 /// swap of two neighbouring letters as one, so `--coverge`, `--colour`,
 /// `-title` and `--lable` each find theirs and a word that is no flag at all
 /// finds nothing rather than a guess.
+#[must_use]
 pub fn nearest_flag(given: &str) -> Option<&'static str> {
     let allowed = if given.len() > 8 { 2 } else { 1 };
     let mut best: Option<(usize, &'static str)> = None;
@@ -2842,6 +2859,7 @@ pub fn parse(args: &[String]) -> Result<Request, ArgError> {
 /// track has no use for is refused by name, and that refusal is the one thing
 /// that means no. A line that fails for any other reason, such as a second
 /// file not yet named, took the option.
+#[must_use]
 pub fn takes(kind: Kind, flag: &str, value: Option<&str>) -> bool {
     let line = |with: bool| {
         let mut line = vec!["chr1:1-10".to_string(), kind.dashed().to_string()];
@@ -4667,6 +4685,7 @@ fn indexed_by(word: &str) -> Option<Option<String>> {
 ///
 /// Public for the scripts `karyon completions` writes, which offer the names
 /// of files after these flags and after no others.
+#[must_use]
 pub fn takes_a_file(flag: &str) -> bool {
     file_read_by(flag).is_some() || matches!(flag, "--traits" | "--links" | "-o" | "--output")
 }

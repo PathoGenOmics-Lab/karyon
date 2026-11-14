@@ -65,6 +65,7 @@ const ZERO_TINT: f64 = 0.1;
 
 /// How a cell value becomes a colour.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CellScale {
     /// One hue, pale for zero and saturated for the maximum.
     ///
@@ -113,6 +114,7 @@ impl Default for CellScale {
 
 /// One sample, and what it had at every site.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct MatrixRow {
     /// Sample name, drawn beside the row.
     pub name: String,
@@ -155,6 +157,7 @@ impl MatrixRow {
 /// assert!(svg.contains("ERR001"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct MatrixTrack {
     sites: Vec<u64>,
     /// Where each column ends, for a matrix of windows; `None` for sites.

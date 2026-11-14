@@ -124,6 +124,7 @@ use std::fmt;
 /// was measured, so where the shape is ambiguous the reader is told rather
 /// than left to work it out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Format {
     /// `chrom start end value`, 0-based half-open.
     BedGraph,
@@ -143,6 +144,7 @@ impl Format {
     /// The aliases are the ones the files themselves come labelled with: `bg`
     /// for bedGraph, and `gtf` for GFF3, which is close enough in the columns
     /// these readers use.
+    #[must_use]
     pub fn parse(word: &str) -> Option<Format> {
         Some(match word {
             "bedgraph" | "bg" => Format::BedGraph,
@@ -157,6 +159,7 @@ impl Format {
 
 /// What went wrong while reading, and where.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct ReadError {
     /// The line number, counting from one, or zero for a whole file problem.
     pub line: usize,
@@ -228,6 +231,7 @@ pub fn lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
 ///
 /// Every format here is tab separated on paper, and space separated in about
 /// half the files that exist.
+#[must_use]
 pub fn columns(line: &str) -> Vec<&str> {
     if line.contains('\t') {
         line.split('\t').collect()
@@ -256,6 +260,11 @@ pub(crate) fn fields(line: &str) -> Vec<&str> {
 }
 
 /// Parses a coordinate, saying which column failed rather than just failing.
+///
+/// # Errors
+///
+/// Returns a [`ReadError`] on `line` naming `what` and quoting `value` when
+/// `value` does not parse as a `T`.
 pub fn number<T: std::str::FromStr>(value: &str, what: &str, line: usize) -> Result<T, ReadError> {
     value
         .parse::<T>()

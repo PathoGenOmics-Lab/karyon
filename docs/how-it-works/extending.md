@@ -71,7 +71,7 @@ in it was placed at a coordinate. A phylogeny draws the same columns
 ## The trait
 
 ```rust
-pub trait Track {
+pub trait Track: Send + Sync {
     fn height(&self, scale: &Scale) -> f64;
     fn label(&self) -> Option<&str> { None }
     fn y_axis_width(&self, _theme: &Theme) -> f64 { 0.0 }
@@ -100,6 +100,14 @@ Return `false` from `on_coordinates` only when the track's x is not the
 figure's coordinate at all, as a phylogeny's is not. `plot()` and the command
 line leave the automatic ruler off a figure where nothing is on the
 coordinates, since it would measure nothing.
+
+A track is `Send + Sync`, which is what lets a `Figure` or a `Plot` holding it
+be built on a worker thread and drawn on another, or kept by a server that
+draws for several requests at once. It costs one thing: a track cannot hold
+an `Rc`, a `RefCell` or a `Cell`, which are neither. Share data with an
+`Arc`, and keep a cache behind a `Mutex` or in an atomic, as `FeatureTrack`
+keeps the rows it packed between `height` and `draw`. A track made of owned
+data, as the one below is, is both without a word written.
 
 ## A whole track
 
@@ -179,16 +187,24 @@ the shipped tracks, so name yours before handing it over, as above.
 ## What `DrawContext` holds
 
 ```rust
+#[non_exhaustive]
 pub struct DrawContext<'a> {
     pub svg: &'a mut SvgWriter,
     pub scale: &'a Scale,
     pub theme: &'a Theme,
     pub band: Rect,
     pub axis: Rect,
+    pub right_axis: Rect,
     pub region: &'a Region,
     pub visual_scale: f64,
+    pub extent: Option<(f64, f64)>,
 }
 ```
+
+A track reads its context and only the figure builds one, so it is
+`#[non_exhaustive]`: the figure can hand a track more as tracks come to need
+it, as it did `right_axis` and `extent`, without breaking anything, and a
+pattern that takes it apart ends in `..`.
 
 `svg`
 : Where to write. A track never builds SVG text itself, which keeps escaping
@@ -216,6 +232,11 @@ pub struct DrawContext<'a> {
 : The strip immediately left of the band, as wide as this track asked for in
   `y_axis_width`, and zero wide unless it asked.
 
+`right_axis`
+: The strip immediately right of the band, for a second value axis, as wide
+  as this track asked for in `right_axis_width`, and zero wide unless it
+  asked.
+
 `region`
 : The region on display, 0-based and half-open. `region.contains(pos)` is the
   cheap way to skip what is off screen.
@@ -224,6 +245,11 @@ pub struct DrawContext<'a> {
 : The figure's factor for track geometry, from its profile and its density.
   The band already includes it; `ctx.px(value)` applies it to a measurement of
   your own, such as a stroke or a gap. Genomic x still comes only from `scale`.
+
+`extent`
+: The span the value axis covers, low first, when the figure draws its tracks
+  on one scale with `Figure::same_scale`: the span of every track that
+  measures what this one does. `None` to span the track's own values.
 
 ## The clip edge
 
@@ -416,8 +442,8 @@ A circular sequence maps position to an angle, so it is not a stack of bands.
 `Rings` draws one, and its rings implement the parallel trait `Ring`:
 `thickness`, an optional `gap` of 5 pixels by default, and a `draw` handed a
 `RingContext`, which carries a `Polar` and the ring's `inner` and `outer` radii
-where a track gets a `Scale` and a `Rect`. A ring cannot be pushed onto a
-`Figure`. What the two share is `Panels`, the sheet that holds figures, rings
+where a track gets a `Scale` and a `Rect`. It is `Send + Sync` as `Track` is,
+at the same cost. A ring cannot be pushed onto a `Figure`. What the two share is `Panels`, the sheet that holds figures, rings
 and maps side by side through the small `Drawing` trait: state your dimensions,
 and render yourself with the ids you are given.
 

@@ -81,6 +81,22 @@ impl Region {
         })
     }
 
+    /// The first `length` positions of `seq`, or the first one alone where
+    /// `length` is nought, so never empty and with no `Result` to unwrap.
+    ///
+    /// For the axes the crate lays out itself: a genome laid end to end, the
+    /// columns of an alignment, the bases around a ring, a key's one-base
+    /// window. Each was [`Region::new`] from nought to at least one with an
+    /// `expect` on it, which could not fire and still made every public
+    /// function around it one that may panic.
+    pub(crate) fn of_length(seq: impl Into<String>, length: u64) -> Region {
+        Region {
+            seq: seq.into(),
+            start: 0,
+            end: length.max(1),
+        }
+    }
+
     /// Parses a `seq:start-end` locus string in the 1-based inclusive
     /// convention used by samtools and IGV.
     ///

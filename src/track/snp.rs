@@ -53,6 +53,7 @@ const DENSE_LEVELS: usize = 8;
 
 /// One position where the sequences disagree.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SnpSite {
     /// Where the site is, 0-based, on whatever axis the caller is counting:
     /// an alignment column, or a position on a genome. Its label counts from
@@ -132,6 +133,7 @@ fn shown(site: &SnpSite) -> u64 {
 /// assert!(svg.contains("sample_1"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct SnpTrack {
     names: Vec<String>,
     sites: Vec<SnpSite>,

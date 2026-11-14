@@ -60,6 +60,7 @@ use crate::track::{DrawContext, Rect, Track};
 /// The set follows the scoring schemes of `Logolas`, whose `log`, `probKL`,
 /// `diff`, `ratio` and `log-odds` are the five background-relative rows above.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LogoScore {
     /// Every column is one unit tall and each symbol takes its share.
     ///
@@ -139,6 +140,7 @@ impl LogoScore {
 /// it, which puts the baseline at a typical symbol and lets the rest sort
 /// themselves above and below.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Centering {
     /// Leave the scores alone. The baseline then means "exactly the
     /// background", which is the honest reading of an absolute score, at the
@@ -154,6 +156,7 @@ pub enum Centering {
 
 impl Centering {
     /// The median, which is what an EDLogo uses.
+    #[must_use]
     pub fn median() -> Self {
         Centering::Quantile(0.5)
     }
@@ -161,6 +164,7 @@ impl Centering {
 
 /// Where the tallest symbol of a stack sits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StackOrder {
     /// Tallest symbol furthest from the baseline. The `seqLogo` and WebLogo
     /// convention, and the default.
@@ -200,6 +204,7 @@ impl LogoColumn {
     }
 
     /// A DNA column, in the conventional A, C, G, T order.
+    #[must_use]
     pub fn acgt(a: f64, c: f64, g: f64, t: f64) -> Self {
         LogoColumn::new([("A", a), ("C", c), ("G", g), ("T", t)])
     }
@@ -244,6 +249,7 @@ impl LogoColumn {
 /// doublings for [`LogoScore::LogOdds`]. Both lists run from the baseline
 /// outwards, so drawing them in order stacks them correctly.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LogoStack {
     /// Position of this column, 0-based.
     pub pos: u64,
@@ -286,6 +292,7 @@ impl LogoStack {
 /// assert_eq!(by_hand.stacks().len(), 1);
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct LogoTrack {
     start: u64,
     columns: Vec<LogoColumn>,
@@ -463,6 +470,7 @@ impl LogoTrack {
     /// Worth reporting next to the figure: it carries the fitted mixture
     /// weights and, through [`DashFit::shrinkage`], how far each column
     /// actually moved.
+    #[must_use]
     pub fn dash_fit(&self) -> Option<DashFit> {
         let dash = self.stabilization.as_ref()?;
         let symbols = self.symbols();
@@ -596,6 +604,7 @@ impl LogoTrack {
     ///
     /// The order is what fixes the colours, so adding a column of new symbols
     /// never recolours the ones already there.
+    #[must_use]
     pub fn symbols(&self) -> Vec<String> {
         let mut seen: Vec<String> = Vec::new();
         for column in &self.columns {
@@ -624,6 +633,7 @@ impl LogoTrack {
     ///
     /// Exposed because the numbers are worth checking, and because a caller may
     /// want them for a table rather than a picture.
+    #[must_use]
     pub fn stacks(&self) -> Vec<LogoStack> {
         let symbols = self.symbols();
         let alphabet = self.effective_alphabet_size();

@@ -147,6 +147,7 @@ impl Molecule {
 /// assert!(svg.contains("<circle"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct BisulfiteTrack {
     sites: Vec<u64>,
     molecules: Vec<Molecule>,

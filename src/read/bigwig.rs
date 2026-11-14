@@ -86,6 +86,7 @@ use crate::{Aggregate, Region};
 
 /// What a window of a bigWig holds.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Signal {
     /// Each value over the bases it covers, as `(start, end, value)`,
     /// 0-based and half-open, in the order the file holds them.
@@ -251,6 +252,7 @@ fn raise(most: &mut Option<f64>, value: f64) {
 /// of text, so a bigWig is drawn by the same reader as the bedGraph it was
 /// written from. Each value is written as the shortest decimal that reads
 /// back as the same number.
+#[must_use]
 pub fn bedgraph(sequence: &str, spans: &[(u64, u64, f64)]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(spans.len() * (sequence.len() + 24));

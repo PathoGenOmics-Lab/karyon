@@ -55,6 +55,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The sites a bedMethyl holds for one modification, and what it held besides.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Calls {
     /// The sites, in the order the file listed them.
     pub sites: Vec<MethylSite>,
@@ -79,6 +80,11 @@ pub struct Calls {
 /// Ordered, so the same file answers the same way twice, and the question a
 /// caller has to settle before drawing anything: one file is one track only
 /// when it counted one modification.
+///
+/// # Errors
+///
+/// Returns the first row that is not a bedMethyl row of eighteen columns, the
+/// nine of BED and the nine counts `modkit pileup` writes after them.
 pub fn codes(text: &str) -> Result<BTreeMap<String, usize>, ReadError> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for (at, line) in lines(text) {

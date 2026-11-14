@@ -63,6 +63,7 @@ use super::{columns, lines, ReadError};
 
 /// The segments a table holds, and what it held that is not in them.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct Segmentation {
     /// The segments, in the order the file listed them.
     pub segments: Vec<CopyNumberSegment>,
@@ -143,6 +144,7 @@ pub fn copy_numbers(
 /// Every segment of a table, on every sequence it names, as a figure across
 /// a whole genome reads it.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct GenomeSegmentation {
     /// Each sequence the table calls a segment on, in the order it first
     /// names them, with its segments, 0-based on that sequence, in the order
@@ -338,6 +340,11 @@ fn segment_rows(
 }
 
 /// The samples a table names, for a caller that has to choose between them.
+///
+/// # Errors
+///
+/// An empty file, and a header that names none of the segment tables this
+/// reads.
 pub fn samples(text: &str) -> Result<Vec<String>, ReadError> {
     let mut rows = lines(text);
     let (at, head) = rows.next().ok_or_else(|| {
@@ -364,6 +371,7 @@ pub fn samples(text: &str) -> Result<Vec<String>, ReadError> {
 
 /// Where balanced sits on a ladder of copies, as a segment table says it.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Balanced {
     /// Each call is split between two alleles, so balanced is one copy of
     /// each: two.

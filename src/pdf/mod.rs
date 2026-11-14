@@ -90,6 +90,7 @@ use crate::svg::num;
 /// assert!(pdf.notes.is_empty());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Pdf {
     /// The document, from `%PDF` to `%%EOF`.
     pub bytes: Vec<u8>,
@@ -119,6 +120,7 @@ impl Pdf {
     /// The same SVG always gives the same bytes. Nothing in the file depends
     /// on when or where it was written: there is no creation date and no
     /// document id.
+    #[must_use = "the PDF is returned, not written; save writes a file"]
     pub fn from_svg(svg: &str) -> Option<Pdf> {
         let (width, height) = page_size(svg)?;
         let mut notes = Notes::default();
@@ -392,6 +394,7 @@ pub(crate) fn drawn(svg: &str) -> Pdf {
 /// assert!(!named_pdf("rpoB.svg".as_ref()));
 /// assert!(!named_pdf("pdf".as_ref()));
 /// ```
+#[must_use]
 pub fn named_pdf(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())

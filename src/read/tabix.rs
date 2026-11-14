@@ -75,6 +75,7 @@ use super::ReadError;
 
 /// What a bgzipped text file holds before its rows, and its first row.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Head {
     /// The header lines, each with its newline after it.
     pub text: String,

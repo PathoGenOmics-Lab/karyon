@@ -180,6 +180,7 @@ const TABLES: &[(u8, &[u8; 64])] = &[
 /// // Table 7 was folded into table 4 and its number retired.
 /// assert_eq!(ncbi_table(7), None);
 /// ```
+#[must_use]
 pub fn ncbi_table(id: u8) -> Option<&'static [u8; 64]> {
     TABLES
         .iter()
@@ -221,6 +222,7 @@ pub fn ncbi_table(id: u8) -> Option<&'static [u8; 64]> {
 /// assert!(svg.contains("450"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct CodonTrack {
     start: u64,
     end: u64,

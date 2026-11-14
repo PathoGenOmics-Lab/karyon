@@ -65,6 +65,7 @@ use crate::tree::{AnnotationValue, Annotations};
 
 /// How a trait column maps values to colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TraitScale {
     /// Each distinct value receives a categorical palette colour.
     Categorical,
@@ -74,6 +75,7 @@ pub enum TraitScale {
 
 /// Mark used for one metadata dataset beside or around the rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TraitStyle {
     /// One filled cell or annular sector per row.
     ///
@@ -92,6 +94,7 @@ pub enum TraitStyle {
 
 /// One metadata column drawn beside the rows of a track.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a column draws nothing until a tree or a trait table is given it"]
 pub struct TraitColumn {
     pub(crate) key: String,
     pub(crate) label: String,
@@ -997,6 +1000,7 @@ pub(crate) const STRIP_LEVELS: usize = 6;
 /// What a join of a sheet's rows to the names a track draws matched and what
 /// it left out, as [`Traits::join`] makes it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Join {
     /// The names the sheet has a row for.
     pub matched: Vec<String>,
@@ -1042,6 +1046,7 @@ pub struct Join {
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Default)]
+#[must_use = "a trait table draws nothing until a track is given it"]
 pub struct Traits {
     rows: BTreeMap<String, Annotations>,
     /// The rows in the order their levels are met, which deals the palette.
@@ -1403,6 +1408,7 @@ impl Traits {
     ///
     /// Taken from the column rather than written down beside it, so a legend
     /// cannot go on saying what the ramp used to be.
+    #[must_use]
     pub fn ramp_ends(&self, column: &TraitColumn) -> (String, String) {
         let domain = self.domain(column, STRIP_LEVELS);
         if domain.maximum <= domain.minimum {

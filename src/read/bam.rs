@@ -69,6 +69,7 @@ fn exact<R: Read + Seek>(bgzf: &mut Bgzf<R>, buf: &mut [u8]) -> Result<(), ReadE
 
 /// What a BAM says about itself before its reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Header {
     /// The SAM header, as text: `@HD`, `@SQ`, `@RG` and `@PG` lines.
     pub text: String,
@@ -139,6 +140,7 @@ fn count<R: Read + Seek>(bgzf: &mut Bgzf<R>, most: usize, what: &str) -> Result<
 
 /// One aligned read, as BAM stores it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Record {
     /// Which reference, by its place in [`Header::references`], or -1.
     pub reference: i32,
@@ -472,6 +474,7 @@ pub fn header_of<R: Read + Seek>(reader: R) -> Result<Header, ReadError> {
 }
 
 /// The records as SAM text, the header's lines first.
+#[must_use]
 pub fn sam(header: &Header, records: &[Record]) -> String {
     let mut out = String::new();
     if header.text.trim().is_empty() {
@@ -591,6 +594,7 @@ fn tag_text(name: [u8; 2], kind: u8, value: &[u8]) -> String {
 
 /// The depth over `region`, one count per base, as `samtools depth -a` counts
 /// by default.
+#[must_use]
 pub fn depth(records: &[Record], region: &Region) -> Vec<u32> {
     let (start, end) = (region.start() as i64, region.end() as i64);
     let mut depth = vec![0u32; (end - start).max(0) as usize];
@@ -619,6 +623,7 @@ pub fn depth(records: &[Record], region: &Region) -> Vec<u32> {
 }
 
 /// Depth as bedGraph, one line per run of the same count.
+#[must_use]
 pub fn bedgraph(sequence: &str, region: &Region, depth: &[u32]) -> String {
     let mut out = String::new();
     let mut run = 0;

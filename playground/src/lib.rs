@@ -210,6 +210,9 @@ fn invocation(argv: &[String]) -> Result<Box<args::Invocation>, String> {
         }
         // `karyon::VERSION` and not this crate's own, which is the shim's.
         args::Request::Version => Err(format!("karyon {}", karyon::VERSION)),
+        // Request is #[non_exhaustive]: one added after this page was
+        // written is not a figure, or it would have come as `Draw`.
+        _ => Err("this page draws figures, and that is not one".to_string()),
     }
 }
 
@@ -251,7 +254,10 @@ impl stack::Files for Page {
             // There is no pipe into a browser tab. Saying so is better than
             // answering with the empty string, which reads as an empty file.
             args::Source::Stdin => Err(std::io::Error::other("nothing is piped into a page")),
-            args::Source::Path(_) => self.0.text(source),
+            // A file the page holds, and a kind of source added after this
+            // was written, which Source is #[non_exhaustive] for, are the held
+            // files' to answer.
+            _ => self.0.text(source),
         }
     }
 
@@ -669,6 +675,10 @@ fn shape_name(symbol: Option<karyon::Symbol>) -> &'static str {
         Some(karyon::Symbol::Square) => "square",
         Some(karyon::Symbol::Diamond) => "diamond",
         Some(karyon::Symbol::Triangle) => "triangle",
+        // Symbol is #[non_exhaustive]. A shape added after this was written
+        // goes on the wire as the one a Symbol defaults to, until the page's
+        // canvas learns to draw it.
+        Some(_) => "circle",
     }
 }
 

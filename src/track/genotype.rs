@@ -151,6 +151,7 @@ impl Genotype {
     /// `/` where the call is unphased and `|` where it is phased, with the
     /// leading `/` or `|` VCF 4.4 allows. `None` for anything else, or for a
     /// call of more than [`Genotype::MAX_COPIES`] copies.
+    #[must_use]
     pub fn parse(gt: &str) -> Option<Genotype> {
         Genotype::read(gt).ok().map(|(call, _)| call)
     }
@@ -196,6 +197,7 @@ impl Genotype {
     }
 
     /// No call at all: a sample with nothing written for it.
+    #[must_use]
     pub fn not_called() -> Genotype {
         Genotype {
             copies: 0,
@@ -207,12 +209,14 @@ impl Genotype {
     }
 
     /// A haploid call of `allele`, where `u16::MAX` is a copy nobody called.
+    #[must_use]
     pub fn haploid(allele: u16) -> Genotype {
         Genotype::from_copies(&[allele])
     }
 
     /// An unphased diploid call of `a` and `b`, where `u16::MAX` is a copy
     /// nobody called.
+    #[must_use]
     pub fn diploid(a: u16, b: u16) -> Genotype {
         Genotype::from_copies(&[a, b])
     }
@@ -309,6 +313,8 @@ fn level(alternate: usize, copies: usize) -> usize {
 /// The site is a column of the figure and its calls are indexed by row, as a
 /// [`SnpSite`](crate::SnpSite)'s alleles are.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a site draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct GenotypeSite {
     /// Where the record is anchored, 0-based.
     pub position: u64,
@@ -457,6 +463,7 @@ struct Mixed {
 /// assert!(svg.contains("S2, 1,101, C&gt;T: T/T (alternate)"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct GenotypeTrack {
     samples: Vec<String>,
     sites: Vec<GenotypeSite>,

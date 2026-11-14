@@ -46,6 +46,7 @@ use crate::track::{DrawContext, Track};
 
 /// How one key is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Marker {
     /// A filled square, for anything drawn as an area.
     Box,
@@ -74,6 +75,7 @@ pub enum Marker {
 
 /// One thing a legend explains.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum LegendItem {
     /// A colour and what it means.
     Key {
@@ -140,6 +142,7 @@ pub enum LegendItem {
 /// assert!(svg.contains("resistant"));
 /// ```
 #[derive(Debug, Clone, Default, PartialEq)]
+#[must_use = "a legend draws nothing until it is in a track"]
 pub struct Legend {
     items: Vec<LegendItem>,
     swatch: f64,
@@ -383,6 +386,7 @@ impl Legend {
     /// Wrapping rather than truncating: a key that is not drawn is worse than a
     /// legend that is two rows tall, because the reader cannot tell that
     /// anything is missing.
+    #[must_use]
     pub fn rows(&self, width: f64, font: f64) -> Vec<Vec<(f64, usize)>> {
         let mut rows: Vec<Vec<(f64, usize)>> = Vec::new();
         let mut current: Vec<(f64, usize)> = Vec::new();
@@ -667,6 +671,7 @@ const RAMP_STEPS: usize = 24;
 
 /// A [`Legend`] as a band of the figure.
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct LegendTrack {
     legend: Legend,
     label: Option<String>,

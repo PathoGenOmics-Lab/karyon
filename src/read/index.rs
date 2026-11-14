@@ -84,6 +84,7 @@ use super::{gzip, ReadError};
 
 /// Which of the three an index is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Kind {
     /// A BAM's index, as `samtools index` writes it.
     Bai,
@@ -97,6 +98,7 @@ pub enum Kind {
 /// The kind of text file tabix was told it was indexing, which fixes how a
 /// row's end is found where no column holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Preset {
     /// Columns as tabix was told them, BED and GFF3 among them.
     Generic,
@@ -114,6 +116,7 @@ pub enum Preset {
 ///
 /// Column numbers count from one, as tabix counts them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Columns {
     /// What the file was indexed as.
     pub preset: Preset,
@@ -135,6 +138,7 @@ pub struct Columns {
 
 /// What the pseudo-bin says about one sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Summary {
     /// The virtual offset of the sequence's first record.
     pub first: u64,
@@ -504,6 +508,7 @@ impl Index {
     /// of sequence `reference`, as pairs of virtual offsets, in order and
     /// merged where they touch. Empty for a sequence the index has no bins
     /// for.
+    #[must_use]
     pub fn chunks(&self, reference: usize, start: u64, end: u64) -> Vec<(u64, u64)> {
         let Some(sequence) = self.references.get(reference) else {
             return Vec::new();

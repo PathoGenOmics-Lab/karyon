@@ -46,6 +46,7 @@ use crate::track::{unbroken, DrawContext, Extent, Track};
 
 /// One window and the value computed in it.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Window {
     /// First base of the window, 0-based.
     pub start: u64,
@@ -58,6 +59,7 @@ pub struct Window {
 
 impl Window {
     /// A window over `[start, end)` holding `value`.
+    #[must_use]
     pub fn new(start: u64, end: u64, value: f64) -> Self {
         Window { start, end, value }
     }
@@ -65,6 +67,7 @@ impl Window {
 
 /// How a windowed statistic is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WindowStyle {
     /// A block per window, from the baseline out to the value. The default,
     /// and the honest one: a window is an interval, and a block says so.
@@ -90,6 +93,7 @@ pub enum WindowStyle {
 /// assert!(svg.contains("pN/pS"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct WindowTrack {
     windows: Vec<Window>,
     label: Option<String>,

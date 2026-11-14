@@ -39,6 +39,7 @@ use crate::track::{DrawContext, Track};
 
 /// One open reading frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Orf {
     /// First base, 0-based, in the coordinates the track was given.
     pub start: u64,
@@ -79,6 +80,7 @@ impl Orf {
 /// assert!(svg.contains("<rect"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct OrfTrack {
     start: u64,
     seq: Vec<u8>,
@@ -169,6 +171,7 @@ impl OrfTrack {
     }
 
     /// Every stop codon, as its position and its frame.
+    #[must_use]
     pub fn stops(&self) -> Vec<(u64, i8)> {
         let mut stops = Vec::new();
         for offset in 0..3usize {
@@ -188,6 +191,7 @@ impl OrfTrack {
     }
 
     /// Every open reading frame, in every frame.
+    #[must_use]
     pub fn orfs(&self) -> Vec<Orf> {
         let mut orfs = Vec::new();
         for offset in 0..3usize {

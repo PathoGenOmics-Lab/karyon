@@ -43,6 +43,7 @@ const TITLED_CELLS: usize = 2_500;
 
 /// Two stretches of the sequence and a value measured between them.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Pair {
     /// The first stretch, 0-based and half-open.
     pub first: (u64, u64),
@@ -56,6 +57,7 @@ pub struct Pair {
 impl Pair {
     /// Two single bases, at 0-based `first` and `second`, as two variants in
     /// linkage are.
+    #[must_use]
     pub fn new(first: u64, second: u64, value: f64) -> Self {
         Pair {
             first: (first, first.saturating_add(1)),
@@ -66,6 +68,7 @@ impl Pair {
 
     /// Two stretches, each 0-based and half-open, as two bins of a contact
     /// map or the two anchors of a loop are.
+    #[must_use]
     pub fn spans(first: (u64, u64), second: (u64, u64), value: f64) -> Self {
         Pair {
             first,
@@ -92,6 +95,7 @@ impl Pair {
 
 /// How a [`PairTrack`] draws its pairs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PairStyle {
     /// Every pair a cell of a triangle hung under the axis, for pairs
     /// measured between most of their places: linkage, contacts.
@@ -154,6 +158,7 @@ impl PairStyle {
 /// assert!(svg.contains("1,001 and 1,401: 0.92"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct PairTrack {
     pairs: Vec<Pair>,
     style: PairStyle,

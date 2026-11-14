@@ -53,6 +53,7 @@ const MAGIC: u32 = 0x1A41_2743;
 
 /// The bases of one sequence of a 2bit over a window.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Bases {
     /// The sequence's name, as the file gives it.
     pub name: String,

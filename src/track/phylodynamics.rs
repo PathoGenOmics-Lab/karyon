@@ -14,6 +14,7 @@ use crate::track::{unbroken, DrawContext, Track};
 
 /// Vertical transformation for a phylodynamic estimate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PhylodynamicScale {
     /// Values are positioned without transformation.
     #[default]
@@ -24,6 +25,7 @@ pub enum PhylodynamicScale {
 
 /// One time point in a phylodynamic trajectory.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a point draws nothing until it is in a track"]
 pub struct PhylodynamicPoint {
     /// Time coordinate, interpreted through the figure's shared x scale.
     pub time: u64,
@@ -69,6 +71,7 @@ impl PhylodynamicPoint {
 
 /// A skyline-like trajectory with an optional credible/confidence ribbon.
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct PhylodynamicTrack {
     points: Vec<PhylodynamicPoint>,
     label: Option<String>,

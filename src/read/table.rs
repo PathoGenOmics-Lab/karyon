@@ -40,6 +40,13 @@ use super::{columns, lines, number, ReadError};
 /// per site. A value that is empty, `.` or `NA` is missing rather than zero.
 ///
 /// Returns the site positions, 0-based, and one row per sample.
+///
+/// # Errors
+///
+/// A VCF, which [`genotypes`](crate::read::point::genotypes) reads, a site in
+/// the header that is not a number or is nought, and the first row whose count
+/// of values is not the header's count of sites, or with a value that is not a
+/// number and not empty, `.` or `NA`.
 pub fn matrix(text: &str, region: &Region) -> Result<(Vec<u64>, Vec<MatrixRow>), ReadError> {
     // A VCF's header is comments to this reader, so its first record was read
     // as the header of sites and refused for an `ID` where a position goes,
@@ -134,6 +141,7 @@ pub type WindowValues = Vec<((u64, u64), Vec<f64>)>;
 /// Every window of a table of windows, on every sequence it names, as a
 /// heatmap drawn across a whole genome reads it.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct GenomeWindows {
     /// The samples, in the order of the header, or of a long table's rows.
     pub samples: Vec<String>,
@@ -180,6 +188,14 @@ impl Rows<'_> {
 /// A table in the long form, a window and a sample to a row, as `chrom start
 /// end sample value`, is read too, as [`long_windows`] reads it: told by a
 /// fourth column that names a sample rather than holding a value.
+///
+/// # Errors
+///
+/// A line that is neither a window nor the header, a comment or a `track` or
+/// `browser` line; a window whose count of values is not the header's count of
+/// samples, or the first window's where there is no header; and a value that is
+/// not a number and not empty, `.` or `NA`. Of a table in the long form, what
+/// [`long_windows`] refuses.
 pub fn windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     if is_long(text) {
@@ -408,6 +424,12 @@ pub(crate) fn is_long(text: &str) -> bool {
 /// and two rows for one sample in one window, or two windows that overlap
 /// without being the same window, stop the read: a heatmap has one cell for
 /// each sample in each window, and neither has one answer.
+///
+/// # Errors
+///
+/// A row of a window that is not five columns, a value that is not a number and
+/// not empty, `.` or `NA`, two rows for one sample in one window, and two
+/// windows that overlap without being the same window.
 pub fn long_windows(text: &str, region: &Region) -> Result<WindowMatrix, ReadError> {
     let (samples, mut sequences) = long(text, Rows::In(region))?;
     let cells = sequences.pop().map(|(_, cells)| cells).unwrap_or_default();

@@ -35,7 +35,12 @@ use std::fmt;
 ///
 /// Rendering itself never fails: once a [`Figure`](crate::Figure) exists, its
 /// inputs have already been validated.
+///
+/// It is `#[non_exhaustive]`, so a `match` on it ends in a `_` arm: a new way
+/// to fail is a new variant, and code that handles the five there are keeps
+/// compiling when it comes.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// Two sequences of a genome share a name.
     DuplicateSequence {

@@ -61,6 +61,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The blocks a clade file holds, and what it held that is not in them.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Blocks {
     /// The blocks, in the order the file listed them.
     pub blocks: Vec<CladeBlock>,
@@ -169,6 +170,10 @@ pub fn blocks(text: &str, region: &Region) -> Result<Blocks, ReadError> {
 /// The question that comes before drawing anything, because the name in column
 /// one of this format is often not a sequence name at all. Ordered, so the same
 /// file answers the same way twice.
+///
+/// # Errors
+///
+/// Returns the first row with fewer than nine columns.
 pub fn sequences(text: &str) -> Result<Vec<(String, usize)>, ReadError> {
     let mut seen: Vec<(String, usize)> = Vec::new();
     for (at, line) in lines(text) {

@@ -45,3 +45,21 @@ overflow-checks = true
 
 [lints.rust]
 missing_docs = "warn"
+# A public type a caller cannot print in a test failure or a log line is one
+# they have to wrap to look at, so every one implements Debug.
+missing_debug_implementations = "warn"
+
+# A builder takes the value and hands back the changed one, so a call whose
+# result was dropped, `track.label("x");`, changed nothing and said nothing.
+# The builders and the values they build are #[must_use] for that, and this
+# keeps a method returning Self from coming in without it. must_use_candidate
+# is not on: once the types carry the attribute, most of what it still asks
+# for is a getter of a field, and a getter whose result is dropped loses
+# nothing.
+[lints.clippy]
+return_self_not_must_use = "warn"
+# Every public function that returns a Result says in an Errors section what
+# makes it fail, and one that can panic says when in a Panics section, so a
+# caller reading the documentation knows what to handle without the source.
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"

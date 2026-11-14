@@ -47,6 +47,7 @@ use crate::tree::Tree;
 
 /// One aligned sequence.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct MsaSequence {
     /// Name, drawn beside the row.
     pub name: String,
@@ -80,6 +81,7 @@ impl MsaSequence {
 }
 
 /// Whether a gap character is a gap.
+#[must_use]
 pub fn is_gap(residue: u8) -> bool {
     matches!(residue, b'-' | b'.' | b'~' | b' ')
 }
@@ -102,6 +104,7 @@ fn count(n: usize, one: &str, many: &str) -> String {
 
 /// What gets painted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MsaDisplay {
     /// Only cells that disagree with the comparison row, which is the default
     /// and is what makes a large alignment readable at all.
@@ -112,6 +115,7 @@ pub enum MsaDisplay {
 
 /// What a residue's colour means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MsaColoring {
     /// Nucleotides, on the theme's base colours.
     Nucleotide,
@@ -130,6 +134,7 @@ pub enum MsaColoring {
 /// keep their own classes, since a figure of a protein alignment is usually
 /// looking for exactly those two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ResidueClass {
     /// A, V, L, I, M, F, W, C.
     Hydrophobic,
@@ -147,6 +152,7 @@ pub enum ResidueClass {
 
 impl ResidueClass {
     /// The class of one residue, or `None` for a gap or an unknown symbol.
+    #[must_use]
     pub fn of(residue: u8) -> Option<Self> {
         match residue.to_ascii_uppercase() {
             b'A' | b'V' | b'L' | b'I' | b'M' | b'F' | b'W' | b'C' => {
@@ -191,6 +197,7 @@ impl ResidueClass {
 /// assert!(svg.contains("H37Rv"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct MsaTrack {
     sequences: Vec<MsaSequence>,
     label: Option<String>,
@@ -392,6 +399,7 @@ impl MsaTrack {
     /// Ties go to whichever residue was seen first, scanning rows in order, so
     /// the consensus of a given alignment never changes between runs. A column
     /// of nothing but gaps has no consensus and comes back as a gap.
+    #[must_use]
     pub fn consensus(&self) -> Vec<u8> {
         (0..self.columns())
             .map(|column| {
@@ -423,6 +431,7 @@ impl MsaTrack {
     /// The row every other row is compared against.
     ///
     /// Either the one [`MsaTrack::compare_to`] named, or the consensus.
+    #[must_use]
     pub fn comparison(&self) -> Vec<u8> {
         match self.compare_to.and_then(|index| self.sequences.get(index)) {
             Some(row) => row.residues.clone(),

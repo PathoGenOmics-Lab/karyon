@@ -27,6 +27,7 @@ use super::{AnnotationValue, Tree};
 /// # Ok::<(), karyon::Error>(())
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NodeRef {
     /// A node by its index in [`Tree::nodes`].
     Index(usize),
@@ -47,6 +48,7 @@ pub enum NodeRef {
 
 /// Where a [`NodeRef`] lands in a tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Found {
     /// The node.
     pub node: usize,

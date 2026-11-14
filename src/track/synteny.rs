@@ -40,6 +40,8 @@ use crate::track::{DrawContext, Track};
 /// forwards: a reversed alignment is `target` ascending with `reversed` set,
 /// which is how PAF records it and saves a conversion.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[must_use = "a block draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct AlignmentBlock {
     /// Start on the query, the sequence the figure's region is on.
     pub query_start: u64,
@@ -212,6 +214,7 @@ fn block_title(block: &AlignmentBlock) -> String {
 /// assert!(svg.contains("<line"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct DotplotTrack {
     blocks: Vec<AlignmentBlock>,
     label: Option<String>,
@@ -432,6 +435,7 @@ impl Track for DotplotTrack {
 /// assert!(svg.contains("H37Rv"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct SyntenyTrack {
     blocks: Vec<AlignmentBlock>,
     label: Option<String>,

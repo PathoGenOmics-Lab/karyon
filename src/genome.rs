@@ -44,6 +44,7 @@ use crate::region::Region;
 
 /// One sequence of a genome: a chromosome, a plasmid, a contig.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Chromosome {
     /// Name as it appears in the FASTA header or the BAM.
     pub name: String,
@@ -81,6 +82,7 @@ impl Chromosome {
 /// assert!(svg.contains("chr2"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[must_use = "a genome draws nothing until a track or a plot is given it"]
 pub struct Genome {
     sequences: Vec<Chromosome>,
     gap: u64,
@@ -144,8 +146,9 @@ impl Genome {
     }
 
     /// The region covering every sequence, for the figure to be built over.
+    #[must_use]
     pub fn region(&self) -> Region {
-        Region::new("genome", 0, self.total().max(1)).expect("the total is at least one")
+        Region::of_length("genome", self.total())
     }
 
     /// Where a sequence starts on the shared axis.
@@ -207,6 +210,7 @@ impl Genome {
     ///
     /// Hand these to [`ManhattanTrack::bands`](crate::ManhattanTrack::bands) to
     /// get the alternating chromosome colouring a genome-wide plot is read by.
+    #[must_use]
     pub fn boundaries(&self) -> Vec<u64> {
         let mut at = 0u64;
         let mut starts = Vec::with_capacity(self.sequences.len());
@@ -218,6 +222,7 @@ impl Genome {
     }
 
     /// Each sequence as its name and its span on the shared axis.
+    #[must_use]
     pub fn spans(&self) -> Vec<(&str, u64, u64)> {
         let mut at = 0u64;
         let mut out = Vec::with_capacity(self.sequences.len());

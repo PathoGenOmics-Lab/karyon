@@ -41,6 +41,7 @@ use crate::tree::Tree;
 
 /// A contiguous stretch of reference carried by a named set of taxa.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a block draws nothing until it is in a track"]
 pub struct CladeBlock {
     start: u64,
     end: u64,
@@ -157,6 +158,7 @@ impl Placed {
 /// assert!(svg.contains("RD1"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct CladeTrack {
     tree: Tree,
     blocks: Vec<CladeBlock>,

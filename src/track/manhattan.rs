@@ -45,6 +45,7 @@ use crate::track::{DrawContext, Extent, Track};
 
 /// One tested position and what the test said about it.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Association {
     /// Position, 0-based.
     pub pos: u64,
@@ -54,6 +55,7 @@ pub struct Association {
 
 impl Association {
     /// A point at a 0-based position.
+    #[must_use]
     pub fn new(pos: u64, value: f64) -> Self {
         Association { pos, value }
     }
@@ -63,6 +65,7 @@ impl Association {
     /// A p-value of zero has no logarithm, so it is floored at the smallest
     /// positive double rather than becoming infinity. Anything at that floor is
     /// already far above any threshold you would draw.
+    #[must_use]
     pub fn from_p_value(pos: u64, p: f64) -> Self {
         let p = if p.is_finite() {
             p.max(f64::MIN_POSITIVE)
@@ -78,6 +81,7 @@ impl Association {
 
 /// How a scan coloured by its linkage with a lead variant paints an r².
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum LinkageColors {
     /// Five bins in LocusZoom's colours, which is how a regional plot is
     /// read: r² under 0.2 navy, to 0.4 light blue, to 0.6 green, to 0.8
@@ -142,6 +146,7 @@ const LOCUSZOOM_UNKNOWN: &str = "#aaaaaa";
 /// assert!(svg.contains("<circle"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct ManhattanTrack {
     points: Vec<Association>,
     label: Option<String>,
@@ -491,6 +496,7 @@ impl ManhattanTrack {
     ///
     /// Empty when no threshold was set, since without one no point is
     /// significant and calling some of them so would be an invention.
+    #[must_use]
     pub fn significant(&self) -> Vec<Association> {
         let Some(threshold) = self.threshold else {
             return Vec::new();

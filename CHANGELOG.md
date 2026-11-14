@@ -8,6 +8,95 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `read::split::names` returns its count of names directly, where it returned a
+  `Result` that was never an error: it passes over a line that is not a SAM
+  record rather than refusing it, which `read::split::reads` does. Code that
+  put a `?` or an `.unwrap()` after it takes them off.
+- `Track` and `Ring` ask for `Send + Sync`, so `Figure`, `Plot` and `Rings`,
+  which hold their tracks and rings as trait objects, are `Send` and `Sync`
+  too: a figure can be built on a worker thread and drawn on another, or kept
+  by a server that draws it for several requests at once. They were neither,
+  though every track and ring the crate ships already was both. This changes
+  what a track or a ring written outside the crate may hold: not an `Rc`, a
+  `RefCell` or a `Cell`, which are neither. Share data with an `Arc`, and keep
+  a cache behind a `Mutex` or in an atomic, as `FeatureTrack` keeps the rows it
+  packed. `CircleRefusal`, `CodonRefusal` and `ShadeRefusal`, the reasons a
+  `BuildError` gives for refusing a circle, a ruler of codons or a shade,
+  implement `std::error::Error`, and `ShadeRefusal` implements `Display`,
+  saying the reason alone; every message the command line prints is the one it
+  printed before.
+- The API reference carries karyon's logo and icon, the ones the guide's site
+  serves, since docs.rs builds it from the package and the package does not
+  carry the site. Its front page names the binary formats `read` takes a window
+  of at a time through their indexes, BAM, BCF, bigWig, bigBed, 2bit, `.hic`
+  and bgzipped text, where it said every format was lines of text; it names
+  `Tree::parse`, which reads Newick and NEXUS and keeps their annotations,
+  where it named `Tree::parse_newick`; and it names `cli::stack::Disk`, which
+  the program reads its files through, beside `open_from_disk` as what reads a
+  path, where it called `open_from_disk` the one function that does.
+- Every public type implements `Debug`, so a caller can print one in a test
+  that failed or a line of a log: `Figure`, `Rings` and `Panels` show each
+  track, ring or panel by its name rather than all they hold, `Map`,
+  `PhyloMap`, `DrawContext`, `RingContext` and the command line's `Built` show
+  their fields, and `read::bgzf::Bgzf` shows where it is in the file whatever
+  it reads from. `SplitSegment` and `VisualTokens`, which hold nothing but
+  numbers, are `Copy`. Every track, `Panels`, `Map`, `PhyloMap` and the values
+  they are built from are `Send` and `Sync`, and `Error`, `ReadError`,
+  `ArgError` and `BuildError` are as well and implement `std::error::Error`, so
+  `?` takes any of them into a `Box<dyn Error + Send + Sync>`; a test holds all
+  of that, so a change that loses it fails to compile.
+- Every public function that returns a `Result` says what makes it fail in an
+  `# Errors` section of its documentation, where thirty-five did not, among
+  them most of the readers in `read`: `read::point::variants` names the row
+  that has fewer than eight columns, a `POS` of nought or an `AF` with the
+  wrong count of values, and `read::signal::spans` the line that is none of its
+  three shapes. `Genome::region`, `plot_tree`, `plot_alignment`,
+  `SignalRing::from_spans` and `cli::stack::build_sheet` each built a region
+  from nought to at least one with `Region::new` and an `expect` that could
+  never fire, which made them functions that may panic with no word on when;
+  they build it now in a way that cannot fail, so none of them can panic.
+- The enums expected to grow are `#[non_exhaustive]`: `Error`, the command
+  line's `ArgError` and `BuildError` and its refusals, `Request`, and the
+  kinds, styles, scores, projections and keys a track or a figure is told to
+  use, as `LegendItem`, `Marker`, `SvKind`, `CoverageStyle`, `LogoScore` and
+  `GeoProjection`. A variant added to one of them broke every `match` on it in
+  code using the crate; such a `match` now ends in a `_` arm, and a variant
+  added later breaks nothing. The closed sets stay exhaustive, so a match on
+  one still has to name every case: `Strand`, `Anchor`, `GenotypeState`,
+  `Identity`, `Palette`, `RowCap`, `Shell`, `TangleLabels`, `NodeGlyphTarget`,
+  `RadialDirection` and `TimeDirection`. The structs a caller reads and only
+  the crate fills in are `#[non_exhaustive]` too: every reader's result and
+  `ReadError`, `Pdf`, `DashFit`, `Join`, `Found`, a tree's layout, the parsed
+  command line, and the `DrawContext` and `RingContext` a track or a ring draws
+  with. So are the values a caller builds that have a constructor, as
+  `Feature`, `Variant`, `Read`, `Window` and `Theme`, so that a field can be
+  added to one without breaking anything: build them with `Feature::new`,
+  `Window::new` or `Theme::light` and set what you need. `Margin`, `Rect`,
+  `BaseColors`, `TextStyle`, `TreeStyle`, `Beside` and `plot::Empty` stay as
+  they were, as struct literals with no constructor to stand in for them, or
+  with the literal in the guide. This changes what code using the crate may
+  write: an exhaustive `match` on a marked enum, a struct literal of a marked
+  struct and a pattern that takes one apart without `..` no longer compile
+  outside the crate.
+- The builders and the values they build are `#[must_use]`: every track,
+  `Figure`, `Rings` and its rings, `Panels`, `Map`, `PhyloMap`, `Theme`,
+  `Shade`, `Legend`, a tree's layers, and the values a track is built from that
+  have builder methods of their own, as `Feature`, `Variant` and `Read`. A
+  builder method takes the value and hands back the changed one, so a call
+  whose result was dropped, `track.label("depth");` on a line of its own,
+  changed nothing and dropped the track with it, and nothing said so; now the
+  compiler does, and says what was lost: a track draws nothing until it is
+  pushed into a figure. `Plot` carries the attribute on each method that builds
+  it rather than on the type, because `Plot::save` hands the plot back and a
+  chain that ends in `.save(path)?;` drops it on purpose. A function whose only
+  work is the value it returns is `#[must_use]` as well: `to_svg`, `to_pdf` and
+  `Pdf::from_svg`, the constructors of values with no builder methods, as
+  `Window::new` and `Scale::new`, and the free functions that compute a value
+  and do nothing else, as `svg::escape` and `theme::mix`. A getter is left
+  alone, since dropping what it returns loses nothing. This changes what code
+  using the crate may write: a builder call, a render or a constructor whose
+  result is dropped is a warning, and an error under `-D warnings`. Assign it
+  or hand it on, or write `let _ =` where dropping it is what was meant.
 - The crate carries what builds, documents and shows the library and the
   program at work, named in an `include` list in `Cargo.toml`: the sources, the
   Liberation faces in `fonts/`, the examples, the README, the licence and this

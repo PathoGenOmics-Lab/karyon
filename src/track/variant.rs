@@ -74,6 +74,7 @@ use crate::track::{DrawContext, Legend, Track};
 
 /// How a variant track is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum VariantStyle {
     /// A stem with a head, the height of the stem showing the value. Reads
     /// well up to a few hundred variants.
@@ -85,6 +86,8 @@ pub enum VariantStyle {
 
 /// A point event at a single base.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a variant draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct Variant {
     /// Position, 0-based. A VCF line at `POS` becomes `POS - 1`.
     pub pos: u64,
@@ -152,6 +155,7 @@ impl Variant {
 /// assert!(svg.contains("missense"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct VariantTrack {
     variants: Vec<Variant>,
     label: Option<String>,
@@ -310,6 +314,7 @@ impl VariantTrack {
     }
 
     /// Distinct categories, in order of first appearance.
+    #[must_use]
     pub fn categories(&self) -> Vec<&str> {
         let mut seen: Vec<&str> = Vec::new();
         for variant in &self.variants {

@@ -60,6 +60,7 @@
 /// A figure that quietly moved the numbers should be able to say by how much,
 /// so the fit is returned rather than hidden.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct DashFit {
     /// Concentration of each mixture component, largest first. The first is
     /// infinite: the component that says a column is pure background.
@@ -110,6 +111,7 @@ fn total_variation(a: &[f64], b: &[f64]) -> f64 {
 /// "flat over the simplex", and a prior on the mixture weights that leans
 /// towards the first of those.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a Dash fits nothing until fit is called"]
 pub struct Dash {
     concentrations: Vec<f64>,
     null_weight: f64,
@@ -183,6 +185,7 @@ impl Dash {
     /// telling it there was one observation. `background` is normalised, and a
     /// zero entry is floored so that a symbol seen against a background that
     /// forbids it does not produce an infinite likelihood.
+    #[must_use]
     pub fn fit(&self, counts: &[Vec<f64>], background: &[f64]) -> DashFit {
         let symbols = background.len();
         let background = normalise_background(background);
@@ -421,6 +424,7 @@ fn renormalise(values: Vec<f64>) -> Vec<f64> {
 /// Rust has no `lgamma` in the standard library and this crate has no
 /// dependencies, so here it is. Accurate to roughly fifteen digits over the
 /// positive reals, which is far more than a shrinkage weight needs.
+#[must_use]
 pub fn ln_gamma(x: f64) -> f64 {
     const COEFFICIENTS: [f64; 9] = [
         0.999_999_999_999_809_9,

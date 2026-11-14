@@ -66,6 +66,7 @@ use self::parse::*;
 /// strings and brace-delimited lists. Keeping those distinctions here avoids
 /// making every renderer parse the same text again.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum AnnotationValue {
     /// Free text, including values whose syntax is not one of the types below.
     Text(String),
@@ -157,6 +158,7 @@ pub type Annotations = BTreeMap<String, AnnotationValue>;
 
 /// One node of a tree, internal or a leaf.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Clade {
     /// Leaf name, or an internal label when the file carried one.
     pub name: Option<String>,
@@ -180,6 +182,7 @@ impl Clade {
 
 /// One level of a trait column, with the colour a figure gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TraitLevel {
     /// The value as the sheet or the annotation spells it, or the band a
     /// continuous column falls in.
@@ -201,6 +204,7 @@ pub struct TraitLevel {
 /// would be a second opinion, and two pictures of the same tree disagreeing
 /// about which blue is which is worse than one picture.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct TraitStrip {
     /// The annotation key the column reads.
     pub key: String,
@@ -219,6 +223,7 @@ pub struct TraitStrip {
 /// measured from a root. An unrooted tree has neither, so it is given a
 /// position in the plane instead.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Spot {
     /// Index of the node.
     pub node: usize,
@@ -235,6 +240,7 @@ pub struct Spot {
 
 /// A whole tree laid out without a root.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Unrooted {
     /// Every node that has a position, which is every node in a tree of one
     /// piece.
@@ -250,6 +256,7 @@ pub struct Unrooted {
 
 /// Where one node sits once the tree has been laid out.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Placement {
     /// Index of the node.
     pub node: usize,
@@ -314,7 +321,8 @@ impl Tree {
     /// # Errors
     ///
     /// Returns [`Error::InvalidNewick`] for unbalanced parentheses, a stray
-    /// comma, a branch length that is not a number, or an empty string.
+    /// comma, a branch length that is not a number or has nothing to attach
+    /// to, more than one root, or an empty string.
     pub fn parse_newick(input: &str) -> Result<Self, Error> {
         parse_newick_impl(input, false)
     }
@@ -326,6 +334,13 @@ impl Tree {
     /// before them. Prefix markers `[&R]` and `[&U]` set [`Tree::rooted`].
     /// [`Tree::parse_newick`] remains the compatibility parser and deliberately
     /// discards comments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidNewick`] as [`Tree::parse_newick`] does: for
+    /// unbalanced parentheses, a stray comma, a branch length that is not a
+    /// number or has nothing to attach to, more than one root, or an empty
+    /// string.
     pub fn parse_annotated_newick(input: &str) -> Result<Self, Error> {
         parse_newick_impl(input, true)
     }
@@ -380,6 +395,7 @@ impl Tree {
     /// How many trees a text holds, counted without reading them: the tree
     /// statements of a NEXUS file, or the trees of a Newick file, each ended
     /// by its semicolon.
+    #[must_use]
     pub fn count_trees(input: &str) -> usize {
         count_trees(input)
     }
@@ -389,6 +405,13 @@ impl Tree {
     /// A `translate` table is applied to leaf labels and annotations on the
     /// Newick expression are preserved. This intentionally reads the portable
     /// tree subset rather than trying to interpret arbitrary Nexus data blocks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidNexus`] for a text with no tree statement, a
+    /// tree statement with no `=`, and a `translate` entry with no taxon name
+    /// or an empty one, and [`Error::InvalidNewick`] for a tree that does not
+    /// read, as [`Tree::parse_annotated_newick`] says.
     pub fn parse_nexus(input: &str) -> Result<Self, Error> {
         parse_nexus(input)
     }
@@ -443,6 +466,7 @@ impl Tree {
     }
 
     /// Leaf indices, left to right as the tree is drawn.
+    #[must_use]
     pub fn leaves(&self) -> Vec<usize> {
         let mut order = Vec::new();
         let mut stack = vec![self.root];
@@ -462,6 +486,7 @@ impl Tree {
     }
 
     /// Leaf names in drawn order, unnamed leaves coming back empty.
+    #[must_use]
     pub fn leaf_names(&self) -> Vec<String> {
         self.leaves()
             .into_iter()
@@ -475,6 +500,7 @@ impl Tree {
     }
 
     /// Ancestors of `node`, from its parent back to the root.
+    #[must_use]
     pub fn ancestors(&self, node: usize) -> Vec<usize> {
         let mut ancestors = Vec::new();
         let mut current = self.nodes.get(node).and_then(|clade| clade.parent);
@@ -486,6 +512,7 @@ impl Tree {
     }
 
     /// Descendants of `node` in drawn order, excluding `node` itself.
+    #[must_use]
     pub fn descendants(&self, node: usize) -> Vec<usize> {
         let Some(clade) = self.nodes.get(node) else {
             return Vec::new();
@@ -926,6 +953,7 @@ impl Tree {
     }
 
     /// Copies the clade rooted at `node` into a standalone tree.
+    #[must_use]
     pub fn subtree(&self, node: usize) -> Option<Tree> {
         self.extract(node)
     }
@@ -959,6 +987,7 @@ impl Tree {
     /// terminals beyond it. It is the same walk the circular and rectangular
     /// projections cannot do, and the same one the drawing uses, so a caller
     /// that wants to place something itself gets what the figure got.
+    #[must_use]
     pub fn unrooted(&self, cladogram: bool) -> Unrooted {
         crate::track::tree::unrooted_layout(self, cladogram)
     }
@@ -969,6 +998,7 @@ impl Tree {
     /// branch lengths comes out as a phylogram. `cladogram` ignores the lengths
     /// and uses the number of branches instead, which is what to do when the
     /// lengths are missing or meaningless.
+    #[must_use]
     pub fn layout(&self, cladogram: bool) -> Vec<Placement> {
         let leaves = self.leaves();
         let mut rows: Vec<Option<f64>> = vec![None; self.nodes.len()];

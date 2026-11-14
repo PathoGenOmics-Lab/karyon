@@ -70,6 +70,13 @@ pub(crate) enum Flavour {
 /// reads each transcript as a feature of its own instead.
 ///
 /// Rows on another sequence than `region.seq()` are skipped.
+///
+/// # Errors
+///
+/// Returns the first row on `region.seq()` that cannot be placed: a BED row
+/// with fewer than three columns, a GFF3 row with fewer than five, a start or
+/// an end that is not a number, a GFF3 start of nought, or an end before its
+/// start.
 pub fn features(
     text: &str,
     region: &Region,
@@ -84,6 +91,10 @@ pub fn features(
 /// Everything else is read as [`features`] reads it. A gene with no
 /// transcripts under it, as a bacterial gene written over its CDS, is one
 /// feature either way, and so is every BED row.
+///
+/// # Errors
+///
+/// What [`features`] refuses.
 pub fn transcripts(
     text: &str,
     region: &Region,
@@ -122,6 +133,10 @@ pub fn transcripts(
 /// assert_eq!(found[0].rows[0].phase, Some(0));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+///
+/// # Errors
+///
+/// What [`features`] refuses.
 pub fn coding(text: &str, region: &Region, format: Option<Format>) -> Result<Vec<Cds>, ReadError> {
     Ok(models(text, region, format, Level::Coding)?
         .into_iter()
@@ -131,6 +146,7 @@ pub fn coding(text: &str, region: &Region, format: Option<Format>) -> Result<Vec
 
 /// One transcript as [`coding`] reads it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Cds {
     /// The transcript: its name, its strand, the gene it belongs to, its
     /// exons, and its CDS joined into the stretches a drawing shows.
@@ -147,6 +163,7 @@ pub struct Cds {
 /// One row of a coding sequence as the file writes it, 0-based and
 /// half-open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CdsRow {
     /// First base, 0-based.
     pub start: u64,
@@ -207,6 +224,7 @@ impl CdsRow {
 /// assert_eq!(translation_table(gff, "chrM", 3_400, 3_500), Some(2));
 /// assert_eq!(translation_table(gff, "chrM", 5_000, 5_100), None);
 /// ```
+#[must_use]
 pub fn translation_table(text: &str, sequence: &str, start: u64, end: u64) -> Option<u8> {
     if flavour(text, None) == Flavour::Bed {
         return None;
@@ -780,6 +798,7 @@ fn assemble(
 /// assert_eq!(reach(gff, &window, None), (100, 900));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[must_use]
 pub fn reach(text: &str, region: &Region, format: Option<Format>) -> (u64, u64) {
     let mut reach = (region.start(), region.end());
     if flavour(text, format) == Flavour::Bed {
@@ -831,6 +850,7 @@ pub fn reach(text: &str, region: &Region, format: Option<Format>) -> (u64, u64) 
 /// assert!(!parentless(&rooted, Some(&window)));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[must_use]
 pub fn parentless(text: &str, region: Option<&Region>) -> bool {
     let mut declared = std::collections::BTreeSet::new();
     let mut named = Vec::new();
@@ -958,6 +978,7 @@ fn parents_of<'a>(cols: &[&'a str]) -> Vec<(&'static str, &'a str)> {
 
 /// Where an annotation names a gene, for placing a figure by the gene's name.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Named {
     /// Each row that goes by the name: its sequence, and its span, 0-based
     /// and half-open.
@@ -976,6 +997,7 @@ pub struct Named {
 /// its `gene_name`, `gene_id`, `transcript_name` and `transcript_id`, and a
 /// BED row by its fourth column. The name is matched exactly, and failing
 /// that in any case, so `RPOB` finds `rpoB` where nothing is called `RPOB`.
+#[must_use]
 pub fn named(text: &str, name: &str) -> Named {
     let mut each = named_each(text, &[name]);
     Named {
@@ -1086,6 +1108,11 @@ pub(crate) fn named_each(text: &str, wanted: &[&str]) -> NamedEach {
 /// Returns the length of the sequence, taken as the highest end seen, and the
 /// bands. The stain words are the UCSC ones: `gneg`, `gpos25`, `gpos50`,
 /// `gpos75`, `gpos100`, `acen`, `gvar` and `stalk`.
+///
+/// # Errors
+///
+/// Returns the first row on `sequence` with fewer than three columns, a start
+/// or an end that is not a number, or an end before its start.
 pub fn cytoband(text: &str, sequence: &str) -> Result<(u64, Vec<Band>), ReadError> {
     let mut bands = Vec::new();
     let mut length = 0;

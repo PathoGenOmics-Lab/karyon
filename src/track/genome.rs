@@ -42,6 +42,7 @@ use crate::track::{DrawContext, Track};
 /// assert!(svg.contains("chr1"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct GenomeTrack {
     genome: Genome,
     label: Option<String>,

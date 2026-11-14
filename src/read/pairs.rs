@@ -93,6 +93,7 @@ fn column(header: &[&str], names: &[&str]) -> Option<usize> {
 
 /// Whether a column of values called `name` is a correlation, which runs
 /// from nought to one whatever the data: r², r, D'.
+#[must_use]
 pub fn is_correlation(name: &str) -> bool {
     ["r2", "r^2", "r²", "r", "dp", "d'"]
         .iter()
@@ -106,6 +107,7 @@ pub fn is_correlation(name: &str) -> bool {
 /// A table of linkage with a lead, as `--ld-snp` writes one, names the lead
 /// on every row, and a scan whose own table names no variant can still call
 /// its lead by name.
+#[must_use]
 pub fn names(text: &str) -> Vec<(u64, String)> {
     let mut rows = lines(text);
     let Some((_, first)) = rows.next() else {
@@ -144,6 +146,14 @@ pub fn names(text: &str) -> Vec<(u64, String)> {
 /// another sequence: a contact map of a whole genome is handed over to draw
 /// one chromosome. A value that is empty, `.`, `NA` or `nan` is a pair with no
 /// answer, kept and not drawn.
+///
+/// # Errors
+///
+/// A header that names no two columns of positions, and the first row on the
+/// region's sequence whose position is not a number or is nought, or whose
+/// value is not a number and none of the spellings of nothing. In BEDPE, the
+/// first row with fewer than six columns, and the first on the region's
+/// sequence whose start or end is not a number.
 pub fn pairs(text: &str, region: &Region) -> Result<(Vec<Pair>, Option<String>), ReadError> {
     let mut rows = lines(text).peekable();
     let Some(&(first_line, first)) = rows.peek() else {

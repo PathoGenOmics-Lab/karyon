@@ -56,6 +56,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The reads a SAM holds, and every read it declined to draw.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SplitReads {
     /// One read per molecule, its segments in read order.
     pub reads: Vec<SplitRead>,
@@ -228,7 +229,12 @@ pub fn reads(text: &str, region: &Region) -> Result<SplitReads, ReadError> {
 ///
 /// Ordered, so the same file answers the same way twice. For a caller wanting
 /// to say how many molecules a figure of forty rows was chosen out of.
-pub fn names(text: &str) -> Result<BTreeMap<String, usize>, ReadError> {
+///
+/// It cannot fail, so it hands the count back as it is: a line that is not a
+/// SAM record, or whose flag is not a number, is passed over here, and
+/// [`reads`] is what refuses it.
+#[must_use]
+pub fn names(text: &str) -> BTreeMap<String, usize> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for (_, line) in lines(text) {
         let cols = columns(line);
@@ -242,7 +248,7 @@ pub fn names(text: &str) -> Result<BTreeMap<String, usize>, ReadError> {
             *seen.entry(cols[0].to_string()).or_insert(0) += 1;
         }
     }
-    Ok(seen)
+    seen
 }
 
 /// One alignment of one molecule, placed on both the reference and the read.
@@ -501,7 +507,7 @@ r2\t0\tref\t9\t60\t5S6M\t*\t0\t0\t*\t*\tSA:Z:other,100,+,5H4M2S,60,0;ref,40,+,9H
 
     #[test]
     fn a_file_says_which_molecules_it_holds_before_anything_is_drawn() {
-        assert_eq!(names(SAM).unwrap().get("r003"), Some(&1));
+        assert_eq!(names(SAM).get("r003"), Some(&1));
     }
 
     #[test]

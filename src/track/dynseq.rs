@@ -82,6 +82,7 @@ use crate::Region;
 /// assert!(svg.contains("contribution"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct DynseqTrack {
     start: u64,
     seq: Vec<u8>,

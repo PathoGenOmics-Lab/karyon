@@ -71,6 +71,13 @@ use super::{columns, lines, number, ReadError};
 /// height, but it is not a fraction of 1, which is what the axis would say.
 ///
 /// Rows on another sequence than `region.seq()` are skipped.
+///
+/// # Errors
+///
+/// Returns the first row with fewer than eight columns, and the first on
+/// `region.seq()` whose `POS` is not a number or is nought, or whose `AF` holds
+/// a value that is not a number, or a count of values other than one per
+/// alternate allele.
 pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> {
     // VEP writes `CSQ` in the order its header declares, and a file whose
     // header declares none is read in VEP's own order, as `consequence` reads
@@ -151,6 +158,7 @@ pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> 
 /// missense calls alone, so two figures of one file painted it two ways.
 /// Ranked, it moves only when a zoom leaves out a more damaging consequence,
 /// which [`ranked_file`] stops by ranking every call of the file instead.
+#[must_use]
 pub fn ranked(calls: &[Variant]) -> Vec<String> {
     in_rank(calls.iter().filter_map(|call| call.category.as_deref()))
 }
@@ -173,6 +181,7 @@ pub fn ranked(calls: &[Variant]) -> Vec<String> {
 ///            chr2\t90\t.\tA\tG\t.\t.\tANN=G|missense_variant|MODERATE|h\n";
 /// assert_eq!(read::point::ranked_file(vcf), ["missense_variant", "synonymous_variant"]);
 /// ```
+#[must_use]
 pub fn ranked_file(text: &str) -> Vec<String> {
     // `CSQ` is read in the order its header declares, as [`variants`] reads
     // it, so the colours dealt from this ranking name what the calls name.
@@ -325,6 +334,7 @@ const SHAPES: [&str; 4] = ["substitution", "insertion", "deletion", "breakend"];
 /// `conservative_inframe_deletion` ranks as `inframe_deletion` and
 /// `intergenic_region` as `intergenic_variant`, or else as one of the impact
 /// snpEff gives it.
+#[must_use]
 pub fn severity(category: &str) -> usize {
     category
         .split('&')
@@ -404,6 +414,7 @@ fn chrom_line(text: &str) -> Option<(usize, Vec<&str>)> {
 ///            chr1\t100\t.\tC\tT\t.\t.\t.\tGT\t0\t1\n";
 /// assert_eq!(samples(vcf), ["S1", "S2"]);
 /// ```
+#[must_use]
 pub fn samples(text: &str) -> Vec<String> {
     chrom_line(text)
         .and_then(|(_, fields)| fields.get(9..).map(<[&str]>::to_vec))
@@ -415,6 +426,7 @@ pub fn samples(text: &str) -> Vec<String> {
 
 /// What a VCF's genotype columns hold over a window.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Genotypes {
     /// The samples, in the order their rows are drawn: the order of the
     /// `#CHROM` line, or the order they were asked for in.
@@ -642,6 +654,7 @@ pub fn genotypes(
 
 /// What an association table held inside the window.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Associations {
     /// The tested positions in the window, each with the statistic drawn: the
     /// value as written, or `-log10` of it where the file wrote p-values.
@@ -673,6 +686,10 @@ impl Associations {
 ///
 /// The points of [`association_table`], which says what the value column held
 /// as well.
+///
+/// # Errors
+///
+/// What [`association_table`] refuses.
 pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, ReadError> {
     association_table(text, region).map(|table| table.points)
 }
@@ -713,6 +730,7 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
 /// Every row of an association table, on every sequence it names, as a scan
 /// drawn across a whole genome reads it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct GenomeAssociations {
     /// Each sequence the table names, in the order it first names them, with
     /// its points, 0-based on that sequence.
@@ -949,6 +967,7 @@ fn hashed_header(text: &str) -> Option<(usize, Wide)> {
 ///
 /// The column is the one the header names, which for BOLT-LMM is the second,
 /// behind the variant's own name, and the first in a table of three.
+#[must_use]
 pub fn association_sequences(text: &str) -> Vec<(String, usize)> {
     let Some((column, _, header)) = association_columns(text) else {
         return Vec::new();

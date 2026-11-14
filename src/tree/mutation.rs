@@ -36,6 +36,7 @@ use super::{AnnotationValue, Tree};
 /// same file, and both round-trip through the [`Display`][std::fmt::Display]
 /// rendering.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub struct Mutation {
     /// The gene or segment, where the spelling names one.
     pub gene: Option<String>,
@@ -59,6 +60,7 @@ impl Mutation {
     /// returned as nothing rather than as a mutation at position zero, because
     /// a figure drawn from a misread file looks exactly like a figure drawn
     /// from a good one.
+    #[must_use]
     pub fn parse(text: &str) -> Option<Mutation> {
         let text = text.trim();
         if text.is_empty() {
@@ -118,6 +120,7 @@ impl Mutation {
     /// not a mutation is skipped rather than failing the list, since a writer
     /// that adds a note beside the changes should not cost a reader the
     /// changes.
+    #[must_use]
     pub fn parse_list(text: &str) -> Vec<Mutation> {
         pieces(text).filter_map(Mutation::parse).collect()
     }
@@ -168,6 +171,7 @@ impl Mutations {
     /// `{A123T,S:D614G}`, and the two read the same. A piece that is not a
     /// change is skipped, as [`Mutation::parse_list`] skips it, and counted in
     /// [`Mutations::unread`].
+    #[must_use]
     pub fn read(tree: &Tree, key: &str) -> Mutations {
         let mut on_branch = vec![Vec::new(); tree.nodes().len()];
         let mut branches: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -246,6 +250,7 @@ impl Mutations {
     /// The change happened once and everything under it has it, so this is a
     /// subtree and not a branch. A change that happened on two branches gives
     /// both subtrees.
+    #[must_use]
     pub fn carriers(&self, tree: &Tree, spelling: &str) -> Vec<usize> {
         let mut carrying = vec![false; tree.nodes().len()];
         let mut stack: Vec<usize> = self.happened_on(spelling).to_vec();
@@ -262,6 +267,7 @@ impl Mutations {
     /// Everything that happened on the way from the root to `node`, in order.
     ///
     /// Which is this node's genotype, as far as the file records it.
+    #[must_use]
     pub fn path(&self, tree: &Tree, node: usize) -> Vec<&Mutation> {
         let mut chain: Vec<usize> = tree.ancestors(node);
         chain.reverse();

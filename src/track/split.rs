@@ -40,7 +40,8 @@ use crate::track::{DrawContext, Strand, Track};
 ///
 /// The reference span is where it landed; the read span is where those bases sat
 /// on the molecule, which is what puts the segments in order.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[must_use = "a segment draws nothing until it is in a split read"]
 pub struct SplitSegment {
     start: u64,
     end: u64,
@@ -122,6 +123,7 @@ impl SplitSegment {
 
 /// One molecule and every place it aligned, in read order.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a read draws nothing until it is in a track"]
 pub struct SplitRead {
     name: Option<String>,
     segments: Vec<SplitSegment>,
@@ -209,6 +211,7 @@ impl SplitRead {
 /// assert!(svg.contains("<polygon"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct SplitReadTrack {
     reads: Vec<SplitRead>,
     row_height: f64,

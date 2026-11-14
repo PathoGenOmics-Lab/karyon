@@ -183,6 +183,7 @@ pub fn contacts<R: Read + Seek>(
 /// counting each bin the window touches, or the coarsest where none does.
 /// `None` where there is no resolution, as in a file of restriction fragments
 /// alone.
+#[must_use]
 pub fn resolution_for(resolutions: &[u32], region: &Region, most: u64) -> Option<u32> {
     let bins = |resolution: u32| {
         let size = u64::from(resolution);
@@ -200,6 +201,7 @@ pub fn resolution_for(resolutions: &[u32], region: &Region, most: u64) -> Option
 /// pairs, so a `.hic` is drawn by the same reader as the BEDPE `hictk dump
 /// --join` writes for it. Each count is written as the shortest decimal that
 /// reads back as the same number.
+#[must_use]
 pub fn bedpe(sequence: &str, cells: &[Pair]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(cells.len() * (2 * sequence.len() + 48));

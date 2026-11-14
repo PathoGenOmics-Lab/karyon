@@ -44,6 +44,7 @@ use crate::TreeShape;
 
 /// What went wrong once the command line was understood.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum BuildError {
     /// A file would not open.
     Open {
@@ -406,6 +407,7 @@ pub enum BuildError {
 
 /// Why a `--circular` has no circle to draw.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CircleRefusal {
     /// A circle handed to a builder of figures along a sequence, which
     /// [`build_circle`] draws instead.
@@ -525,8 +527,11 @@ impl fmt::Display for CircleRefusal {
     }
 }
 
+impl std::error::Error for CircleRefusal {}
+
 /// Why a `--codons` has no coding sequence to count.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CodonRefusal {
     /// The figure has no annotation to find a gene in.
     NoAnnotation,
@@ -604,6 +609,7 @@ pub enum CodonRefusal {
 
 /// Why a `--shade` has nowhere to go.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ShadeRefusal {
     /// Nothing in the figure is laid on the coordinates.
     NothingToShade,
@@ -627,6 +633,46 @@ pub enum ShadeRefusal {
     /// annotation to look one up in: a GFF3 beside it needs a place.
     GenomeGene,
 }
+
+/// The reason alone. [`BuildError::Unshaded`] says it after the shade as it
+/// was written, as `--shade rpoB: no gene of that name in the annotation`.
+impl fmt::Display for ShadeRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShadeRefusal::NothingToShade => write!(
+                f,
+                "nothing in this figure is laid on the coordinates to shade; a \
+                 phylogeny's x is a branch length, and an ideogram's the whole chromosome"
+            ),
+            ShadeRefusal::Elsewhere { sequence, places } => write!(
+                f,
+                "the stretch is on {sequence}, and the figure is drawn over {}",
+                joined(places)
+            ),
+            ShadeRefusal::NoAnnotation => write!(
+                f,
+                "a gene is looked up in the figure's annotation, and it has none; add the \
+                 GFF3, GTF or BED, or write the span"
+            ),
+            ShadeRefusal::NoSuchGene { near } => match near.as_slice() {
+                [] => write!(f, "no gene of that name in the annotation"),
+                _ => write!(f, "no gene of that name; did you mean {}?", joined_or(near)),
+            },
+            ShadeRefusal::WholeGenome => write!(
+                f,
+                "a figure across the whole genome is shaded on one of its sequences, as \
+                 7:1,001-2,000"
+            ),
+            ShadeRefusal::GenomeGene => write!(
+                f,
+                "a figure across the whole genome reads no annotation to look a gene up \
+                 in; write the gene's span on its sequence, as 7:1,001-2,000"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ShadeRefusal {}
 
 /// The kind of system a message that names a command is written for.
 ///
@@ -992,43 +1038,17 @@ impl fmt::Display for BuildError {
                 joined(categories)
             ),
             BuildError::Tree { flag, path, cause } => write!(f, "{flag} {path}: {cause}"),
-            BuildError::Unshaded { given, why } => match why {
-                ShadeRefusal::NothingToShade => write!(
-                    f,
-                    "--shade {given}: nothing in this figure is laid on the coordinates to \
-                     shade; a phylogeny's x is a branch length, and an ideogram's the whole \
-                     chromosome"
-                ),
-                ShadeRefusal::Elsewhere { sequence, places } => write!(
-                    f,
-                    "--shade {given} is on {sequence}, and the figure is drawn over {}",
-                    joined(places)
-                ),
-                ShadeRefusal::NoAnnotation => write!(
-                    f,
-                    "--shade {given}: a gene is looked up in the figure's annotation, and it \
-                     has none; add the GFF3, GTF or BED, or write the span"
-                ),
-                ShadeRefusal::NoSuchGene { near } => match near.as_slice() {
-                    [] => write!(f, "--shade {given}: no gene of that name in the annotation"),
-                    _ => write!(
-                        f,
-                        "--shade {given}: no gene of that name; did you mean {}?",
-                        joined_or(near)
-                    ),
-                },
-                ShadeRefusal::WholeGenome => write!(
-                    f,
-                    "--shade {given}: a figure across the whole genome is shaded on one of \
-                     its sequences, as 7:1,001-2,000"
-                ),
-                ShadeRefusal::GenomeGene => write!(
-                    f,
-                    "--shade {given}: a figure across the whole genome reads no annotation \
-                     to look a gene up in; write the gene's span on its sequence, as \
-                     7:1,001-2,000"
-                ),
-            },
+            // The one reason with a shape of its own, which names the
+            // sequence where the others say why after a colon.
+            BuildError::Unshaded {
+                given,
+                why: ShadeRefusal::Elsewhere { sequence, places },
+            } => write!(
+                f,
+                "--shade {given} is on {sequence}, and the figure is drawn over {}",
+                joined(places)
+            ),
+            BuildError::Unshaded { given, why } => write!(f, "--shade {given}: {why}"),
         }
     }
 }
@@ -1151,6 +1171,8 @@ impl fmt::Display for CodonRefusal {
         }
     }
 }
+
+impl std::error::Error for CodonRefusal {}
 
 /// Builds the figure the command line asked for and renders it.
 ///
@@ -1327,7 +1349,7 @@ pub fn build_sheet(
         sheet = sheet.push_bare(figure);
     }
     if invocation.legend && !legend.is_empty() {
-        let key = crate::Figure::new(Region::new("key", 0, 1).expect("a one-base window"))
+        let key = crate::Figure::new(Region::of_length("key", 1))
             .width(invocation.width.unwrap_or(900.0))
             .theme(theme)
             .show_region_label(false)
@@ -1342,6 +1364,8 @@ pub fn build_sheet(
 }
 
 /// A figure a command line builds, before it is written out.
+#[derive(Debug)]
+#[non_exhaustive]
 pub struct Built {
     /// The figure, for [`Figure::to_svg`], or for
     /// [`Figure::to_svg_with_id_prefix`] where a page holds several.
@@ -6685,9 +6709,17 @@ fn shortened(path: &str) -> &str {
 
 /// Opens what a command line names, the way a shell would.
 ///
-/// This is what the `karyon` binary hands to [`build`], and it is the only
-/// thing in the crate that reads a path. A caller with no filesystem, which is
-/// every caller in a browser, passes its own closure instead.
+/// This is how [`Disk`], which the `karyon` binary reads its files through,
+/// reads a file's text, and a caller of [`build`] can hand it over to read
+/// files as the binary does. A caller with no filesystem, which is every
+/// caller in a browser, passes its own closure instead.
+///
+/// # Errors
+///
+/// Whatever stopped the file or standard input being read, and, as
+/// [`io::ErrorKind::InvalidData`], bytes that are not text: a gzip wrapper that
+/// does not come off, a BAM, a BCF or another binary format, named by what its
+/// first bytes say it is, and anything else that is not UTF-8.
 pub fn open_from_disk(source: &Source) -> io::Result<String> {
     let (bytes, path) = match source {
         Source::Path(path) => (fs::read(path)?, Some(path.as_path())),
@@ -7276,6 +7308,7 @@ pub struct Held {
 
 impl Held {
     /// Holds no files yet.
+    #[must_use]
     pub fn new() -> Self {
         Held::default()
     }
@@ -7366,6 +7399,7 @@ impl Files for Held {
 /// [`build`] can turn it into a message naming the tool that reads it, and a
 /// caller opening files some other way is not obliged to know about it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Binary {
     /// gzip or bgzip, and not BAM or BCF by its name.
     Gzip,
@@ -7400,6 +7434,7 @@ pub enum Binary {
 
 impl Binary {
     /// The format a file's first bytes, and for bgzip its name, say it is.
+    #[must_use]
     pub fn of(bytes: &[u8], path: Option<&Path>) -> Option<Binary> {
         let named = |ending: &str| {
             path.and_then(|path| path.extension())

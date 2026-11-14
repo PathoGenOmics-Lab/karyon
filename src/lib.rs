@@ -5,8 +5,9 @@
 //! bases, the gene models and the variant calls all line up on the same
 //! position. It has no runtime dependencies and emits plain SVG 1.1 that opens
 //! unchanged in a browser, in Inkscape and in Illustrator. Drawing does no I/O:
-//! a figure is written only by an optional `save_svg` or `save_pdf`, and the
-//! one function that reads a path, [`cli::stack::open_from_disk`], is the
+//! a figure is written only by an optional `save`, `save_svg` or `save_pdf`,
+//! and what reads a path, [`cli::stack::Disk`] and the
+//! [`open_from_disk`](cli::stack::open_from_disk) it reads text with, is the
 //! command line's.
 //!
 //! # 0-based inside, 1-based where a reader looks
@@ -18,21 +19,25 @@
 //! therefore `pos - 1` on the way in.
 //!
 //! [`read`] does that subtraction so nobody has to remember which formats need
-//! it, and `tests/properties.rs` checks that the same interval written in a
-//! 0-based format and a 1-based one comes back as the same pair of numbers.
+//! it, and a property test in the repository, `tests/properties.rs`, checks
+//! that the same interval written in a 0-based format and a 1-based one comes
+//! back as the same pair of numbers.
 //!
-//! # Files are text, and text is somebody else's problem
+//! # Where the bytes come from is somebody else's problem
 //!
-//! [`read`] turns the text a genomics shell already writes into the vectors
-//! the tracks take: BED, bedGraph, GFF3, cytoBand, VCF, SAM, PAF, FASTA and
-//! aligned FASTA, `samtools depth`, `modkit`'s bedMethyl, Bismark's extractor
-//! output, an aligner's splice junctions, InterProScan's table, and tables of
-//! association statistics, copy number segments, genotypes and sample facts.
-//! [`Tree::parse_newick`] turns Newick into the [`Tree`] a [`TreeTrack`]
-//! draws. Every one of those functions takes a `&str`: none of them opens a
-//! path to read one, so where the text came from stays the caller's decision,
-//! and the dependency count stays at zero because every format is lines of
-//! text.
+//! [`read`] turns what a genomics shell already writes into the vectors the
+//! tracks take. Most of it is text: BED, bedGraph, GFF3, cytoBand, VCF, SAM,
+//! PAF, FASTA and aligned FASTA, `samtools depth`, `modkit`'s bedMethyl,
+//! Bismark's extractor output, an aligner's splice junctions, InterProScan's
+//! table, and tables of association statistics, copy number segments,
+//! genotypes and sample facts. The binary formats are read a window at a time
+//! through their indexes: BAM, BCF, bigWig, bigBed, 2bit, Juicer's `.hic`,
+//! and bgzipped text through its `.tbi` or `.csi`. [`Tree::parse`] turns
+//! Newick or NEXUS into the [`Tree`] a [`TreeTrack`] draws. A reader of text
+//! takes a `&str` and a reader of a binary file anything that reads and
+//! seeks, and none of them opens a path, so where the bytes came from stays
+//! the caller's decision, and the dependency count stays at zero because
+//! every one of those formats is read with the standard library alone.
 //!
 //! # Four tracks, one region, one call each
 //!
@@ -142,6 +147,12 @@
 //! same confident column as four thousand. The machinery is in [`dash`] and
 //! works on any compositional data.
 
+// docs.rs builds the documentation from the package, which does not carry the
+// website in docs/, so the logo and the icon are the ones the site serves.
+#![doc(
+    html_logo_url = "https://pathogenomics-lab.github.io/karyon/assets/karyon_logo.svg",
+    html_favicon_url = "https://pathogenomics-lab.github.io/karyon/assets/favicon.svg"
+)]
 #![forbid(unsafe_code)]
 
 /// The version of this crate.

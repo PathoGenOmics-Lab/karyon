@@ -12,6 +12,7 @@ use super::*;
 /// How terminal taxa are connected to their geographic location in a
 /// [`PhyloMap`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PhyloConnector {
     /// One connector per location, with its exact terminal count in a tooltip.
     #[default]
@@ -48,6 +49,8 @@ pub enum PhyloConnector {
 /// assert!(svg.contains("Peru; 1 mapped tip"));
 /// # Ok::<(), karyon::Error>(())
 /// ```
+#[derive(Debug)]
+#[must_use = "a map is drawn only by to_svg, to_pdf, save_svg or save_pdf"]
 pub struct PhyloMap {
     tree: Tree,
     locations: Vec<GeoLocation>,
@@ -321,11 +324,13 @@ impl PhyloMap {
     }
 
     /// Renders the complete composition to a standalone SVG document.
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg(&self) -> String {
         self.to_svg_with_id_prefix("")
     }
 
     /// Renders with generated SVG ids prefixed for nesting in [`Panels`](crate::Panels).
+    #[must_use = "the SVG is returned, not written; save_svg writes a file"]
     pub fn to_svg_with_id_prefix(&self, prefix: &str) -> String {
         let theme = self.theme.clone().scaled(self.visual_scale);
         let scene = PhyloScene::new(&self.tree, self.shape, self.phylo_time().as_ref());
@@ -385,12 +390,17 @@ impl PhyloMap {
     }
 
     /// Saves the SVG document to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`fs::write`] returns.
     pub fn save_svg(&self, path: impl AsRef<Path>) -> io::Result<()> {
         fs::write(path, self.to_svg())
     }
 
     /// Renders the composition as a one-page PDF, converted from
     /// [`PhyloMap::to_svg`]; see [`Pdf`] for what carries over.
+    #[must_use = "the PDF is returned, not written; save_pdf writes a file"]
     pub fn to_pdf(&self) -> Pdf {
         crate::pdf::drawn(&self.to_svg())
     }

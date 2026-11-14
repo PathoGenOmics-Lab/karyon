@@ -17,6 +17,8 @@ use crate::tree::Tree;
 
 /// One annotated interval in a protein or transcript architecture.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "a domain draws nothing until it is added to an architecture"]
+#[non_exhaustive]
 pub struct DomainFeature {
     /// Zero-based half-open start.
     pub start: u64,
@@ -54,6 +56,8 @@ impl DomainFeature {
 
 /// Domain architecture for one named sequence.
 #[derive(Debug, Clone, PartialEq)]
+#[must_use = "an architecture draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct DomainArchitecture {
     /// Sequence name, matched exactly to an attached tree leaf.
     pub name: String,
@@ -97,6 +101,7 @@ impl DomainArchitecture {
 /// assert!(svg.contains("kinase"));
 /// ```
 #[derive(Debug, Clone)]
+#[must_use = "a track draws nothing until it is pushed into a figure"]
 pub struct DomainTrack {
     rows: Vec<DomainArchitecture>,
     label: Option<String>,

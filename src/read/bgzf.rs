@@ -39,6 +39,7 @@
 //! [`Bgzf::fill`] says how much it filled, and [`bam`](super::bam) says what a
 //! BAM cut short is.
 
+use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 
 use super::{gzip, ReadError};
@@ -49,6 +50,7 @@ use super::{gzip, ReadError};
 /// That subfield is what makes a file one an index can point into. Plain gzip
 /// has none, and a gzip file of one member has to be inflated from its start
 /// to reach any byte of it, so an index beside one cannot be used.
+#[must_use]
 pub fn is_bgzf(data: &[u8]) -> bool {
     if !gzip::is_gzip(data) || data.len() < 12 || data[3] & 0x04 == 0 {
         return false;
@@ -80,6 +82,18 @@ pub struct Bgzf<R> {
     at: usize,
     offset: u64,
     next: u64,
+}
+
+// By hand, so a reader that is not Debug itself, as a `Box<dyn Seekable>` is
+// not, still gives one: where it is in the file says more than the reader.
+impl<R> fmt::Debug for Bgzf<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Bgzf")
+            .field("offset", &self.offset)
+            .field("at", &self.at)
+            .field("next", &self.next)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<R: Read + Seek> Bgzf<R> {
