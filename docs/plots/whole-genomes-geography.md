@@ -1,3 +1,9 @@
+---
+description: >-
+  Plots beyond one locus: where a window sits in its chromosome, a signal
+  across a whole assembly, a circular genome and where samples were taken.
+---
+
 # Whole genomes and maps
 
 Plots for context beyond one locus: where a window sits in its chromosome, a

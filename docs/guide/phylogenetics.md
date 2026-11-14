@@ -1,3 +1,9 @@
+---
+description: >-
+  Draw a Newick or NEXUS tree with its metadata intact, on branch length or
+  time, rectangular, circular or unrooted, with support, clades and traits.
+---
+
 # Phylogenetics
 
 Read a tree with its metadata intact and draw it on branch length or calendar

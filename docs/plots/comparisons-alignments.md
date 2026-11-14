@@ -1,3 +1,9 @@
+---
+description: >-
+  Plots that compare sequences: multiple alignments column by column, domain
+  architectures, dot plots, synteny ribbons and gene neighbourhoods.
+---
+
 # Comparisons and alignments
 
 Plots that compare two or more sequences without losing orientation:

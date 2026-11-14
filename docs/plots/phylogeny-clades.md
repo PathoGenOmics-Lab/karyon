@@ -1,3 +1,9 @@
+---
+description: >-
+  Plots that put a tree beside the evidence: annotated trees in several
+  layouts, tanglegrams, spans painted onto clades and a tree around a map.
+---
+
 # Phylogeny and clades
 
 Plots that put a tree beside the evidence: annotated trees in several layouts,

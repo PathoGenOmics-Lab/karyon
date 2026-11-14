@@ -1,3 +1,9 @@
+---
+description: >-
+  Change how a figure looks: the light and dark themes, every colour, font and
+  size a Theme holds, a transparent page and a theme of your own.
+---
+
 # Styling
 
 Change how a figure looks: the light or the dark theme, every colour, font and

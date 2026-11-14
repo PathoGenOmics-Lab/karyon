@@ -1,3 +1,9 @@
+---
+description: >-
+  How karyon counts positions, 0-based and half-open as BED does, the two
+  places that count from one, and what each file format's numbers become.
+---
+
 # Coordinates
 
 karyon counts every position one way: 0-based and half-open, as BED does. This

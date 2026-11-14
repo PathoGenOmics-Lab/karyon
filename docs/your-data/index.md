@@ -12,7 +12,7 @@ it is drawn over one.
 
 <div class="k-plots" markdown>
 
--   [![Reads, calls and genes](../assets/start/reads.svg){ .k-light width="720" height="248" loading="lazy" }![Reads, calls and genes](../assets/start/reads-dark.svg){ .k-dark width="720" height="248" loading="lazy" }](reads.md)
+-   [![Reads, calls and genes](../assets/start/reads.svg){ .k-light width="720" height="277" loading="lazy" }![Reads, calls and genes](../assets/start/reads-dark.svg){ .k-dark width="720" height="277" loading="lazy" }](reads.md)
 
     **[Reads, calls and genes](reads.md)**
     A BAM, a VCF and an annotation over one place.
@@ -37,7 +37,7 @@ it is drawn over one.
     **[Two assemblies](assemblies.md)**
     How two assemblies line up, from a PAF alignment.
 
--   [![A whole sequence](../assets/start/genome.svg){ .k-light width="720" height="227" loading="lazy" }![A whole sequence](../assets/start/genome-dark.svg){ .k-dark width="720" height="227" loading="lazy" }](genome.md)
+-   [![A whole sequence](../assets/start/genome.svg){ .k-light width="720" height="256" loading="lazy" }![A whole sequence](../assets/start/genome-dark.svg){ .k-dark width="720" height="256" loading="lazy" }](genome.md)
 
     **[A whole sequence](genome.md)**
     The depth of one sample or several along a whole chromosome, of every
@@ -53,7 +53,7 @@ it is drawn over one.
     **[A heatmap of many samples](samples.md)**
     The depth or copy number of many samples, in the order of a tree.
 
--   [![Genotypes of many samples](../assets/start/genotypes.svg){ .k-light width="720" height="697" loading="lazy" }![Genotypes of many samples](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" loading="lazy" }](genotypes.md)
+-   [![Genotypes of many samples](../assets/start/genotypes.svg){ .k-light width="720" height="732" loading="lazy" }![Genotypes of many samples](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="732" loading="lazy" }](genotypes.md)
 
     **[Genotypes of many samples](genotypes.md)**
     A cohort's VCF, a row per sample, in the order of a tree.

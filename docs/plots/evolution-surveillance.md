@@ -1,3 +1,9 @@
+---
+description: >-
+  Plots for results fitted upstream: ancestral states, selection on branches
+  and at sites, population trajectories and lineage counts over time.
+---
+
 # Evolution and surveillance
 
 Plots for results fitted upstream: ancestral states, selection on branches and

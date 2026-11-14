@@ -14,8 +14,8 @@ karyon rpoB genes.gff3 --genotypes cohort.vcf.gz --with-tree tree.nwk \
 ```
 
 <figure class="k-start" markdown>
-![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, dark cells where it carries the other allele, the dark cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="697" }
-![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="697" }
+![Forty samples ordered by a phylogeny beside them, each a row of calls across rpoB: short grey bars where a sample has the reference, dark cells where it carries the other allele, the dark cells forming blocks down the clades of the tree, and a strip naming each sample's lineage](../assets/start/genotypes.svg){ .k-light width="720" height="732" }
+![The same figure on the dark page](../assets/start/genotypes-dark.svg){ .k-dark width="720" height="732" }
 </figure>
 
 One row per sample and one cell per site, each at its position under the gene.

@@ -1,3 +1,10 @@
+---
+description: >-
+  Build figures in Rust: plot() for a stack of tracks in one chain, Figure for
+  full control, and Panels, Rings and Genome for sheets, circles and
+  assemblies.
+---
+
 # The Rust API
 
 Write a figure in Rust: the `plot()` builder for a stack of tracks in one chain,

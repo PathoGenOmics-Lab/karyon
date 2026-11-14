@@ -1,3 +1,9 @@
+---
+description: >-
+  Short, complete answers to common tasks in Rust and on the command line:
+  coverage, a locus in detail, samples, whole genomes, trees and output.
+---
+
 # Recipes
 
 Short, complete answers to common tasks, grouped by what you are trying to do.

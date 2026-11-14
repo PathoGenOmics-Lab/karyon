@@ -1,3 +1,9 @@
+---
+description: >-
+  Regions, tracks, the one shared scale, plot() and Figure, the containers and
+  the readers: the six ideas behind most of what karyon does.
+---
+
 # Core ideas
 
 Six ideas explain most of what karyon does, and one principle explains what it

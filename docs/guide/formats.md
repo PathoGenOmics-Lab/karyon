@@ -1,3 +1,9 @@
+---
+description: >-
+  Which files karyon reads, what it takes from each one, how it tells formats
+  apart, and where each format's coordinates land in the figure.
+---
+
 # File formats
 
 Which files karyon reads, what it takes from each one, and where each format's

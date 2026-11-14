@@ -1,8 +1,8 @@
 site_name: karyon
 site_description: >-
   Genomic track plots for Rust. A stack of tracks over one shared coordinate
-  axis, rendered to standalone SVG, with no runtime dependencies and a command
-  line front end that reads what a genomics shell already writes.
+  axis, rendered to standalone SVG or PDF, with no runtime dependencies and a
+  command line front end that reads what a genomics shell already writes.
 site_author: PathoGenOmics Lab
 site_url: https://pathogenomics-lab.github.io/karyon/
 

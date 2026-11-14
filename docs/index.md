@@ -2,9 +2,8 @@
 template: home.html
 title: Genome figures where every row lines up
 description: >-
-  karyon is a Rust library and command line program that stacks tracks such as
-  coverage, genes, variants, reads and phylogenies over one shared coordinate
-  axis and writes a standalone SVG.
+  karyon stacks coverage, genes, variants, reads or a phylogeny over one
+  shared coordinate axis, from Rust or the command line, as one SVG or PDF.
 hide:
   - navigation
   - toc
@@ -45,7 +44,7 @@ karyon NC_000962.3:761,000-762,999 \
 
 <div class="k-plots kh-cards" markdown>
 
--   [![Reads, calls and genes](assets/start/reads.svg){ .k-light width="720" height="248" loading="lazy" }![Reads, calls and genes](assets/start/reads-dark.svg){ .k-dark width="720" height="248" loading="lazy" }](your-data/reads.md)
+-   [![Reads, calls and genes](assets/start/reads.svg){ .k-light width="720" height="277" loading="lazy" }![Reads, calls and genes](assets/start/reads-dark.svg){ .k-dark width="720" height="277" loading="lazy" }](your-data/reads.md)
 
     **[Reads, calls and genes](your-data/reads.md)**
     A BAM, a VCF and an annotation over one place.
@@ -70,7 +69,7 @@ karyon NC_000962.3:761,000-762,999 \
     **[Two assemblies](your-data/assemblies.md)**
     How two assemblies line up, from a PAF alignment.
 
--   [![A whole sequence](assets/start/genome.svg){ .k-light width="720" height="227" loading="lazy" }![A whole sequence](assets/start/genome-dark.svg){ .k-dark width="720" height="227" loading="lazy" }](your-data/genome.md)
+-   [![A whole sequence](assets/start/genome.svg){ .k-light width="720" height="256" loading="lazy" }![A whole sequence](assets/start/genome-dark.svg){ .k-dark width="720" height="256" loading="lazy" }](your-data/genome.md)
 
     **[A whole sequence](your-data/genome.md)**
     The depth of one sample or several along a whole chromosome.

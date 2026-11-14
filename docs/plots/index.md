@@ -1,3 +1,9 @@
+---
+description: >-
+  Every kind of plot karyon draws, found by the question you are asking of
+  your data or by the file you already have.
+---
+
 # Gallery
 
 Find the plot for the question you are asking of your data: start from what the

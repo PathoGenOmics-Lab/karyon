@@ -1,3 +1,9 @@
+---
+description: >-
+  How a figure becomes a PDF: read from its SVG, three quarters of a point to
+  the pixel, its text in embedded Liberation faces, and how to check it.
+---
+
 # PDF
 
 A figure is drawn once, as SVG, and a PDF is that SVG read back and written as

@@ -1537,3 +1537,44 @@ body {
   width: 100%;
   height: auto;
 }
+
+/* On a phone. A figure of the short path is drawn 720 pixels wide, and the
+   program in the page draws it again at the width of the column, with its
+   labels at their own size. Where the program does not draw it, because the
+   page shows no command for it, the browser runs no JavaScript or no
+   WebAssembly, or the program never arrives, the file is all there is, and in
+   a phone's column it would be shown at under half its size: labels of 10.5
+   and 11.5 pixels at about 5, which nobody reads. So below the width of a
+   tablet such a figure keeps the size it was drawn at, in a frame that
+   scrolls sideways, with a line above it saying so. A figure the program
+   draws is left as it is. */
+@media screen and (max-width: 44.9375em) {
+  .md-typeset figure.k-start > p {
+    width: 100%;
+  }
+
+  .md-typeset figure.k-start > p:not(:has(> .k-fig)),
+  .md-typeset figure.k-start .k-fig--pair[data-state="static"] .k-fig__stage {
+    overflow-x: auto;
+    touch-action: auto;
+  }
+
+  .md-typeset figure.k-start > p:not(:has(> .k-fig)) > img,
+  .md-typeset figure.k-start .k-fig--pair[data-state="static"] .k-fig__stage > img {
+    width: 720px;
+    max-width: none;
+    height: auto;
+    vertical-align: bottom;
+  }
+
+  .md-typeset figure.k-start:not(:has(.k-fig:not([data-state="static"])))::before {
+    content: "Shown at full size: swipe sideways for the rest.";
+    display: block;
+    align-self: stretch;
+    margin-bottom: 0.45rem;
+    font-size: 0.68rem;
+    line-height: 1.4;
+    text-align: left;
+    color: var(--md-default-fg-color--lighter);
+  }
+}

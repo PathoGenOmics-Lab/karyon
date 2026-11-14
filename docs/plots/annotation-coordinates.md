@@ -1,3 +1,9 @@
+---
+description: >-
+  Plots that name what lies along a sequence and how to read positions on it:
+  gene models, transcription units, reading frames, rulers and keys.
+---
+
 # Annotation and coordinates
 
 Plots that name what lies along a sequence and show how to read positions on

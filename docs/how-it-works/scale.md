@@ -1,3 +1,9 @@
+---
+description: >-
+  The one map from positions to pixels every track draws through, how each
+  track reduces what falls in one pixel column, and when that matters.
+---
+
 # Scale
 
 Every track in a figure draws through one `Scale`, and asks it how much

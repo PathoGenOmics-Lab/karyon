@@ -1,3 +1,9 @@
+---
+description: >-
+  How to report a figure that came out wrong, what a change has to pass before
+  it is merged, and the conventions karyon's code keeps.
+---
+
 # Contributing
 
 How to report a figure that came out wrong, what a change has to pass before
@@ -25,7 +31,7 @@ perfectly valid SVG that is wrong. So a report needs three things:
   entry or git commit for the library.
 - **The SVG itself.** It is text, so it attaches to an issue as it is. If it is
   large, the few elements that are wrong and the figure's dimensions are
-  usually enough.
+  usually enough. If the PDF is wrong and the SVG right, attach the PDF too.
 
 Say what you expected to see and what you saw. "The lollipop for S450L sits
 one base to the left of the codon the ruler numbers 450" is a report; "the

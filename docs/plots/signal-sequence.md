@@ -1,3 +1,9 @@
+---
+description: >-
+  Plots for a value or a symbol at every position: read depth, statistics in
+  windows, methylation by strand, reference bases, logos and attribution.
+---
+
 # Signal and sequence
 
 Plots for a value or a symbol at every position: read depth, a statistic in

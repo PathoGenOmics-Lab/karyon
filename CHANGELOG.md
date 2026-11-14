@@ -697,6 +697,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A link to a page of the site, pasted into Slack, Mastodon, LinkedIn, X or a
+  chat app, unfolds into a card: the page's title and description over a
+  picture of the site at night, the logo, the home page's title and a strip of
+  the figure Start here draws, 1200 by 630 pixels in 258 KB. No page said what
+  a preview should show, so a shared link came with no picture. Every page now
+  carries the Open Graph tags and the card X reads, from `overrides/main.html`;
+  the picture is a page of its own, `overrides/social/card.html`, photographed
+  by a browser, with a note beside it saying how to draw it again.
 - Each release archive carries the completion scripts for bash, zsh and fish,
   in `completions/`, and the manual page, in `man/`, written by the binary it
   holds as the release is built. The x86_64 macOS binary does not run on the
@@ -1838,6 +1846,41 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The changelog's version headings no longer link to release pages that do
+  not exist. No version has been tagged or released, so each of the fourteen
+  links, from `releases/tag/v0.1.0` to `v0.14.0`, answered 404 on the site and
+  on GitHub. They wait in a comment at the foot of the changelog, which says
+  how to bring each one back once its tag is pushed, and a heading reads
+  `[0.14.0] - 2026-07-31`, as `[Unreleased]` already did.
+- The site says a figure comes out as SVG or PDF: the home page, the
+  description most pages give a search engine and the installation page's
+  requirements said SVG alone, and the requirements said the output names its
+  fonts rather than embedding them, which the PDF now does, a subset of each
+  Liberation face its text is set in. The installation page spoke of the
+  Windows release archive, and of the archives carrying the completion
+  scripts, as if one could be downloaded; none has been published, and the
+  page says what each will hold when one is. It names Juicer's `.hic` among
+  the files read through an index and says a PDF is as deterministic as an
+  SVG; the home page counts 38 track types, where it counted 36; the playground
+  counts its thirty-four examples, where its guide said thirty-three; and the
+  tooltip on BAM, on every page, says karyon reads one as it is, where it said
+  to pipe it through `samtools view`.
+- Every page of the site gives a search engine and a link preview a sentence
+  of its own on what a reader finds there. Twenty-eight of the fifty-four gave
+  none, so the site's description stood in for each of them, and three ran
+  past the length a search result shows, one of them, the variation tracks,
+  leaving out `PairTrack`, which the page describes.
+- On a phone, a figure the program in the page does not draw keeps the size
+  it was drawn at, in a frame that scrolls sideways under a line saying so, so
+  its labels read at the 10.5 and 11.5 pixels they were drawn at. Fitted to a
+  phone's column it was shown at under half its width, those labels at about
+  5 pixels. That is the two figures on the variation tracks page, and every
+  figure of the short path when the browser runs no JavaScript or no
+  WebAssembly or the program never arrives; a figure the program draws is
+  laid out at the width of the column already, and is left as it is, as is
+  every figure on a wider screen. The height written beside twenty-four
+  pictures of those figures is theirs again, where it was an older drawing's,
+  up to 35 pixels short, so a page no longer moves when one of them loads.
 - The README's licence badge reads `license: MIT, fonts OFL-1.1`, as the
   crate's licence is `MIT AND OFL-1.1` since it carries the Liberation faces a
   PDF embeds. It read `license: MIT`.
@@ -3845,6 +3888,16 @@ First release. Everything below is new.
 - `examples/locus.rs`, which renders the two figures in the README from a fixed
   seed.
 
+<!--
+Each version heading above is written to link to its release page on GitHub,
+through the lines below. No version has been tagged or released yet, so every
+one of those pages answers 404, and the lines wait in this comment, which
+leaves each heading as plain text. At the first release, push its tag, write a
+line for it in the same form and move it out of this comment, with the line of
+every older version that gets a tag too. Once a tag exists, an [Unreleased]
+line can link the comparison of the newest tag with main, as Keep a Changelog
+suggests.
+
 [0.14.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.14.0
 [0.13.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.13.0
 [0.12.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.12.0
@@ -3860,3 +3913,4 @@ First release. Everything below is new.
 [0.3.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.3.0
 [0.2.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.2.0
 [0.1.0]: https://github.com/PathoGenOmics-Lab/karyon/releases/tag/v0.1.0
+-->
