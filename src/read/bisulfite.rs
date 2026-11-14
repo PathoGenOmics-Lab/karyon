@@ -89,6 +89,11 @@ pub struct Calls {
 /// Ordered, so the same file answers the same way twice. The question that
 /// comes before drawing anything, since a file written with every context in it
 /// is three grids and only one of them is a track.
+///
+/// # Errors
+///
+/// Returns the first row that is not five columns, or eight as `--yacht` writes
+/// it, or whose call letter is not one of `ZzXxHhUu`.
 pub fn contexts(text: &str) -> Result<BTreeMap<String, usize>, ReadError> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for (at, line) in body(text) {

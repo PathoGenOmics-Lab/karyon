@@ -260,6 +260,11 @@ pub(crate) fn fields(line: &str) -> Vec<&str> {
 }
 
 /// Parses a coordinate, saying which column failed rather than just failing.
+///
+/// # Errors
+///
+/// Returns a [`ReadError`] on `line` naming `what` and quoting `value` when
+/// `value` does not parse as a `T`.
 pub fn number<T: std::str::FromStr>(value: &str, what: &str, line: usize) -> Result<T, ReadError> {
     value
         .parse::<T>()

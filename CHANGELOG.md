@@ -8,6 +8,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Every public function that returns a `Result` says what makes it fail in an
+  `# Errors` section of its documentation, where thirty-six did not, among them
+  most of the readers in `read`: `read::point::variants` names the row that has
+  fewer than eight columns, a `POS` of nought or an `AF` with the wrong count
+  of values, and `read::signal::spans` the line that is none of its three
+  shapes. `read::split::names` says it never fails, where `read::split::reads`
+  refuses the same lines it passes over. `Genome::region`, `plot_tree`,
+  `plot_alignment`, `SignalRing::from_spans` and `cli::stack::build_sheet` each
+  built a region from nought to at least one with `Region::new` and an `expect`
+  that could never fire, which made them functions that may panic with no word
+  on when; they build it now in a way that cannot fail, so none of them can
+  panic.
 - The enums expected to grow are `#[non_exhaustive]`: `Error`, the command
   line's `ArgError` and `BuildError` and its refusals, `Request`, and the
   kinds, styles, scores, projections and keys a track or a figure is told to

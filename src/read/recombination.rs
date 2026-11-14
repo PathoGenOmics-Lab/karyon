@@ -50,6 +50,14 @@ fn column(header: &[&str], names: &[&str]) -> Option<usize> {
 /// next position. Its last position ends the map, so the rate written there
 /// covers that one base. A rate that is empty or `NA` is a stretch the map says
 /// nothing about, and is left out rather than drawn at nought.
+///
+/// # Errors
+///
+/// With a header naming a position and a rate, the first row whose position is
+/// not a number or is nought, or whose rate is not a finite number of nought or
+/// more, of the rows on `region.seq()` where the map names a sequence. With no
+/// such header, what [`signal::spans`](crate::read::signal::spans) refuses of a
+/// bedGraph.
 pub fn rates(text: &str, region: &Region) -> Result<Vec<(u64, u64, f64)>, ReadError> {
     let Some((_, head)) = lines(text).next() else {
         return Ok(Vec::new());

@@ -44,6 +44,10 @@ use super::{columns, lines, number, ReadError};
 ///
 /// Ordered, so the same file always answers in the same order, and a caller
 /// picking "the first one" picks the same one twice.
+///
+/// # Errors
+///
+/// Returns the first line with fewer than twelve columns.
 pub fn pairs(text: &str) -> Result<BTreeMap<(String, String), usize>, ReadError> {
     let mut seen: BTreeMap<(String, String), usize> = BTreeMap::new();
     for (at, line) in lines(text) {
@@ -65,6 +69,10 @@ pub fn pairs(text: &str) -> Result<BTreeMap<(String, String), usize>, ReadError>
 }
 
 /// Target names in the file, for one query, most-aligned first.
+///
+/// # Errors
+///
+/// What [`pairs`] refuses.
 pub fn targets(text: &str, query: &str) -> Result<Vec<(String, usize)>, ReadError> {
     let mut out: Vec<(String, usize)> = pairs(text)?
         .into_iter()
@@ -98,6 +106,13 @@ pub struct Alignments {
 }
 
 /// The alignments between one query and one target.
+///
+/// # Errors
+///
+/// Returns the first line with fewer than twelve columns, and, of the rows
+/// joining `query` to `target`, the first whose coordinates, matches, block
+/// length or target length are not numbers, whose strand is neither `+` nor
+/// `-`, or whose target length is not the one an earlier row gave.
 pub fn blocks(text: &str, query: &str, target: &str) -> Result<Alignments, ReadError> {
     let mut blocks = Vec::new();
     let mut passed_over = 0usize;

@@ -321,7 +321,8 @@ impl Tree {
     /// # Errors
     ///
     /// Returns [`Error::InvalidNewick`] for unbalanced parentheses, a stray
-    /// comma, a branch length that is not a number, or an empty string.
+    /// comma, a branch length that is not a number or has nothing to attach
+    /// to, more than one root, or an empty string.
     pub fn parse_newick(input: &str) -> Result<Self, Error> {
         parse_newick_impl(input, false)
     }
@@ -333,6 +334,13 @@ impl Tree {
     /// before them. Prefix markers `[&R]` and `[&U]` set [`Tree::rooted`].
     /// [`Tree::parse_newick`] remains the compatibility parser and deliberately
     /// discards comments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidNewick`] as [`Tree::parse_newick`] does: for
+    /// unbalanced parentheses, a stray comma, a branch length that is not a
+    /// number or has nothing to attach to, more than one root, or an empty
+    /// string.
     pub fn parse_annotated_newick(input: &str) -> Result<Self, Error> {
         parse_newick_impl(input, true)
     }
@@ -397,6 +405,13 @@ impl Tree {
     /// A `translate` table is applied to leaf labels and annotations on the
     /// Newick expression are preserved. This intentionally reads the portable
     /// tree subset rather than trying to interpret arbitrary Nexus data blocks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidNexus`] for a text with no tree statement, a
+    /// tree statement with no `=`, and a `translate` entry with no taxon name
+    /// or an empty one, and [`Error::InvalidNewick`] for a tree that does not
+    /// read, as [`Tree::parse_annotated_newick`] says.
     pub fn parse_nexus(input: &str) -> Result<Self, Error> {
         parse_nexus(input)
     }

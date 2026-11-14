@@ -1331,7 +1331,7 @@ pub fn build_sheet(
         sheet = sheet.push_bare(figure);
     }
     if invocation.legend && !legend.is_empty() {
-        let key = crate::Figure::new(Region::new("key", 0, 1).expect("a one-base window"))
+        let key = crate::Figure::new(Region::of_length("key", 1))
             .width(invocation.width.unwrap_or(900.0))
             .theme(theme)
             .show_region_label(false)
@@ -6693,6 +6693,13 @@ fn shortened(path: &str) -> &str {
 /// This is what the `karyon` binary hands to [`build`], and it is the only
 /// thing in the crate that reads a path. A caller with no filesystem, which is
 /// every caller in a browser, passes its own closure instead.
+///
+/// # Errors
+///
+/// Whatever stopped the file or standard input being read, and, as
+/// [`io::ErrorKind::InvalidData`], bytes that are not text: a gzip wrapper that
+/// does not come off, a BAM, a BCF or another binary format, named by what its
+/// first bytes say it is, and anything else that is not UTF-8.
 pub fn open_from_disk(source: &Source) -> io::Result<String> {
     let (bytes, path) = match source {
         Source::Path(path) => (fs::read(path)?, Some(path.as_path())),

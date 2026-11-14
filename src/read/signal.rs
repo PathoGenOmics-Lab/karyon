@@ -76,6 +76,15 @@ use super::{columns, lines, number, ReadError};
 /// file can be handed over and only the window comes back. So are rows outside
 /// the region, which is what keeps a genome-wide file from being widened into
 /// memory.
+///
+/// # Errors
+///
+/// Returns the first line that is none of the three shapes, or another shape
+/// than the first line's or the one `format` names, and, of the rows on
+/// `region.seq()`, the first whose start, end, position, depth or value is not
+/// a number, whose bedGraph end is before its start, whose `samtools depth`
+/// position is nought, or, where no `format` is given, whose interval overlaps
+/// the one before it, as `samtools depth` over two files writes them.
 pub fn spans(
     text: &str,
     region: &Region,
@@ -447,6 +456,12 @@ impl Rows<'_> {
 ///
 /// bedGraph, 0-based half-open, kept as intervals rather than flattened to one
 /// value per base, since a window track draws the window and not the base.
+///
+/// # Errors
+///
+/// Returns the first row with fewer than four columns, and, of the rows on
+/// `region.seq()`, the first whose start, end or value is not a number or whose
+/// end is before its start.
 pub fn windows(text: &str, region: &Region) -> Result<Vec<Window>, ReadError> {
     let mut found = Vec::new();
     window_rows(text, Rows::In(region), |_, window| found.push(window))?;

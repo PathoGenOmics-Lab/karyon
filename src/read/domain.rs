@@ -91,6 +91,10 @@ pub struct Domains {
 /// Ordered, so the same file answers the same way twice. The question that
 /// comes first, since a dozen member databases annotating one protein are a
 /// dozen boxes over one region of it and no architecture at all.
+///
+/// # Errors
+///
+/// Returns the first line with no tab in it, or with fewer than eleven columns.
 pub fn analyses(text: &str) -> Result<BTreeMap<String, usize>, ReadError> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for (at, line) in lines(text) {

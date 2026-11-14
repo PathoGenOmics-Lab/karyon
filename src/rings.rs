@@ -1435,7 +1435,7 @@ impl SignalRing {
         bins: usize,
         aggregate: Aggregate,
     ) -> Self {
-        let whole = Region::new("ring", 0, length.max(1)).expect("a sequence of one base or more");
+        let whole = Region::of_length("ring", length);
         let track = CoverageTrack::from_spans(&whole, spans).aggregate(aggregate);
         SignalRing::new(track.binned(bins))
     }

@@ -71,6 +71,13 @@ use super::{columns, lines, number, ReadError};
 /// height, but it is not a fraction of 1, which is what the axis would say.
 ///
 /// Rows on another sequence than `region.seq()` are skipped.
+///
+/// # Errors
+///
+/// Returns the first row with fewer than eight columns, and the first on
+/// `region.seq()` whose `POS` is not a number or is nought, or whose `AF` holds
+/// a value that is not a number, or a count of values other than one per
+/// alternate allele.
 pub fn variants(text: &str, region: &Region) -> Result<Vec<Variant>, ReadError> {
     // VEP writes `CSQ` in the order its header declares, and a file whose
     // header declares none is read in VEP's own order, as `consequence` reads
@@ -679,6 +686,10 @@ impl Associations {
 ///
 /// The points of [`association_table`], which says what the value column held
 /// as well.
+///
+/// # Errors
+///
+/// What [`association_table`] refuses.
 pub fn associations(text: &str, region: &Region) -> Result<Vec<Association>, ReadError> {
     association_table(text, region).map(|table| table.points)
 }

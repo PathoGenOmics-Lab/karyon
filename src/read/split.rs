@@ -229,6 +229,12 @@ pub fn reads(text: &str, region: &Region) -> Result<SplitReads, ReadError> {
 ///
 /// Ordered, so the same file answers the same way twice. For a caller wanting
 /// to say how many molecules a figure of forty rows was chosen out of.
+///
+/// # Errors
+///
+/// None as it stands: a line that is not a SAM record, or whose flag is not a
+/// number, is passed over, where [`reads`] refuses it. The `Result` is the
+/// shape the other readers' counts have.
 pub fn names(text: &str) -> Result<BTreeMap<String, usize>, ReadError> {
     let mut seen: BTreeMap<String, usize> = BTreeMap::new();
     for (_, line) in lines(text) {

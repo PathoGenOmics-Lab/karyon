@@ -575,6 +575,10 @@ impl Map {
     }
 
     /// Saves the SVG document to `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns whatever [`fs::write`] returns.
     pub fn save_svg(&self, path: impl AsRef<Path>) -> io::Result<()> {
         fs::write(path, self.to_svg())
     }

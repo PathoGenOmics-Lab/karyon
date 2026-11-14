@@ -70,6 +70,13 @@ pub(crate) enum Flavour {
 /// reads each transcript as a feature of its own instead.
 ///
 /// Rows on another sequence than `region.seq()` are skipped.
+///
+/// # Errors
+///
+/// Returns the first row on `region.seq()` that cannot be placed: a BED row
+/// with fewer than three columns, a GFF3 row with fewer than five, a start or
+/// an end that is not a number, a GFF3 start of nought, or an end before its
+/// start.
 pub fn features(
     text: &str,
     region: &Region,
@@ -84,6 +91,10 @@ pub fn features(
 /// Everything else is read as [`features`] reads it. A gene with no
 /// transcripts under it, as a bacterial gene written over its CDS, is one
 /// feature either way, and so is every BED row.
+///
+/// # Errors
+///
+/// What [`features`] refuses.
 pub fn transcripts(
     text: &str,
     region: &Region,
@@ -122,6 +133,10 @@ pub fn transcripts(
 /// assert_eq!(found[0].rows[0].phase, Some(0));
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+///
+/// # Errors
+///
+/// What [`features`] refuses.
 pub fn coding(text: &str, region: &Region, format: Option<Format>) -> Result<Vec<Cds>, ReadError> {
     Ok(models(text, region, format, Level::Coding)?
         .into_iter()
@@ -1093,6 +1108,11 @@ pub(crate) fn named_each(text: &str, wanted: &[&str]) -> NamedEach {
 /// Returns the length of the sequence, taken as the highest end seen, and the
 /// bands. The stain words are the UCSC ones: `gneg`, `gpos25`, `gpos50`,
 /// `gpos75`, `gpos100`, `acen`, `gvar` and `stalk`.
+///
+/// # Errors
+///
+/// Returns the first row on `sequence` with fewer than three columns, a start
+/// or an end that is not a number, or an end before its start.
 pub fn cytoband(text: &str, sequence: &str) -> Result<(u64, Vec<Band>), ReadError> {
     let mut bands = Vec::new();
     let mut length = 0;

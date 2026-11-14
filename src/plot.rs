@@ -164,7 +164,7 @@ pub fn plot(locus: &str) -> Result<Plot, Error> {
 /// ```
 #[must_use = "a plot is drawn only by to_svg, to_pdf or save"]
 pub fn plot_tree() -> Plot {
-    let region = Region::new("phylogeny", 0, 1).expect("a one-base window is a window");
+    let region = Region::of_length("phylogeny", 1);
     Plot::over(region).remove_region_label()
 }
 
@@ -197,8 +197,7 @@ pub fn plot_alignment(sequences: impl Into<Vec<MsaSequence>>) -> Plot<MsaTrack> 
         .max()
         .unwrap_or(0)
         .max(1) as u64;
-    let region =
-        Region::new("alignment", 0, columns).expect("an alignment of a column or more is a window");
+    let region = Region::of_length("alignment", columns);
     let mut plot = Plot::over(region).remove_region_label();
     plot.counts = Some("column");
     plot.add_msa(sequences)

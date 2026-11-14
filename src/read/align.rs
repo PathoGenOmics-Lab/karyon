@@ -65,6 +65,13 @@ const NO_QUALITY: u32 = 255;
 /// paint mismatches against the reference.
 ///
 /// Records on another sequence than `region.seq()` are skipped.
+///
+/// # Errors
+///
+/// Returns the first record with fewer than eleven columns or a flag that is
+/// not a number, and, of the mapped records on `region.seq()`, the first whose
+/// `POS` is not a number or is nought, whose `MAPQ` is not a number or is above
+/// 255, or whose CIGAR does not parse.
 pub fn sam(text: &str, region: &Region) -> Result<Vec<Read>, ReadError> {
     let mut reads = Vec::new();
 

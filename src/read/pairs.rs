@@ -146,6 +146,14 @@ pub fn names(text: &str) -> Vec<(u64, String)> {
 /// another sequence: a contact map of a whole genome is handed over to draw
 /// one chromosome. A value that is empty, `.`, `NA` or `nan` is a pair with no
 /// answer, kept and not drawn.
+///
+/// # Errors
+///
+/// A header that names no two columns of positions, and the first row on the
+/// region's sequence whose position is not a number or is nought, or whose
+/// value is not a number and none of the spellings of nothing. In BEDPE, the
+/// first row with fewer than six columns, and the first on the region's
+/// sequence whose start or end is not a number.
 pub fn pairs(text: &str, region: &Region) -> Result<(Vec<Pair>, Option<String>), ReadError> {
     let mut rows = lines(text).peekable();
     let Some(&(first_line, first)) = rows.peek() else {

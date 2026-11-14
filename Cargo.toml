@@ -55,3 +55,8 @@ missing_docs = "warn"
 # nothing.
 [lints.clippy]
 return_self_not_must_use = "warn"
+# Every public function that returns a Result says in an Errors section what
+# makes it fail, and one that can panic says when in a Panics section, so a
+# caller reading the documentation knows what to handle without the source.
+missing_errors_doc = "warn"
+missing_panics_doc = "warn"

@@ -148,7 +148,7 @@ impl Genome {
     /// The region covering every sequence, for the figure to be built over.
     #[must_use]
     pub fn region(&self) -> Region {
-        Region::new("genome", 0, self.total().max(1)).expect("the total is at least one")
+        Region::of_length("genome", self.total())
     }
 
     /// Where a sequence starts on the shared axis.

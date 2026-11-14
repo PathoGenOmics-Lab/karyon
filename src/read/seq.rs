@@ -45,6 +45,11 @@ struct Record {
 /// The name is everything on the header line up to the first whitespace.
 /// Sequence lines are joined with no separator and their case is kept, since a
 /// soft-masked reference says something by being lower case.
+///
+/// # Errors
+///
+/// Returns a header with no name after its `>`, a line before the first header,
+/// and a record with a header and no sequence.
 pub fn fasta(text: &str) -> Result<Vec<(String, Vec<u8>)>, ReadError> {
     Ok(records(text)?
         .into_iter()
@@ -57,6 +62,11 @@ pub fn fasta(text: &str) -> Result<Vec<(String, Vec<u8>)>, ReadError> {
 /// Every record has to be the same length, which is what makes it an alignment
 /// rather than a set of sequences, and a file where they are not says which
 /// record broke it and by how much.
+///
+/// # Errors
+///
+/// What [`fasta`] refuses, and the first record that is not as long as the
+/// first.
 pub fn alignment(text: &str) -> Result<Vec<(String, Vec<u8>)>, ReadError> {
     let parsed = records(text)?;
     // The first record sets the width. Nothing to compare against when the file

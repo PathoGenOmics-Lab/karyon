@@ -169,6 +169,14 @@ fn optional(field: Option<&str>, what: &str, line: usize) -> Result<Option<f64>,
 /// `decimals` is nought for whole units counted from one, or [`DECIMALS`] for
 /// a table [`fractional_times`] finds fractions in, which is then read as a
 /// continuous time from nought.
+///
+/// # Errors
+///
+/// An empty table, a header with no column of times, groups, counts or totals,
+/// and a header with no row under it. And the first row whose count or total is
+/// not a whole number of nought or more, whose count is above its total, or
+/// whose time is not a number, is below nought, or, where `decimals` is nought,
+/// is a fraction or nought.
 pub fn counts(
     text: &str,
     decimals: u32,
@@ -311,6 +319,13 @@ impl EstimateColumns {
 /// EpiEstim writes). Returns the points and the name of the time column.
 /// `decimals` is as for [`counts`]. [`estimate_names`] says what the columns
 /// hold.
+///
+/// # Errors
+///
+/// An empty table, a header with no column of times or of estimates, and a
+/// header with no row under it. And the first row whose time does not read, as
+/// [`counts`] reads one, or whose estimate, or either end of its interval, is
+/// not a number.
 pub fn estimates(text: &str, decimals: u32) -> Result<(Vec<PhylodynamicPoint>, String), ReadError> {
     let mut rows = lines(text);
     let (line, head) = rows
@@ -448,6 +463,13 @@ fn interval_named(lower: &str, upper: &str) -> String {
 /// order from site 1. The rates as `alpha` and `beta` (or `dS` and `dN`), or
 /// their ratio as `omega`; the evidence as a `p-value` or a `posterior`; and
 /// MEME's `beta-`, `beta+` and `p+` where they are there.
+///
+/// # Errors
+///
+/// An empty table, a header that names no rates, as `alpha` and `beta`, `dS`
+/// and `dN` or `omega`, and a header with no row under it. And the first row
+/// whose site is not a whole number from one, or whose rates, p-value,
+/// posterior or MEME columns hold something that is not a number.
 pub fn selection(text: &str) -> Result<Vec<SelectionSite>, ReadError> {
     let mut rows = lines(text);
     let (line, head) = rows
@@ -559,6 +581,13 @@ pub struct Signal {
 /// picoamperes with the read's own digitisation, offset and range; the read
 /// named `read`, or the first. Or plain numbers, one sample after another,
 /// which are taken as picoamperes already.
+///
+/// # Errors
+///
+/// A column of plain numbers with a sample that is not a number, or with no
+/// sample at all. A SLOW5 file with no `#read_id` header, no `read_id` or
+/// `raw_signal` column, a raw sample that is not a number, no read in it, or no
+/// read called `read`.
 pub fn squiggle(text: &str, read: Option<&str>) -> Result<Signal, ReadError> {
     // This reader splits its own lines rather than going through `lines`,
     // which drops a byte order mark, so it drops one too. Left on, the mark
@@ -674,6 +703,14 @@ pub fn squiggle(text: &str, read: Option<&str>) -> Result<Signal, ReadError> {
 /// more. A record on the reverse strand holds its bases reverse
 /// complemented, and they are turned back into the order the signal was
 /// read in.
+///
+/// # Errors
+///
+/// No primary record called `read` or naming it as its parent, and, with no
+/// name, a file that does not hold one primary record and no more. And a record
+/// with no `mv:B` move table, a table whose stride is not a number above nought
+/// or whose moves are not 0 or 1, a hard clipped record, and a table that
+/// starts more or fewer bases than the record holds.
 pub fn moves(sam: &str, read: Option<&str>) -> Result<Vec<Move>, ReadError> {
     struct Found<'a> {
         line: usize,

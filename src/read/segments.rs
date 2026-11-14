@@ -340,6 +340,11 @@ fn segment_rows(
 }
 
 /// The samples a table names, for a caller that has to choose between them.
+///
+/// # Errors
+///
+/// An empty file, and a header that names none of the segment tables this
+/// reads.
 pub fn samples(text: &str) -> Result<Vec<String>, ReadError> {
     let mut rows = lines(text);
     let (at, head) = rows.next().ok_or_else(|| {
