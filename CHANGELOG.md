@@ -8,6 +8,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `Track` and `Ring` ask for `Send + Sync`, so `Figure`, `Plot` and `Rings`,
+  which hold their tracks and rings as trait objects, are `Send` and `Sync`
+  too: a figure can be built on a worker thread and drawn on another, or kept
+  by a server that draws it for several requests at once. They were neither,
+  though every track and ring the crate ships already was both. This changes
+  what a track or a ring written outside the crate may hold: not an `Rc`, a
+  `RefCell` or a `Cell`, which are neither. Share data with an `Arc`, and keep
+  a cache behind a `Mutex` or in an atomic, as `FeatureTrack` keeps the rows it
+  packed. `CircleRefusal`, `CodonRefusal` and `ShadeRefusal`, the reasons a
+  `BuildError` gives for refusing a circle, a ruler of codons or a shade,
+  implement `std::error::Error`, and `ShadeRefusal` implements `Display`,
+  saying the reason alone; every message the command line prints is the one it
+  printed before.
 - The API reference carries karyon's logo and icon, the ones the guide's site
   serves, since docs.rs builds it from the package and the package does not
   carry the site. Its front page names the binary formats `read` takes a window

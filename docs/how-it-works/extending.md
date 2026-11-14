@@ -71,7 +71,7 @@ in it was placed at a coordinate. A phylogeny draws the same columns
 ## The trait
 
 ```rust
-pub trait Track {
+pub trait Track: Send + Sync {
     fn height(&self, scale: &Scale) -> f64;
     fn label(&self) -> Option<&str> { None }
     fn y_axis_width(&self, _theme: &Theme) -> f64 { 0.0 }
@@ -100,6 +100,14 @@ Return `false` from `on_coordinates` only when the track's x is not the
 figure's coordinate at all, as a phylogeny's is not. `plot()` and the command
 line leave the automatic ruler off a figure where nothing is on the
 coordinates, since it would measure nothing.
+
+A track is `Send + Sync`, which is what lets a `Figure` or a `Plot` holding it
+be built on a worker thread and drawn on another, or kept by a server that
+draws for several requests at once. It costs one thing: a track cannot hold
+an `Rc`, a `RefCell` or a `Cell`, which are neither. Share data with an
+`Arc`, and keep a cache behind a `Mutex` or in an atomic, as `FeatureTrack`
+keeps the rows it packed between `height` and `draw`. A track made of owned
+data, as the one below is, is both without a word written.
 
 ## A whole track
 
@@ -434,8 +442,8 @@ A circular sequence maps position to an angle, so it is not a stack of bands.
 `Rings` draws one, and its rings implement the parallel trait `Ring`:
 `thickness`, an optional `gap` of 5 pixels by default, and a `draw` handed a
 `RingContext`, which carries a `Polar` and the ring's `inner` and `outer` radii
-where a track gets a `Scale` and a `Rect`. A ring cannot be pushed onto a
-`Figure`. What the two share is `Panels`, the sheet that holds figures, rings
+where a track gets a `Scale` and a `Rect`. It is `Send + Sync` as `Track` is,
+at the same cost. A ring cannot be pushed onto a `Figure`. What the two share is `Panels`, the sheet that holds figures, rings
 and maps side by side through the small `Drawing` trait: state your dimensions,
 and render yourself with the ids you are given.
 

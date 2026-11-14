@@ -403,6 +403,18 @@ impl DrawContext<'_> {
 /// small: report a height for a given scale, then draw inside the band you are
 /// given.
 ///
+/// # Send and Sync
+///
+/// A track is `Send + Sync`, so the [`Figure`](crate::Figure) and the
+/// [`Plot`](crate::Plot) that hold it are too: a figure can be built on a
+/// worker thread and drawn on another, or kept by a server that draws it for
+/// several requests at once. What that costs a track written outside the
+/// crate is the three things that are neither: it cannot hold an `Rc`, a
+/// `RefCell` or a `Cell`. Share data with an `Arc`, and keep a cache behind a
+/// `Mutex` or in an atomic, as [`FeatureTrack`] and [`PileupTrack`] keep the
+/// rows they packed between [`Track::height`] and [`Track::draw`]. A track
+/// made of owned data, as the one below is, is both without a word written.
+///
 /// ```
 /// use karyon::{DrawContext, Figure, Rect, Region, Scale, Track};
 ///
@@ -425,7 +437,7 @@ impl DrawContext<'_> {
 ///     .to_svg();
 /// assert!(svg.contains("<rect"));
 /// ```
-pub trait Track {
+pub trait Track: Send + Sync {
     /// Height of the band in pixels.
     ///
     /// The scale is passed in because some tracks change height with zoom: a

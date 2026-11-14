@@ -527,6 +527,8 @@ impl fmt::Display for CircleRefusal {
     }
 }
 
+impl std::error::Error for CircleRefusal {}
+
 /// Why a `--codons` has no coding sequence to count.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
@@ -631,6 +633,46 @@ pub enum ShadeRefusal {
     /// annotation to look one up in: a GFF3 beside it needs a place.
     GenomeGene,
 }
+
+/// The reason alone. [`BuildError::Unshaded`] says it after the shade as it
+/// was written, as `--shade rpoB: no gene of that name in the annotation`.
+impl fmt::Display for ShadeRefusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShadeRefusal::NothingToShade => write!(
+                f,
+                "nothing in this figure is laid on the coordinates to shade; a \
+                 phylogeny's x is a branch length, and an ideogram's the whole chromosome"
+            ),
+            ShadeRefusal::Elsewhere { sequence, places } => write!(
+                f,
+                "the stretch is on {sequence}, and the figure is drawn over {}",
+                joined(places)
+            ),
+            ShadeRefusal::NoAnnotation => write!(
+                f,
+                "a gene is looked up in the figure's annotation, and it has none; add the \
+                 GFF3, GTF or BED, or write the span"
+            ),
+            ShadeRefusal::NoSuchGene { near } => match near.as_slice() {
+                [] => write!(f, "no gene of that name in the annotation"),
+                _ => write!(f, "no gene of that name; did you mean {}?", joined_or(near)),
+            },
+            ShadeRefusal::WholeGenome => write!(
+                f,
+                "a figure across the whole genome is shaded on one of its sequences, as \
+                 7:1,001-2,000"
+            ),
+            ShadeRefusal::GenomeGene => write!(
+                f,
+                "a figure across the whole genome reads no annotation to look a gene up \
+                 in; write the gene's span on its sequence, as 7:1,001-2,000"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ShadeRefusal {}
 
 /// The kind of system a message that names a command is written for.
 ///
@@ -996,43 +1038,17 @@ impl fmt::Display for BuildError {
                 joined(categories)
             ),
             BuildError::Tree { flag, path, cause } => write!(f, "{flag} {path}: {cause}"),
-            BuildError::Unshaded { given, why } => match why {
-                ShadeRefusal::NothingToShade => write!(
-                    f,
-                    "--shade {given}: nothing in this figure is laid on the coordinates to \
-                     shade; a phylogeny's x is a branch length, and an ideogram's the whole \
-                     chromosome"
-                ),
-                ShadeRefusal::Elsewhere { sequence, places } => write!(
-                    f,
-                    "--shade {given} is on {sequence}, and the figure is drawn over {}",
-                    joined(places)
-                ),
-                ShadeRefusal::NoAnnotation => write!(
-                    f,
-                    "--shade {given}: a gene is looked up in the figure's annotation, and it \
-                     has none; add the GFF3, GTF or BED, or write the span"
-                ),
-                ShadeRefusal::NoSuchGene { near } => match near.as_slice() {
-                    [] => write!(f, "--shade {given}: no gene of that name in the annotation"),
-                    _ => write!(
-                        f,
-                        "--shade {given}: no gene of that name; did you mean {}?",
-                        joined_or(near)
-                    ),
-                },
-                ShadeRefusal::WholeGenome => write!(
-                    f,
-                    "--shade {given}: a figure across the whole genome is shaded on one of \
-                     its sequences, as 7:1,001-2,000"
-                ),
-                ShadeRefusal::GenomeGene => write!(
-                    f,
-                    "--shade {given}: a figure across the whole genome reads no annotation \
-                     to look a gene up in; write the gene's span on its sequence, as \
-                     7:1,001-2,000"
-                ),
-            },
+            // The one reason with a shape of its own, which names the
+            // sequence where the others say why after a colon.
+            BuildError::Unshaded {
+                given,
+                why: ShadeRefusal::Elsewhere { sequence, places },
+            } => write!(
+                f,
+                "--shade {given} is on {sequence}, and the figure is drawn over {}",
+                joined(places)
+            ),
+            BuildError::Unshaded { given, why } => write!(f, "--shade {given}: {why}"),
         }
     }
 }
@@ -1155,6 +1171,8 @@ impl fmt::Display for CodonRefusal {
         }
     }
 }
+
+impl std::error::Error for CodonRefusal {}
 
 /// Builds the figure the command line asked for and renders it.
 ///

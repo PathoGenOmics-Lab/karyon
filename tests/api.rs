@@ -2,24 +2,41 @@
 //!
 //! Most of what is checked here is checked by the compiler: a type that stops
 //! being `Send` or `Sync` fails this file's build, and nothing has to run.
-//! That is the promise a caller leans on when a track is built on one thread
-//! and drawn on another, or an error is sent up a channel or boxed with `?`.
-//!
-//! [`Figure`], [`Plot`] and [`Rings`] are missing on purpose. A figure holds
-//! its tracks as `Box<dyn Track>` and a circle its rings as `Box<dyn Ring>`,
-//! and neither trait asks for `Send` or `Sync`, so neither can the types that
-//! hold them, although every track and ring the crate ships is both.
+//! That is the promise a caller leans on when a figure is built on a worker
+//! thread and drawn on another, or kept by a server, or when an error is sent
+//! up a channel or boxed with `?`.
 
 use std::error::Error as StdError;
 
 use karyon::cli::args::ArgError;
-use karyon::cli::stack::BuildError;
+use karyon::cli::stack::{BuildError, CircleRefusal, CodonRefusal, ShadeRefusal};
 use karyon::read::ReadError;
 use karyon::*;
 
 /// Compiles only for a type that can be sent to another thread, shared
 /// between threads, and holds no borrow.
 fn send_sync<T: Send + Sync + 'static>() {}
+
+/// A figure, a plot and a circle hold their tracks and rings as trait
+/// objects, which are `Send + Sync` because [`Track`] and [`Ring`] ask for
+/// it. Without that, these three are what stops compiling first.
+#[test]
+fn a_figure_a_plot_and_a_circle_can_cross_threads() {
+    send_sync::<Figure>();
+    send_sync::<Plot>();
+    send_sync::<Plot<CoverageTrack>>();
+    send_sync::<Rings>();
+    send_sync::<Box<dyn Track>>();
+    send_sync::<Box<dyn Ring>>();
+
+    // And one is drawn on a thread it was not built on.
+    let figure = plot("chr1:1-100")
+        .unwrap()
+        .add_coverage(vec![9.0; 100])
+        .into_figure();
+    let svg = std::thread::spawn(move || figure.to_svg()).join().unwrap();
+    assert!(svg.starts_with("<svg"));
+}
 
 #[test]
 fn every_track_the_crate_ships_can_cross_threads() {
@@ -118,6 +135,9 @@ fn every_error_can_cross_threads_and_goes_into_a_boxed_error() {
     send_sync::<ReadError>();
     send_sync::<ArgError>();
     send_sync::<BuildError>();
+    send_sync::<CircleRefusal>();
+    send_sync::<CodonRefusal>();
+    send_sync::<ShadeRefusal>();
 
     // What `?` does with each, into the box a program's `main` returns.
     fn boxed<E: StdError + Send + Sync + 'static>(error: E) -> Box<dyn StdError + Send + Sync> {
@@ -146,5 +166,15 @@ fn every_error_can_cross_threads_and_goes_into_a_boxed_error() {
     ];
     for error in errors {
         assert!(!error.to_string().is_empty(), "{error:?}");
+    }
+
+    // The reasons a build gives inside a BuildError are errors of their own.
+    let reasons = [
+        boxed(CircleRefusal::NotAFigure),
+        boxed(CodonRefusal::NoAnnotation),
+        boxed(ShadeRefusal::NoSuchGene { near: Vec::new() }),
+    ];
+    for reason in reasons {
+        assert!(!reason.to_string().is_empty(), "{reason:?}");
     }
 }

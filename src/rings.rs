@@ -399,7 +399,12 @@ impl RingContext<'_> {
 ///
 /// The parallel of [`Track`](crate::Track): say how thick you want to be, then
 /// draw between the two radii you are given.
-pub trait Ring {
+///
+/// A ring is `Send + Sync`, so the [`Rings`] that holds it is too, at the cost
+/// a track pays: a ring written outside the crate cannot hold an `Rc`, a
+/// `RefCell` or a `Cell`, and shares with an `Arc` and caches behind a `Mutex`
+/// or in an atomic instead. [`Track`](crate::Track#send-and-sync) says why.
+pub trait Ring: Send + Sync {
     /// How much radius this ring wants, in pixels.
     fn thickness(&self) -> f64;
 
