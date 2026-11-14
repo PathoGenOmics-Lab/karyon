@@ -8,6 +8,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The crate's homepage is the guide, https://pathogenomics-lab.github.io/karyon/,
+  where it was the repository, which `repository` names already. Its
+  categories are `science::bioinformatics`, which crates.io has as a
+  subcategory of science, `visualization`, and `command-line-utilities` for
+  the program, and `visualization` takes the place of `sequence` among its
+  keywords: `sequence` is too general a word to find it by, and
+  `visualization` is one its description does not say. `documentation` is
+  left unset, so crates.io links the API reference on docs.rs.
 - A PDF embeds the faces its text is set in. It named Helvetica, Courier and
   Symbol and embedded none, so `pdffonts` showed `no` under `emb` for every face
   and a journal's preflight flagged the file or turned it away, and the guide

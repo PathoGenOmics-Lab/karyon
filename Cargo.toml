@@ -6,10 +6,10 @@ rust-version = "1.74"
 license = "MIT AND OFL-1.1"
 description = "Genomic track plots for Rust: composable tracks over a shared coordinate axis, rendered to standalone SVG or PDF with no runtime dependencies"
 repository = "https://github.com/PathoGenOmics-Lab/karyon"
-homepage = "https://github.com/PathoGenOmics-Lab/karyon"
+homepage = "https://pathogenomics-lab.github.io/karyon/"
 readme = "README.md"
-keywords = ["genomics", "bioinformatics", "plot", "svg", "sequence"]
-categories = ["science", "visualization"]
+keywords = ["genomics", "bioinformatics", "visualization", "plot", "svg"]
+categories = ["science::bioinformatics", "visualization", "command-line-utilities"]
 exclude = ["assets/*", ".github/*"]
 
 # A wrapped add is a figure that is quietly wrong: Genome added lengths without
