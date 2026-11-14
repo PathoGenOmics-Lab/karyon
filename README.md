@@ -129,6 +129,11 @@ is the long version.
 cargo install --git https://github.com/PathoGenOmics-Lab/karyon
 ```
 
+`karyon completions bash`, `zsh` or `fish` prints tab completion for that
+shell and `karyon man` a manual page; the
+[installation guide](https://pathogenomics-lab.github.io/karyon/getting-started/installation/#tab-completion-and-the-manual-page)
+says where each one goes.
+
 Or as a library, until it is published to crates.io:
 
 ```toml

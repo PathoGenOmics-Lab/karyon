@@ -9,7 +9,9 @@
 //! of text.
 //!
 //! The grammar is in [`args`] and the walk from it to a figure in [`stack`],
-//! which is also the only place a file is opened.
+//! which is also the only place a file is opened. The scripts `karyon
+//! completions` prints and the page `karyon man` prints are in [`completions`]
+//! and [`manual`], both written from the help text below and the parser.
 //!
 //! Errors stay values until `main`, which is the only place that prints one and
 //! the only place that picks an exit code. Everything under it returns a
@@ -28,6 +30,9 @@ use karyon::cli::{args, stack};
 use std::fs;
 use std::io::{self, Write};
 use std::process::ExitCode;
+
+mod completions;
+mod manual;
 
 /// What `--help` prints: enough to write a first command, on one screen.
 ///
@@ -63,8 +68,7 @@ TRACKS, by what they draw
     reads and molecules   --pileup --split-reads --bisulfite --junctions
     comparison            --msa --domains --dotplot --synteny --loci
     phylogeny             --tree --tanglegram --clades
-    over time and sites   --frequencies --phylodynamics --selection
-                          --squiggle
+    over time and sites   --frequencies --phylodynamics --selection --squiggle
     whole genome          --ideogram
     scales                --axis --codons
 
@@ -75,6 +79,7 @@ MORE
     karyon help <track>   what one track reads and the options it takes, as
                           in karyon help coverage; karyon help hic for a format
     karyon help all       every track and every option, in full
+    karyon completions bash|zsh|fish   tab completion; karyon man, a man page
     https://pathogenomics-lab.github.io/karyon/
 ";
 
@@ -488,6 +493,42 @@ fn help_or_format(topic: &str) -> Result<(Option<String>, String), String> {
     Ok((Some(pointer), help_on(&kind.dashed()[2..])?))
 }
 
+/// An entry of the help split into what is typed, the value it takes and
+/// what it says: `-o, --output <FILE>` is `-o` and `--output`, `FILE`, and
+/// the words after them; `karyon man` is `karyon` and `man`, and no value.
+fn split_entry(entry: &str) -> (Vec<&str>, Option<&str>, String) {
+    let mut words = entry.split_whitespace().peekable();
+    let mut names = Vec::new();
+    if words.peek() == Some(&"karyon") {
+        names.extend(words.next());
+        names.extend(words.next());
+    } else {
+        while let Some(name) = words.next_if(|word| word.starts_with('-')) {
+            names.push(name.trim_end_matches(','));
+        }
+    }
+    let value = words
+        .next_if(|word| word.starts_with('<') && word.ends_with('>'))
+        .map(|word| &word[1..word.len() - 1]);
+    (names, value, words.collect::<Vec<_>>().join(" "))
+}
+
+/// The entries of the COMMANDS section of [`HELP`], each the word typed after
+/// `karyon` and every line written about it.
+fn commands() -> Vec<(&'static str, String)> {
+    let mut found: Vec<(&'static str, String)> = Vec::new();
+    for line in section("COMMANDS").lines() {
+        if let Some(rest) = line.strip_prefix("    karyon ") {
+            let word = rest.split_whitespace().next().unwrap_or(rest);
+            found.push((word, format!("{line}\n")));
+        } else if let Some((_, text)) = found.last_mut().filter(|_| line.starts_with("     ")) {
+            text.push_str(line);
+            text.push('\n');
+        }
+    }
+    found
+}
+
 /// The track a file of the format `topic` is, named on its own, as
 /// [`args::Kind::for_file`] decides it, and a line saying so and naming the
 /// other tracks that read one: `a .bcf named on its own is a --variants
@@ -886,13 +927,30 @@ FIGURE OPTIONS
                          --color-by paints, as country=Peru:#e7298a; values
                          joined by commas, and the flag again for another
                          column. Every sheet of the figure takes them
-    -o, --output <FILE>  standard output by default. A name ending in .pdf is
-                         written as PDF and any other as SVG; one ending in
-                         .png, .eps or another format is refused, and the
-                         message names a tool that makes it from one of them.
-                         A PDF embeds the Liberation faces its text is set in
+    -o, --output <FILE>  the file the figure is written to, standard output by
+                         default. A name ending in .pdf is written as PDF and
+                         any other as SVG; one ending in .png, .eps or another
+                         format is refused, and the message names a tool that
+                         makes it from one of them. A PDF embeds the
+                         Liberation faces its text is set in
     -h, --help
     -V, --version
+
+COMMANDS, written as the first word
+    karyon help <TOPIC>  the help on one topic: a track and only the options
+                         it takes, as karyon help coverage; the track a format
+                         is drawn as, as karyon help hic; or all of this, as
+                         karyon help all
+    karyon completions <SHELL>
+                         a shell's script for tab completion: bash, zsh or
+                         fish, each completing karyon's options, the words
+                         they take and the names of files. Where each script
+                         goes is on the guide's installation page
+    karyon man           this help as a manual page, set in roff for man
+
+    A gene or a sequence called help, completions or man is drawn when it is
+    written after a file, as karyon genes.gff3 man: a command is the first
+    word, and only the first.
 
 COORDINATES
     BED, bedGraph and cytoBand are read 0-based and half-open. GFF3, VCF, SAM
@@ -975,6 +1033,8 @@ fn run(args: &[String]) -> Result<(), String> {
             println!("karyon {}", karyon::VERSION);
             return Ok(());
         }
+        args::Request::Completions(shell) => return standard_output(&completions::script(shell)),
+        args::Request::Manual => return standard_output(&manual::page()),
         args::Request::Draw(invocation) => invocation,
     };
 
@@ -1004,15 +1064,20 @@ fn run(args: &[String]) -> Result<(), String> {
         Some(path) => {
             fs::write(path, svg).map_err(|error| format!("{}: {error}", path.display()))?
         }
-        None => {
-            let stdout = io::stdout();
-            let mut out = stdout.lock();
-            out.write_all(svg.as_bytes())
-                .and_then(|()| out.flush())
-                .map_err(|error| format!("standard output: {error}"))?;
-        }
+        None => standard_output(&svg)?,
     }
     Ok(())
+}
+
+/// Writes `text` to standard output, and says why where it cannot. A figure,
+/// a script and the manual page are piped as often as not, and `print!`
+/// panics on a pipe its reader closed.
+fn standard_output(text: &str) -> Result<(), String> {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    out.write_all(text.as_bytes())
+        .and_then(|()| out.flush())
+        .map_err(|error| format!("standard output: {error}"))
 }
 
 #[cfg(test)]
@@ -1482,6 +1547,43 @@ mod tests {
         }
         assert!(SHORT.contains("karyon help <track>"));
         assert!(SHORT.contains("karyon help all"));
+        assert!(SHORT.contains("karyon completions bash|zsh|fish"));
+        assert!(SHORT.contains("karyon man"));
+    }
+
+    /// Every command is written up in the help, which the scripts and the
+    /// manual page are made from, and the entry on the scripts names every
+    /// shell the parser writes one for.
+    #[test]
+    fn the_help_writes_up_every_command() {
+        let commands = commands();
+        let words: Vec<&str> = commands.iter().map(|(word, _)| *word).collect();
+        assert_eq!(words, ["help", "completions", "man"]);
+        for (word, entry) in &commands {
+            let line = match *word {
+                "help" => vec!["help".to_string(), "all".to_string()],
+                "completions" => vec!["completions".to_string(), "zsh".to_string()],
+                _ => vec![word.to_string()],
+            };
+            assert!(
+                !matches!(args::parse(&line), Ok(args::Request::Draw(_)) | Err(_)),
+                "{line:?}"
+            );
+            for line in entry.lines() {
+                assert!(line.chars().count() <= 80, "wider than a terminal: {line}");
+            }
+        }
+        for (_, shell) in args::Shell::ALL {
+            assert!(names(&commands[1].1, shell), "{shell}");
+        }
+        let (names, value, said) = split_entry(&commands[1].1);
+        assert_eq!(
+            (names, value),
+            (vec!["karyon", "completions"], Some("SHELL"))
+        );
+        assert!(said.starts_with("a shell's script for tab completion: bash"));
+        let (names, value, _) = split_entry("    -o, --output <FILE>  the file");
+        assert_eq!((names, value), (vec!["-o", "--output"], Some("FILE")));
     }
 
     /// A format's name is answered with the help on the track a file of it

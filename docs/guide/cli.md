@@ -100,8 +100,14 @@ hic` or `karyon help genes.gtf.gz`, prints the help on the track a file of
 that format is named on its own, after a line on standard error that names
 the track and the others that read one: `a .bcf named on its own is a
 --variants track; --genotypes and --structural read one too`. `karyon help
-all` prints everything, every track and every option in full. A flag typed wrong is answered with the one it was
-probably meant to be:
+all` prints everything, every track and every option in full. `karyon man`
+prints the same as a manual page, and `karyon completions bash`, `zsh` or
+`fish` a script that completes the flags, the words a flag takes and the names
+of files in that shell; [Installation](../getting-started/installation.md#tab-completion-and-the-manual-page)
+says where each one goes. A command is only ever the first word, so a gene or
+a sequence called `help`, `completions` or `man` is drawn when it is written
+after a file, as `karyon genes.gff3 man`. A flag typed wrong is answered with
+the one it was probably meant to be:
 
 ```text
 $ karyon chr1:1-10 --coverge depth.bedgraph

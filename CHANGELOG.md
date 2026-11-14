@@ -584,6 +584,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `karyon completions bash`, `zsh` or `fish` prints a script that completes
+  karyon's command lines in that shell, and `karyon man` prints the help as a
+  manual page in section 1. Both are written from the tables the parser and
+  the help are built from, so neither is a list to keep: the flags are the
+  help's entries, which tests already hold to the parser's; a flag that reads
+  a file completes the names of files; and a flag that takes one of a few
+  words completes the ones the parser names when it refuses another, as
+  `light` and `dark` after `--theme`, and nothing where any value goes. Tests
+  hold every flag the parser answers to to each script and to an entry of the
+  page, every word of `karyon help all` to the page in its order, and the
+  page's roff to what mandoc's lint asks. `karyon help all` has a COMMANDS
+  section on `help`, `completions` and `man`, which the page's synopsis is
+  made from, and `-o`'s entry starts with what it is, the file the figure is
+  written to, which is what a shell shows beside it; `karyon --help` names the
+  two new commands on one line, with `--squiggle` joined to the line above it
+  to keep to forty. As `help` is, each is a command only as the first word,
+  where the place goes: a gene or a sequence called `man`, drawn until now by
+  `karyon man genes.gff3`, is drawn by `karyon genes.gff3 man`, and the first
+  spelling is refused with the second. The installation page says where each
+  script and the page go, and the playground answers either command with a
+  line saying it is for a shell.
 - A page of the Your data guide for a plasmid or another circular sequence,
   opening with `karyon pEX1 --circular pEX1.gff3`, its figure on the light
   page and the dark one, and a table of the changes made most, linked from

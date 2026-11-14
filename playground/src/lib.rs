@@ -200,10 +200,13 @@ fn run(mut input: &[u8]) -> Result<String, String> {
 fn invocation(argv: &[String]) -> Result<Box<args::Invocation>, String> {
     match args::parse(argv).map_err(|error| error.to_string())? {
         args::Request::Draw(invocation) => Ok(invocation),
-        // A page has nowhere to print to and no exit code, so the two requests
+        // A page has nowhere to print to and no exit code, so the requests
         // that are not a figure are answered as text rather than performed.
         args::Request::Help | args::Request::HelpOn(_) => {
             Err("--help prints to a terminal".to_string())
+        }
+        args::Request::Completions(_) | args::Request::Manual => {
+            Err("completion scripts and the manual page are for a shell".to_string())
         }
         // `karyon::VERSION` and not this crate's own, which is the shim's.
         args::Request::Version => Err(format!("karyon {}", karyon::VERSION)),
