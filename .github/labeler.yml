@@ -220,11 +220,11 @@ ci:
 #
 # The argument for putting LICENSE under `packaging` is that `cargo package
 # --list` carries it into the published crate. That is true and it is not
-# enough, because the same command carries .gitignore, and what `packaging`
-# means above is the metadata a publish is built from rather than everything
-# that ends up in the tarball. A maintainer who reads it the other way moves it
-# with one line, and this paragraph is here so that is a decision rather than an
-# oversight.
+# enough, because the same command carries the README, the changelog and every
+# source file, and what `packaging` means above is the metadata a publish is
+# built from rather than everything that ends up in the tarball. A maintainer
+# who reads it the other way moves it with one line, and this paragraph is here
+# so that is a decision rather than an oversight.
 #
 # Everything else is covered, and that is checked by running the globs over
 # `git ls-files` in .github/scripts/labeler-coverage.py, which CI runs on every

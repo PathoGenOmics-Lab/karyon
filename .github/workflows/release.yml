@@ -341,13 +341,13 @@ jobs:
           fi
           echo "both say $manifest"
 
-      # Cargo.toml excludes assets/ and .github/ from the package, so what a
-      # user of the crate gets is not the working tree, and the difference is
-      # invisible from inside a normal build. A dry run packages the crate and
-      # builds that copy, so anything that only compiles because of a file left
-      # out of the package fails here, where the version has not been claimed
-      # yet. This runs whether or not there is a token: it is the one check
-      # that says the crate is publishable at all.
+      # Cargo.toml lists what goes into the package, and docs/, assets/, tests/
+      # and .github/ do not, so what a user of the crate gets is not the working
+      # tree, and the difference is invisible from inside a normal build. A dry
+      # run packages the crate and builds that copy, so anything that only
+      # compiles because of a file left out of the package fails here, where
+      # the version has not been claimed yet. This runs whether or not there is
+      # a token: it is the one check that says the crate is publishable at all.
       - name: The crate packages and builds from the package
         run: cargo publish --dry-run --locked
 

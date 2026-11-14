@@ -8,6 +8,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The crate carries what builds, documents and shows the library and the
+  program at work, named in an `include` list in `Cargo.toml`: the sources, the
+  Liberation faces in `fonts/`, the examples, the README, the licence and this
+  changelog. It carried everything but `assets/` and `.github/`, so the website
+  came with it, `docs/` with its figures and data, `mkdocs.yml` and the files
+  MkDocs builds the site from, more than half of a package of 482 files and
+  4.08 MB; it is 187 files and 2.15 MB now. The tests stay in the repository,
+  with the fixtures under `src/read/` the readers are checked against, since
+  that is where the suite runs: some unit tests read pages of the guide with
+  `include_str!`, which a build never compiles and a test run from the package
+  could not find. The examples build and run from the package as they do from
+  a checkout.
 - The sweep that marks and closes issues nobody has touched runs when someone
   starts it, from the Actions tab or with `gh workflow run stale.yml`, and no
   longer every Monday at 06:00 UTC, so no workflow in the repository runs on a

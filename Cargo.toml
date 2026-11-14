@@ -10,7 +10,26 @@ homepage = "https://pathogenomics-lab.github.io/karyon/"
 readme = "README.md"
 keywords = ["genomics", "bioinformatics", "visualization", "plot", "svg"]
 categories = ["science::bioinformatics", "visualization", "command-line-utilities"]
-exclude = ["assets/*", ".github/*"]
+# The package is what builds the library and the program, documents them and
+# shows them at work: the sources, the Liberation faces the PDF writer embeds,
+# the examples, and the README, the licence and the changelog. It used to be
+# everything but assets/ and .github/, and the website in docs/, with its
+# figures and the data they are drawn from, was more than half of it. The test
+# suite runs from the repository and stays there, with the fixtures under
+# src/read/ its readers are checked against: some unit tests read pages of the
+# guide with include_str! under #[cfg(test)], which a build never compiles and
+# a test run from the package could not find.
+include = [
+    "/src",
+    "!/src/read/fixtures",
+    "/fonts",
+    "/examples",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/Cargo.toml",
+    "/Cargo.lock",
+]
 
 # A wrapped add is a figure that is quietly wrong: Genome added lengths without
 # saturating, and a release build turned that into boundaries running backwards
