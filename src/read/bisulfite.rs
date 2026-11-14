@@ -61,6 +61,7 @@ const HEADER: &str = "Bismark methylation extractor version";
 
 /// The molecules a file holds for one context, and what it held besides.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Calls {
     /// The sites every molecule is measured against, ascending.
     pub sites: Vec<u64>,

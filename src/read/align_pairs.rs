@@ -78,6 +78,7 @@ pub fn targets(text: &str, query: &str) -> Result<Vec<(String, usize)>, ReadErro
 
 /// What one PAF says about one pair of sequences.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Alignments {
     /// The blocks between the two, in the order the file listed them.
     pub blocks: Vec<AlignmentBlock>,

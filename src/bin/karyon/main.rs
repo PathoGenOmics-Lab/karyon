@@ -124,6 +124,11 @@ fn guide_page(kind: args::Kind) -> &'static str {
         Kind::Squiggle => "tracks/reads-molecules/#squiggletrack",
         Kind::Axis => "tracks/scales-keys/#axistrack",
         Kind::Codons => "tracks/scales-keys/#codontrack",
+        // Kind is #[non_exhaustive], so this program, which is another crate,
+        // has to have an arm for a kind it was not built knowing. None is
+        // missing above: every_track_has_help_and_a_page_of_the_guide walks
+        // Kind::ALL and fails on a kind that lands here, with no anchor.
+        _ => "tracks/",
     }
 }
 
@@ -1036,6 +1041,10 @@ fn run(args: &[String]) -> Result<(), String> {
         args::Request::Completions(shell) => return standard_output(&completions::script(shell)),
         args::Request::Manual => return standard_output(&manual::page()),
         args::Request::Draw(invocation) => invocation,
+        // Request is #[non_exhaustive] and this program is a crate of its own,
+        // so it needs an arm for a request it was written without. Built with
+        // the library it ships with, as it always is, nothing reaches it.
+        _ => return Err("this build of karyon cannot answer that".to_string()),
     };
 
     // Read through `Disk`, which takes compressed files out of their wrapper

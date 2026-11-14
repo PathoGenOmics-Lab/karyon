@@ -12,6 +12,7 @@ use super::*;
 /// How terminal taxa are connected to their geographic location in a
 /// [`PhyloMap`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PhyloConnector {
     /// One connector per location, with its exact terminal count in a tooltip.
     #[default]

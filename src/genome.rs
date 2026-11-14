@@ -44,6 +44,7 @@ use crate::region::Region;
 
 /// One sequence of a genome: a chromosome, a plasmid, a contig.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Chromosome {
     /// Name as it appears in the FASTA header or the BAM.
     pub name: String,

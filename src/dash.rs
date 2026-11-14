@@ -60,6 +60,7 @@
 /// A figure that quietly moved the numbers should be able to say by how much,
 /// so the fit is returned rather than hidden.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct DashFit {
     /// Concentration of each mixture component, largest first. The first is
     /// infinite: the component that says a column is pure background.

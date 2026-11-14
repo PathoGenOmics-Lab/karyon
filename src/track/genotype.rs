@@ -314,6 +314,7 @@ fn level(alternate: usize, copies: usize) -> usize {
 /// [`SnpSite`](crate::SnpSite)'s alleles are.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "a site draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct GenotypeSite {
     /// Where the record is anchored, 0-based.
     pub position: u64,

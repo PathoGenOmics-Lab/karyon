@@ -179,16 +179,24 @@ the shipped tracks, so name yours before handing it over, as above.
 ## What `DrawContext` holds
 
 ```rust
+#[non_exhaustive]
 pub struct DrawContext<'a> {
     pub svg: &'a mut SvgWriter,
     pub scale: &'a Scale,
     pub theme: &'a Theme,
     pub band: Rect,
     pub axis: Rect,
+    pub right_axis: Rect,
     pub region: &'a Region,
     pub visual_scale: f64,
+    pub extent: Option<(f64, f64)>,
 }
 ```
+
+A track reads its context and only the figure builds one, so it is
+`#[non_exhaustive]`: the figure can hand a track more as tracks come to need
+it, as it did `right_axis` and `extent`, without breaking anything, and a
+pattern that takes it apart ends in `..`.
 
 `svg`
 : Where to write. A track never builds SVG text itself, which keeps escaping
@@ -216,6 +224,11 @@ pub struct DrawContext<'a> {
 : The strip immediately left of the band, as wide as this track asked for in
   `y_axis_width`, and zero wide unless it asked.
 
+`right_axis`
+: The strip immediately right of the band, for a second value axis, as wide
+  as this track asked for in `right_axis_width`, and zero wide unless it
+  asked.
+
 `region`
 : The region on display, 0-based and half-open. `region.contains(pos)` is the
   cheap way to skip what is off screen.
@@ -224,6 +237,11 @@ pub struct DrawContext<'a> {
 : The figure's factor for track geometry, from its profile and its density.
   The band already includes it; `ctx.px(value)` applies it to a measurement of
   your own, such as a stroke or a gap. Genomic x still comes only from `scale`.
+
+`extent`
+: The span the value axis covers, low first, when the figure draws its tracks
+  on one scale with `Figure::same_scale`: the span of every track that
+  measures what this one does. `None` to span the track's own values.
 
 ## The clip edge
 

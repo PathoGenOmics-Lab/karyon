@@ -43,6 +43,7 @@ const TITLED_CELLS: usize = 2_500;
 
 /// Two stretches of the sequence and a value measured between them.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Pair {
     /// The first stretch, 0-based and half-open.
     pub first: (u64, u64),
@@ -94,6 +95,7 @@ impl Pair {
 
 /// How a [`PairTrack`] draws its pairs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PairStyle {
     /// Every pair a cell of a triangle hung under the axis, for pairs
     /// measured between most of their places: linkage, contacts.

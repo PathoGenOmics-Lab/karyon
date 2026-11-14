@@ -72,6 +72,7 @@ use self::unrooted::*;
 
 /// How to draw the horizontal extent of a tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TreeShape {
     /// Branch lengths carry distance, so tip positions mean something.
     Phylogram,
@@ -82,6 +83,7 @@ pub enum TreeShape {
 
 /// Coordinate projection used by [`TreeTrack`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TreeProjection {
     /// Root on the left and terminal taxa in rows on the right.
     #[default]
@@ -94,6 +96,7 @@ pub enum TreeProjection {
 
 /// Shape of branches in the rectangular projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum BranchGeometry {
     /// Horizontal child branches joined by vertical parent risers.
     #[default]
@@ -119,6 +122,7 @@ pub enum RadialDirection {
 /// Support always remains available in exact SVG tooltips. This setting adds
 /// marks or text when the values need to be readable without hovering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum SupportStyle {
     /// Keep support in tooltips only: the default.
     #[default]
@@ -133,6 +137,7 @@ pub enum SupportStyle {
 
 /// Graphic attached directly to an annotated phylogenetic node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum NodeGlyphStyle {
     /// One circle whose area follows a numeric annotation.
     Bubble,

@@ -60,6 +60,7 @@ use crate::track::{DrawContext, Rect, Track};
 /// The set follows the scoring schemes of `Logolas`, whose `log`, `probKL`,
 /// `diff`, `ratio` and `log-odds` are the five background-relative rows above.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum LogoScore {
     /// Every column is one unit tall and each symbol takes its share.
     ///
@@ -139,6 +140,7 @@ impl LogoScore {
 /// it, which puts the baseline at a typical symbol and lets the rest sort
 /// themselves above and below.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Centering {
     /// Leave the scores alone. The baseline then means "exactly the
     /// background", which is the honest reading of an absolute score, at the
@@ -162,6 +164,7 @@ impl Centering {
 
 /// Where the tallest symbol of a stack sits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum StackOrder {
     /// Tallest symbol furthest from the baseline. The `seqLogo` and WebLogo
     /// convention, and the default.
@@ -246,6 +249,7 @@ impl LogoColumn {
 /// doublings for [`LogoScore::LogOdds`]. Both lists run from the baseline
 /// outwards, so drawing them in order stacks them correctly.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LogoStack {
     /// Position of this column, 0-based.
     pub pos: u64,

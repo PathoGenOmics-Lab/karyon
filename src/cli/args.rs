@@ -58,6 +58,7 @@ use crate::{Aggregate, CoverageStyle, Format, Region, VariantStyle, WindowStyle}
 
 /// What went wrong before anything was read.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum ArgError {
     /// No arguments at all.
     NoArguments,
@@ -753,6 +754,7 @@ fn across_genome() -> String {
 
 /// Where a track's data comes from.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Source {
     /// A file on disk.
     Path(PathBuf),
@@ -762,6 +764,7 @@ pub enum Source {
 
 /// Which track a `--<track>` flag asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Kind {
     /// Per-base signal from bedGraph or `samtools depth`.
     Coverage,
@@ -1626,6 +1629,7 @@ impl Kind {
 
 /// Either kind of style flag, since `--style` spells both.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Style {
     /// A filled area under the values.
     Area,
@@ -1814,6 +1818,7 @@ fn article(track: &str) -> &'static str {
 /// command line takes are its own, and `both` reads better at a shell than the
 /// library's `SymbolsAndLabels`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TreeSupport {
     /// Tooltips only, which is the default.
     None,
@@ -1863,6 +1868,7 @@ impl RowCap {
 
 /// One track, and everything written about it before the next one started.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TrackSpec {
     /// Which track.
     pub kind: Kind,
@@ -2175,6 +2181,7 @@ impl TrackSpec {
 /// from p-values it is a p-value, and the line is drawn at `-log10` of it. The
 /// convention asked for by name is already on the scale the scan is drawn on.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum Threshold {
     /// A number, as it was written.
     At(f64),
@@ -2204,6 +2211,7 @@ pub enum Palette {
 
 /// A place a figure is drawn over, as the command line writes it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Place {
     /// Coordinates, as `NC_000962.3:761,000-763,000`.
     Locus(Region),
@@ -2213,6 +2221,7 @@ pub enum Place {
 
 /// A stretch `--shade` asks for, as it was written.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Shading {
     /// Where it is.
     pub place: ShadePlace,
@@ -2224,6 +2233,7 @@ pub struct Shading {
 
 /// Where a shade is, in the forms a place is written in, and two more.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ShadePlace {
     /// Coordinates on a sequence, as the place is written, or one base, as
     /// `chr1:1,500`, which is no figure but is a column worth marking.
@@ -2238,6 +2248,7 @@ pub enum ShadePlace {
 
 /// A whole command line, parsed and not yet acted on.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Invocation {
     /// The region every track is drawn over.
     ///
@@ -2368,6 +2379,7 @@ impl Invocation {
 
 /// What the command line asked for, which is not always a figure.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Request {
     /// Draw this.
     Draw(Box<Invocation>),

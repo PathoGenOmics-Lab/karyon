@@ -71,6 +71,7 @@ use crate::Region;
 
 /// How much of each record [`window`] writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Fields {
     /// The eight columns of a site, and no column of the samples, as
     /// `bcftools view -G` prints them. The samples' bytes are passed over

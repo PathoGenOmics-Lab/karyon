@@ -86,6 +86,7 @@ use crate::{Aggregate, Region};
 
 /// What a window of a bigWig holds.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Signal {
     /// Each value over the bases it covers, as `(start, end, value)`,
     /// 0-based and half-open, in the order the file holds them.

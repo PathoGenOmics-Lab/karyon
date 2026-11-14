@@ -32,6 +32,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The scores a file holds, and what it held that is not in them.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct Scores {
     /// The spans the file stated, clipped to the window: first base, one past
     /// the last, and the score over them.

@@ -56,6 +56,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The reads a SAM holds, and every read it declined to draw.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SplitReads {
     /// One read per molecule, its segments in read order.
     pub reads: Vec<SplitRead>,

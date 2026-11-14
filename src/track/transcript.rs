@@ -36,6 +36,7 @@ use crate::track::{strand_color, DrawContext, Strand, Track};
 
 /// How a transcript is brought to an end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Terminator {
     /// A hairpin the RNA folds into by itself, drawn as a stem and a loop.
     Intrinsic,

@@ -53,6 +53,7 @@ const DENSE_LEVELS: usize = 8;
 
 /// One position where the sequences disagree.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SnpSite {
     /// Where the site is, 0-based, on whatever axis the caller is counting:
     /// an alignment column, or a position on a genome. Its label counts from

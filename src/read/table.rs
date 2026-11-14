@@ -134,6 +134,7 @@ pub type WindowValues = Vec<((u64, u64), Vec<f64>)>;
 /// Every window of a table of windows, on every sequence it names, as a
 /// heatmap drawn across a whole genome reads it.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct GenomeWindows {
     /// The samples, in the order of the header, or of a long table's rows.
     pub samples: Vec<String>,

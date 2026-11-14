@@ -2584,6 +2584,8 @@ fn selection(rng: &mut Lcg, region: &Region) -> Selection {
     let mut threshold = match evidence {
         SelectionEvidence::PValue => 0.05,
         SelectionEvidence::Posterior => 0.90,
+        // The enum is #[non_exhaustive]; the draw above makes only these two.
+        _ => unreachable!("the scan draws p-values or posteriors"),
     };
     if rng.chance(2) {
         let asked = probability(rng);
@@ -2739,6 +2741,7 @@ impl Scan {
             SelectionEvidence::Posterior => site
                 .probability()
                 .is_some_and(|p| p >= self.selection.threshold),
+            _ => unreachable!("the scan draws p-values or posteriors"),
         }
     }
 }
@@ -2798,6 +2801,7 @@ fn every_estimated_site_is_drawn_in_every_panel_that_can_show_it() {
             let evidence = match scan.selection.evidence {
                 SelectionEvidence::PValue => site.p().is_some(),
                 SelectionEvidence::Posterior => site.probability().is_some(),
+                _ => unreachable!("the scan draws p-values or posteriors"),
             };
             let count = usize::from(evidence) + usize::from(site.omega().is_some());
             if count > 0 {
@@ -2951,6 +2955,7 @@ fn two_markers_a_tooltip_cannot_tell_apart_are_drawn_at_one_height() {
         let prefix = match scan.selection.evidence {
             SelectionEvidence::PValue => "p ",
             SelectionEvidence::Posterior => "posterior ",
+            _ => unreachable!("the scan draws p-values or posteriors"),
         };
         let mut seen: BTreeMap<&str, &Marker> = BTreeMap::new();
         for marker in &scan.evidence {

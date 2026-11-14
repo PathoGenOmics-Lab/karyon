@@ -41,6 +41,7 @@ use crate::track::{DrawContext, Track};
 /// which is how PAF records it and saves a conversion.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[must_use = "a block draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct AlignmentBlock {
     /// Start on the query, the sequence the figure's region is on.
     pub query_start: u64,

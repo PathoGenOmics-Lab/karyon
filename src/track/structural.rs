@@ -57,6 +57,7 @@ use crate::track::{DrawContext, Track};
 
 /// What a structural variant did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SvKind {
     /// Sequence that is in the reference and not in the sample.
     Deletion,
@@ -101,6 +102,7 @@ impl SvKind {
 /// One structural variant call.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "a variant draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct StructuralVariant {
     /// First breakpoint, 0-based.
     pub start: u64,

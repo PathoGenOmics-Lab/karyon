@@ -8,6 +8,29 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The enums expected to grow are `#[non_exhaustive]`: `Error`, the command
+  line's `ArgError` and `BuildError` and its refusals, `Request`, and the
+  kinds, styles, scores, projections and keys a track or a figure is told to
+  use, as `LegendItem`, `Marker`, `SvKind`, `CoverageStyle`, `LogoScore` and
+  `GeoProjection`. A variant added to one of them broke every `match` on it in
+  code using the crate; such a `match` now ends in a `_` arm, and a variant
+  added later breaks nothing. The closed sets stay exhaustive, so a match on
+  one still has to name every case: `Strand`, `Anchor`, `GenotypeState`,
+  `Identity`, `Palette`, `RowCap`, `Shell`, `TangleLabels`, `NodeGlyphTarget`,
+  `RadialDirection` and `TimeDirection`. The structs a caller reads and only
+  the crate fills in are `#[non_exhaustive]` too: every reader's result and
+  `ReadError`, `Pdf`, `DashFit`, `Join`, `Found`, a tree's layout, the parsed
+  command line, and the `DrawContext` and `RingContext` a track or a ring draws
+  with. So are the values a caller builds that have a constructor, as
+  `Feature`, `Variant`, `Read`, `Window` and `Theme`, so that a field can be
+  added to one without breaking anything: build them with `Feature::new`,
+  `Window::new` or `Theme::light` and set what you need. `Margin`, `Rect`,
+  `BaseColors`, `TextStyle`, `TreeStyle`, `Beside` and `plot::Empty` stay as
+  they were, as struct literals with no constructor to stand in for them, or
+  with the literal in the guide. This changes what code using the crate may
+  write: an exhaustive `match` on a marked enum, a struct literal of a marked
+  struct and a pattern that takes one apart without `..` no longer compile
+  outside the crate.
 - The builders and the values they build are `#[must_use]`: every track,
   `Figure`, `Rings` and its rings, `Panels`, `Map`, `PhyloMap`, `Theme`,
   `Shade`, `Legend`, a tree's layers, and the values a track is built from that

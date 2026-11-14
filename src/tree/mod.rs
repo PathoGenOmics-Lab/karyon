@@ -66,6 +66,7 @@ use self::parse::*;
 /// strings and brace-delimited lists. Keeping those distinctions here avoids
 /// making every renderer parse the same text again.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum AnnotationValue {
     /// Free text, including values whose syntax is not one of the types below.
     Text(String),
@@ -157,6 +158,7 @@ pub type Annotations = BTreeMap<String, AnnotationValue>;
 
 /// One node of a tree, internal or a leaf.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Clade {
     /// Leaf name, or an internal label when the file carried one.
     pub name: Option<String>,
@@ -180,6 +182,7 @@ impl Clade {
 
 /// One level of a trait column, with the colour a figure gives it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TraitLevel {
     /// The value as the sheet or the annotation spells it, or the band a
     /// continuous column falls in.
@@ -201,6 +204,7 @@ pub struct TraitLevel {
 /// would be a second opinion, and two pictures of the same tree disagreeing
 /// about which blue is which is worse than one picture.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct TraitStrip {
     /// The annotation key the column reads.
     pub key: String,
@@ -219,6 +223,7 @@ pub struct TraitStrip {
 /// measured from a root. An unrooted tree has neither, so it is given a
 /// position in the plane instead.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Spot {
     /// Index of the node.
     pub node: usize,
@@ -235,6 +240,7 @@ pub struct Spot {
 
 /// A whole tree laid out without a root.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Unrooted {
     /// Every node that has a position, which is every node in a tree of one
     /// piece.
@@ -250,6 +256,7 @@ pub struct Unrooted {
 
 /// Where one node sits once the tree has been laid out.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Placement {
     /// Index of the node.
     pub node: usize,

@@ -36,6 +36,7 @@ use super::{AnnotationValue, Tree};
 /// same file, and both round-trip through the [`Display`][std::fmt::Display]
 /// rendering.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
 pub struct Mutation {
     /// The gene or segment, where the spelling names one.
     pub gene: Option<String>,

@@ -37,6 +37,7 @@ use crate::track::{unbroken, DrawContext, Track};
 
 /// Where a called base starts in the signal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Move {
     /// Index of the first sample belonging to this base.
     pub sample: usize,

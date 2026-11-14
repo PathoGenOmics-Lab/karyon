@@ -70,6 +70,7 @@ use super::{columns, lines, number, Format, ReadError};
 
 /// The loci a file holds, and what it held that is not in them.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Loci {
     /// One locus per distinct name in column one, in first-seen order.
     pub loci: Vec<Locus>,
@@ -81,6 +82,7 @@ pub struct Loci {
 
 /// The homologies a file holds, and every row that did not become one.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Links {
     /// The links, both ends resolved, in the order the pairs were first seen.
     pub links: Vec<Homology>,

@@ -46,6 +46,7 @@ use crate::track::{DrawContext, Track};
 
 /// How one key is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Marker {
     /// A filled square, for anything drawn as an area.
     Box,
@@ -74,6 +75,7 @@ pub enum Marker {
 
 /// One thing a legend explains.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum LegendItem {
     /// A colour and what it means.
     Key {

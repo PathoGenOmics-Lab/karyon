@@ -47,6 +47,7 @@ use crate::tree::Tree;
 
 /// One aligned sequence.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct MsaSequence {
     /// Name, drawn beside the row.
     pub name: String,
@@ -103,6 +104,7 @@ fn count(n: usize, one: &str, many: &str) -> String {
 
 /// What gets painted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MsaDisplay {
     /// Only cells that disagree with the comparison row, which is the default
     /// and is what makes a large alignment readable at all.
@@ -113,6 +115,7 @@ pub enum MsaDisplay {
 
 /// What a residue's colour means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MsaColoring {
     /// Nucleotides, on the theme's base colours.
     Nucleotide,
@@ -131,6 +134,7 @@ pub enum MsaColoring {
 /// keep their own classes, since a figure of a protein alignment is usually
 /// looking for exactly those two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ResidueClass {
     /// A, V, L, I, M, F, W, C.
     Hydrophobic,

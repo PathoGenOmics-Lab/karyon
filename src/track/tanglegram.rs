@@ -51,6 +51,7 @@ use crate::tree::Tree;
 
 /// Geometry used to join matching taxa between the two trees.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum TangleTieStyle {
     /// A cubic curve leaves and reaches each tip horizontally.
     #[default]

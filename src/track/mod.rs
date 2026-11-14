@@ -297,6 +297,7 @@ pub(crate) fn unbroken<T>(points: impl IntoIterator<Item = Option<T>>) -> Vec<Ve
 /// own, before it rounds them to ticks: each track rounds the shared span for
 /// itself, and tracks that measure one thing round it alike.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Extent {
     /// What is measured: the kind of track and its units.
     pub measure: String,
@@ -353,6 +354,7 @@ impl Extent {
 }
 
 /// Everything a track needs in order to draw one band.
+#[non_exhaustive]
 pub struct DrawContext<'a> {
     /// Where to write the SVG elements.
     pub svg: &'a mut SvgWriter,

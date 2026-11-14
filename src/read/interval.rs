@@ -131,6 +131,7 @@ pub fn coding(text: &str, region: &Region, format: Option<Format>) -> Result<Vec
 
 /// One transcript as [`coding`] reads it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Cds {
     /// The transcript: its name, its strand, the gene it belongs to, its
     /// exons, and its CDS joined into the stretches a drawing shows.
@@ -147,6 +148,7 @@ pub struct Cds {
 /// One row of a coding sequence as the file writes it, 0-based and
 /// half-open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CdsRow {
     /// First base, 0-based.
     pub start: u64,
@@ -961,6 +963,7 @@ fn parents_of<'a>(cols: &[&'a str]) -> Vec<(&'static str, &'a str)> {
 
 /// Where an annotation names a gene, for placing a figure by the gene's name.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Named {
     /// Each row that goes by the name: its sequence, and its span, 0-based
     /// and half-open.

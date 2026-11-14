@@ -45,9 +45,11 @@ use crate::style::{Emphasis, LinePattern, MarkStyle, RenderProfile, Symbol, Visu
 /// Visual settings applied to a whole [`Figure`](crate::Figure).
 ///
 /// Every field is public: start from [`Theme::light`] or [`Theme::dark`] and
-/// overwrite what you need, rather than building one from scratch.
+/// overwrite what you need. It is `#[non_exhaustive]`, so one cannot be built
+/// from scratch outside the crate, and a field added later breaks nothing.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "a theme changes nothing until a figure is given it"]
+#[non_exhaustive]
 pub struct Theme {
     /// Page background. Set it to `"none"` for a transparent SVG.
     pub background: String,

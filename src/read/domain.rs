@@ -72,6 +72,7 @@ use super::{lines, number, ReadError};
 
 /// The architectures a file holds for one analysis, and what it held besides.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Domains {
     /// One row per protein, in the order the proteins were first seen.
     pub rows: Vec<DomainArchitecture>,

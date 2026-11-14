@@ -45,6 +45,7 @@ use crate::track::{DrawContext, Extent, Track};
 
 /// One tested position and what the test said about it.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Association {
     /// Position, 0-based.
     pub pos: u64,
@@ -80,6 +81,7 @@ impl Association {
 
 /// How a scan coloured by its linkage with a lead variant paints an r².
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum LinkageColors {
     /// Five bins in LocusZoom's colours, which is how a regional plot is
     /// read: r² under 0.2 navy, to 0.4 light blue, to 0.6 green, to 0.8

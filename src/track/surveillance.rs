@@ -16,6 +16,7 @@ use crate::track::{DrawContext, Track};
 
 /// Quantity drawn for each lineage observation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum SurveillanceMetric {
     /// Count divided by the supplied total at that time.
     #[default]
@@ -26,6 +27,7 @@ pub enum SurveillanceMetric {
 
 /// Arrangement of several lineage trajectories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum SurveillanceStyle {
     /// Lineage frequencies or counts accumulated into filled bands.
     #[default]

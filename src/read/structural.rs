@@ -50,6 +50,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The calls a VCF holds, and what it held that is not among them.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Calls {
     /// The variants, in the order the file listed them.
     pub variants: Vec<StructuralVariant>,

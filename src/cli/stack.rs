@@ -44,6 +44,7 @@ use crate::TreeShape;
 
 /// What went wrong once the command line was understood.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum BuildError {
     /// A file would not open.
     Open {
@@ -406,6 +407,7 @@ pub enum BuildError {
 
 /// Why a `--circular` has no circle to draw.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CircleRefusal {
     /// A circle handed to a builder of figures along a sequence, which
     /// [`build_circle`] draws instead.
@@ -527,6 +529,7 @@ impl fmt::Display for CircleRefusal {
 
 /// Why a `--codons` has no coding sequence to count.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum CodonRefusal {
     /// The figure has no annotation to find a gene in.
     NoAnnotation,
@@ -604,6 +607,7 @@ pub enum CodonRefusal {
 
 /// Why a `--shade` has nowhere to go.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum ShadeRefusal {
     /// Nothing in the figure is laid on the coordinates.
     NothingToShade,
@@ -1342,6 +1346,7 @@ pub fn build_sheet(
 }
 
 /// A figure a command line builds, before it is written out.
+#[non_exhaustive]
 pub struct Built {
     /// The figure, for [`Figure::to_svg`], or for
     /// [`Figure::to_svg_with_id_prefix`] where a page holds several.
@@ -7367,6 +7372,7 @@ impl Files for Held {
 /// [`build`] can turn it into a message naming the tool that reads it, and a
 /// caller opening files some other way is not obliged to know about it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Binary {
     /// gzip or bgzip, and not BAM or BCF by its name.
     Gzip,

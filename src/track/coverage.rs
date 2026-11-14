@@ -51,6 +51,7 @@ use crate::track::{unbroken, DrawContext, Extent, Track};
 
 /// How a coverage track is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CoverageStyle {
     /// Filled area under the profile. The default, and the one that survives
     /// being printed small.
@@ -66,6 +67,7 @@ pub enum CoverageStyle {
 /// A [`CoverageTrack`] given none draws the lowest and the highest value of
 /// each such pixel instead; see [`CoverageTrack::aggregate`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Aggregate {
     /// Highest value in the column. Keeps narrow spikes visible, which is
     /// usually what you want when hunting for duplications, and for the same

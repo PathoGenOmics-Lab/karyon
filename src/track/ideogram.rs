@@ -46,6 +46,7 @@ const MARKER_PAD: f64 = 2.0;
 /// The names are the ones in the UCSC `cytoBand` table, so a row of that file
 /// converts without a lookup table of your own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Stain {
     /// Unstained, the palest band.
     Gneg,
@@ -148,6 +149,7 @@ fn band_title(band: &Band) -> String {
 /// One cytogenetic band, in 0-based half-open coordinates.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "a band draws nothing until it is in an ideogram"]
+#[non_exhaustive]
 pub struct Band {
     /// First base, 0-based.
     pub start: u64,

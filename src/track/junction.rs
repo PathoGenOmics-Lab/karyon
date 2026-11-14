@@ -63,6 +63,7 @@ use crate::{Region, Strand};
 /// The six codes an aligner writes fold to four, because the pairs differ only
 /// in which strand the intron is on and the strand is its own field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Motif {
     /// The common one, about ninety-nine intron in a hundred.
     GtAg,

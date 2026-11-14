@@ -358,10 +358,12 @@ When you replace the palette:
    three colours. That stays legible when a legend or a label also carries the
    identity.
 
-!!! warning "Do not build a `Theme` with a struct literal"
-    `Theme` has gained fields between releases, and every new field breaks code
-    that writes `Theme { ... }` out in full. Code that starts from
-    `Theme::light()` or `Theme::dark()` keeps compiling.
+!!! note "A `Theme` starts from `light()` or `dark()`"
+    `Theme` has gained fields between releases, and every new field broke code
+    that wrote `Theme { ... }` out in full, so it is `#[non_exhaustive]` and a
+    struct literal of one does not compile outside the crate. Start from
+    `Theme::light()` or `Theme::dark()` and set the fields you want, and a
+    field added later breaks nothing.
 
 ## The visual system
 

@@ -124,6 +124,7 @@ use std::fmt;
 /// was measured, so where the shape is ambiguous the reader is told rather
 /// than left to work it out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Format {
     /// `chrom start end value`, 0-based half-open.
     BedGraph,
@@ -158,6 +159,7 @@ impl Format {
 
 /// What went wrong while reading, and where.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct ReadError {
     /// The line number, counting from one, or zero for a whole file problem.
     pub line: usize,

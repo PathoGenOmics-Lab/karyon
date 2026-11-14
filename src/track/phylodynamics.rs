@@ -14,6 +14,7 @@ use crate::track::{unbroken, DrawContext, Track};
 
 /// Vertical transformation for a phylodynamic estimate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum PhylodynamicScale {
     /// Values are positioned without transformation.
     #[default]

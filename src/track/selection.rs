@@ -32,6 +32,7 @@ const NAMED_SITES: usize = 30;
 
 /// Statistical quantity shown in the evidence half of a [`SelectionTrack`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum SelectionEvidence {
     /// Frequentist p-values, drawn as `-log10(p)`.
     #[default]

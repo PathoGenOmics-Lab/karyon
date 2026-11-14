@@ -62,6 +62,7 @@ use crate::track::{DrawContext, Rect, Track};
 ///
 /// `P` has no entry because it draws as nothing; drop it on the way in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CigarOp {
     /// Aligned bases, whether or not they agree with the reference. `M`, `=`
     /// and `X` all land here; the track compares the sequences itself rather
@@ -102,6 +103,7 @@ impl CigarOp {
 /// Produced by [`Read::segments`], which is where the CIGAR stops being a list
 /// of operations and starts being geometry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Segment {
     /// Bases aligned to the reference, starting at `query` in the read.
     Aligned {
@@ -141,6 +143,7 @@ pub enum Segment {
 /// optional: without it the read still draws, it just cannot show mismatches.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "a read draws nothing until it is in a pileup"]
+#[non_exhaustive]
 pub struct Read {
     /// Leftmost aligned reference position, 0-based.
     pub start: u64,
@@ -291,6 +294,7 @@ impl Read {
 
 /// What decides the colour of a read body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ReadColoring {
     /// One colour for every read, the quietest background for mismatches to
     /// stand out against. This is what IGV does by default and why.
@@ -646,6 +650,7 @@ impl PileupTrack {
 
 /// The result of packing a pileup into rows.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PileupLayout {
     /// Each drawn read as its index in the track paired with its row.
     pub placed: Vec<(usize, usize)>,

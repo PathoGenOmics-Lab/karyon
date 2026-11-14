@@ -348,6 +348,7 @@ pub fn estimates(text: &str, decimals: u32) -> Result<(Vec<PhylodynamicPoint>, S
 /// What a table of estimates says its columns hold, as its header names
 /// them, for a figure to say what it draws.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct EstimateNames {
     /// What is estimated, where the header names it: `R` under EpiEstim's
     /// `Mean(R)`, `Ne` under a column called `Ne`. Otherwise the estimate's
@@ -539,6 +540,7 @@ pub fn selection(text: &str) -> Result<Vec<SelectionSite>, ReadError> {
 
 /// The current of one nanopore read, as [`squiggle`] reads it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Signal {
     /// The samples, in picoamperes, in the order they were measured.
     pub samples: Vec<f64>,

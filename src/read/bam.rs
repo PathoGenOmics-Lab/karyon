@@ -69,6 +69,7 @@ fn exact<R: Read + Seek>(bgzf: &mut Bgzf<R>, buf: &mut [u8]) -> Result<(), ReadE
 
 /// What a BAM says about itself before its reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Header {
     /// The SAM header, as text: `@HD`, `@SQ`, `@RG` and `@PG` lines.
     pub text: String,
@@ -139,6 +140,7 @@ fn count<R: Read + Seek>(bgzf: &mut Bgzf<R>, most: usize, what: &str) -> Result<
 
 /// One aligned read, as BAM stores it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Record {
     /// Which reference, by its place in [`Header::references`], or -1.
     pub reference: i32,

@@ -46,6 +46,7 @@ use crate::track::{DrawContext, Feature, Rect, Strand, Track};
 /// One locus, from one genome.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "a locus draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct Locus {
     /// Which genome this row came from.
     pub name: String,
@@ -84,6 +85,7 @@ impl Locus {
 
 /// The outline a gene is drawn with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum GeneShape {
     /// A shaft with a head that overhangs it, the way an arrow is drawn.
     ///
@@ -102,6 +104,7 @@ pub enum GeneShape {
 
 /// A gene in one row matching a gene in the row below it.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Homology {
     /// Index of the upper row. The lower one is always the next.
     pub row: usize,

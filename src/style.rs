@@ -7,6 +7,7 @@
 
 /// A complete, named output treatment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum RenderProfile {
     /// Dense multi-panel figures and narrow document columns.
     Compact,
@@ -49,6 +50,7 @@ impl RenderProfile {
 
 /// How tightly repeated rows and marks are packed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Density {
     /// More data in the same vertical space.
     Compact,
@@ -72,6 +74,7 @@ impl Density {
 
 /// Semantic prominence, independent of a concrete colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Emphasis {
     /// Context that should recede without disappearing.
     Muted,
@@ -86,6 +89,7 @@ pub enum Emphasis {
 
 /// A line pattern that remains distinguishable without colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum LinePattern {
     /// Continuous stroke.
     #[default]
@@ -109,6 +113,7 @@ impl LinePattern {
 
 /// Point shape, cycled alongside colour for categorical data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum Symbol {
     /// Circular point.
     #[default]
@@ -124,6 +129,7 @@ pub enum Symbol {
 /// Measured visual sizes used throughout a drawing.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "tokens change nothing until a theme holds them"]
+#[non_exhaustive]
 pub struct VisualTokens {
     /// Hairline guides and row separators.
     pub hairline: f64,
@@ -195,6 +201,7 @@ impl Default for VisualTokens {
 
 /// Concrete mark treatment derived from an [`Emphasis`] level.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct MarkStyle {
     /// Stroke width in pixels.
     pub stroke_width: f64,
@@ -208,6 +215,7 @@ pub struct MarkStyle {
 
 /// Formatting of quantitative tick labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub enum AxisFormat {
     /// Compact values with automatic SI-like `k` and `M` suffixes.
     #[default]
@@ -262,6 +270,7 @@ fn compact_number(value: f64) -> String {
 /// A labelled line drawn across a quantitative track.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "a reference line draws nothing until an axis is given it"]
+#[non_exhaustive]
 pub struct ReferenceLine {
     /// Value at which the line is drawn.
     pub value: f64,
@@ -306,6 +315,7 @@ impl ReferenceLine {
 /// Shared configuration for quantitative axes.
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "an axis changes nothing until a track is given it"]
+#[non_exhaustive]
 pub struct QuantitativeAxis {
     /// Optional lower bound.
     pub min: Option<f64>,

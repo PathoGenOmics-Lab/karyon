@@ -52,6 +52,7 @@ use super::{columns, lines, ReadError};
 
 /// The rows a sheet holds, and what it held that is not in them.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct Sheet {
     /// Each name and what the sheet knows about it.
     ///

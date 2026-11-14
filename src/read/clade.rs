@@ -61,6 +61,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The blocks a clade file holds, and what it held that is not in them.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Blocks {
     /// The blocks, in the order the file listed them.
     pub blocks: Vec<CladeBlock>,

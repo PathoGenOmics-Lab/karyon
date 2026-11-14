@@ -39,6 +39,7 @@ use crate::track::{DrawContext, Track};
 
 /// One open reading frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Orf {
     /// First base, 0-based, in the coordinates the track was given.
     pub start: u64,

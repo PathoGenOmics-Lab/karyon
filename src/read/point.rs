@@ -419,6 +419,7 @@ pub fn samples(text: &str) -> Vec<String> {
 
 /// What a VCF's genotype columns hold over a window.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Genotypes {
     /// The samples, in the order their rows are drawn: the order of the
     /// `#CHROM` line, or the order they were asked for in.
@@ -646,6 +647,7 @@ pub fn genotypes(
 
 /// What an association table held inside the window.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Associations {
     /// The tested positions in the window, each with the statistic drawn: the
     /// value as written, or `-log10` of it where the file wrote p-values.
@@ -717,6 +719,7 @@ pub fn association_table(text: &str, region: &Region) -> Result<Associations, Re
 /// Every row of an association table, on every sequence it names, as a scan
 /// drawn across a whole genome reads it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct GenomeAssociations {
     /// Each sequence the table names, in the order it first names them, with
     /// its points, 0-based on that sequence.

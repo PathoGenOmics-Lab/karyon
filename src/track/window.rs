@@ -46,6 +46,7 @@ use crate::track::{unbroken, DrawContext, Extent, Track};
 
 /// One window and the value computed in it.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Window {
     /// First base of the window, 0-based.
     pub start: u64,
@@ -66,6 +67,7 @@ impl Window {
 
 /// How a windowed statistic is drawn.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum WindowStyle {
     /// A block per window, from the baseline out to the value. The default,
     /// and the honest one: a window is an interval, and a block says so.

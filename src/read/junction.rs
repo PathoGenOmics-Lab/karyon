@@ -37,6 +37,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The junctions a file holds, and what it held that is not in them.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct Junctions {
     /// The junctions, in the order the file listed them.
     pub junctions: Vec<Junction>,

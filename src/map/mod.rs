@@ -93,6 +93,7 @@ impl GeoPosition {
 
 /// Geographic projection used by [`Map`].
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[non_exhaustive]
 pub enum GeoProjection {
     /// Whole world on a two-to-one plate carrée rectangle.
     #[default]

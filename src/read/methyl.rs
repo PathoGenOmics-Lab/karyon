@@ -55,6 +55,7 @@ use super::{columns, lines, number, ReadError};
 
 /// The sites a bedMethyl holds for one modification, and what it held besides.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Calls {
     /// The sites, in the order the file listed them.
     pub sites: Vec<MethylSite>,

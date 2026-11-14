@@ -115,6 +115,7 @@ pub type Span = (u64, u64, f64);
 /// Every value of a bedGraph or a `samtools depth` file, on every sequence it
 /// names, as a signal drawn across a whole genome reads it.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct GenomeSignal {
     /// Each sequence the file names, in the order it first names them, with
     /// its spans, 0-based and half-open on that sequence, in the order of the

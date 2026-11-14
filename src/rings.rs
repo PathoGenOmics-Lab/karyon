@@ -360,6 +360,7 @@ fn arc(radius: f64, large: usize, sweep: usize, x: f64, y: f64) -> String {
 }
 
 /// Everything a ring needs in order to draw itself.
+#[non_exhaustive]
 pub struct RingContext<'a> {
     /// Where to write the SVG elements.
     pub svg: &'a mut SvgWriter,

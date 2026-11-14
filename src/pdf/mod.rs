@@ -90,6 +90,7 @@ use crate::svg::num;
 /// assert!(pdf.notes.is_empty());
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Pdf {
     /// The document, from `%PDF` to `%%EOF`.
     pub bytes: Vec<u8>,

@@ -86,6 +86,7 @@ use crate::track::{DrawContext, Track};
 
 /// How many copies were called, and whether the alleles were told apart.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub enum CopyNumber {
     /// Total copies, with nothing said about the two alleles.
     Total(f64),
@@ -159,6 +160,7 @@ impl CopyNumber {
 
 /// One interval a caller fitted, and what it called over it.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct CopyNumberSegment {
     /// First base, 0-based.
     pub start: u64,

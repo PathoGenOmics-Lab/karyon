@@ -38,6 +38,7 @@ use crate::track::{DrawContext, Strand, Track};
 
 /// One methylation call at one position on one strand.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct MethylSite {
     /// Position of the modified base, 0-based.
     pub pos: u64,

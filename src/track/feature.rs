@@ -206,6 +206,7 @@ impl Strand {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 #[must_use = "a feature draws nothing until it is in a track"]
+#[non_exhaustive]
 pub struct Feature {
     /// First base, 0-based.
     pub start: u64,
