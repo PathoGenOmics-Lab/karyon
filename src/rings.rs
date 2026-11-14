@@ -56,6 +56,7 @@
 //! the eight hundred the other way round.
 
 use std::f64::consts::PI;
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -360,6 +361,7 @@ fn arc(radius: f64, large: usize, sweep: usize, x: f64, y: f64) -> String {
 }
 
 /// Everything a ring needs in order to draw itself.
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct RingContext<'a> {
     /// Where to write the SVG elements.
@@ -522,6 +524,20 @@ pub struct Rings {
     visual_scale: f64,
     density: Density,
     key: Vec<(String, Legend)>,
+}
+
+// By hand, because the rings are `Box<dyn Ring>` and the trait does not ask
+// for Debug. Each is shown by its label, `None` for one with none.
+impl fmt::Debug for Rings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let rings: Vec<Option<&str>> = self.rings.iter().map(|ring| ring.label()).collect();
+        f.debug_struct("Rings")
+            .field("length", &self.length)
+            .field("title", &self.title)
+            .field("rings", &rings)
+            .field("chords", &self.chords.len())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Rings {

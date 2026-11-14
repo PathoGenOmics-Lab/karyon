@@ -49,6 +49,7 @@ pub enum PhyloConnector {
 /// assert!(svg.contains("Peru; 1 mapped tip"));
 /// # Ok::<(), karyon::Error>(())
 /// ```
+#[derive(Debug)]
 #[must_use = "a map is drawn only by to_svg, to_pdf, save_svg or save_pdf"]
 pub struct PhyloMap {
     tree: Tree,

@@ -45,6 +45,9 @@ overflow-checks = true
 
 [lints.rust]
 missing_docs = "warn"
+# A public type a caller cannot print in a test failure or a log line is one
+# they have to wrap to look at, so every one implements Debug.
+missing_debug_implementations = "warn"
 
 # A builder takes the value and hands back the changed one, so a call whose
 # result was dropped, `track.label("x");`, changed nothing and said nothing.

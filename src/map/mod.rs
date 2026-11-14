@@ -313,6 +313,7 @@ impl GeoFlow {
 /// assert!(svg.contains("latitude -12.046"));
 /// assert!(svg.contains("source Lima, target Madrid"));
 /// ```
+#[derive(Debug)]
 #[must_use = "a map is drawn only by to_svg, to_pdf, save_svg or save_pdf"]
 pub struct Map {
     locations: Vec<GeoLocation>,

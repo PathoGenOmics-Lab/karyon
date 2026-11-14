@@ -48,6 +48,7 @@
 //! grid when reading left-to-right across equal conceptual rows matters more
 //! than balancing unequal column heights.
 
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -109,6 +110,23 @@ pub struct Panels {
     description: Option<String>,
     visual_scale: f64,
     align_plot_areas: bool,
+}
+
+// By hand, because a panel holds its drawing already rendered, and a derived
+// Debug would print every one in full. Each is shown by its label instead.
+impl fmt::Debug for Panels {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let panels: Vec<Option<&str>> = self
+            .panels
+            .iter()
+            .map(|panel| panel.label.as_deref())
+            .collect();
+        f.debug_struct("Panels")
+            .field("title", &self.title)
+            .field("columns", &self.columns)
+            .field("panels", &panels)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Where the panels ended up and how big a sheet it took.

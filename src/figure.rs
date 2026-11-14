@@ -61,6 +61,7 @@
 //! the names are written in. A figure with no shade in view writes exactly the
 //! bytes it wrote before shades existed, down to the ids of its clips.
 
+use std::fmt;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -148,6 +149,26 @@ pub struct Figure {
     shared: Vec<Extent>,
     /// The stretches shaded across every band that shows them.
     shades: Vec<Shade>,
+}
+
+// By hand, because the tracks are `Box<dyn Track>` and the trait does not ask
+// for Debug. Each is shown by what the figure's description calls it, its
+// label or, with none, its noun.
+impl fmt::Debug for Figure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let tracks: Vec<&str> = self
+            .tracks
+            .iter()
+            .map(|track| track.label().unwrap_or(track.noun()))
+            .collect();
+        f.debug_struct("Figure")
+            .field("region", &self.region.to_string())
+            .field("width", &self.width)
+            .field("title", &self.title)
+            .field("tracks", &tracks)
+            .field("shades", &self.shades)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Figure {

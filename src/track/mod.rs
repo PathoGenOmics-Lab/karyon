@@ -354,6 +354,7 @@ impl Extent {
 }
 
 /// Everything a track needs in order to draw one band.
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct DrawContext<'a> {
     /// Where to write the SVG elements.

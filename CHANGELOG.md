@@ -8,6 +8,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Every public type implements `Debug`, so a caller can print one in a test
+  that failed or a line of a log: `Figure`, `Rings` and `Panels` show each
+  track, ring or panel by its name rather than all they hold, `Map`,
+  `PhyloMap`, `DrawContext`, `RingContext` and the command line's `Built` show
+  their fields, and `read::bgzf::Bgzf` shows where it is in the file whatever
+  it reads from. `SplitSegment` and `VisualTokens`, which hold nothing but
+  numbers, are `Copy`. Every track, `Panels`, `Map`, `PhyloMap` and the values
+  they are built from are `Send` and `Sync`, and `Error`, `ReadError`,
+  `ArgError` and `BuildError` are as well and implement `std::error::Error`, so
+  `?` takes any of them into a `Box<dyn Error + Send + Sync>`; a test holds all
+  of that, so a change that loses it fails to compile.
 - Every public function that returns a `Result` says what makes it fail in an
   `# Errors` section of its documentation, where thirty-six did not, among them
   most of the readers in `read`: `read::point::variants` names the row that has

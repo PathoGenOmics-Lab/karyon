@@ -1346,6 +1346,7 @@ pub fn build_sheet(
 }
 
 /// A figure a command line builds, before it is written out.
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct Built {
     /// The figure, for [`Figure::to_svg`], or for

@@ -40,7 +40,7 @@ use crate::track::{DrawContext, Strand, Track};
 ///
 /// The reference span is where it landed; the read span is where those bases sat
 /// on the molecule, which is what puts the segments in order.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[must_use = "a segment draws nothing until it is in a split read"]
 pub struct SplitSegment {
     start: u64,

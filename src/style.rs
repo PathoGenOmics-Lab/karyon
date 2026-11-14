@@ -127,7 +127,7 @@ pub enum Symbol {
 }
 
 /// Measured visual sizes used throughout a drawing.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[must_use = "tokens change nothing until a theme holds them"]
 #[non_exhaustive]
 pub struct VisualTokens {

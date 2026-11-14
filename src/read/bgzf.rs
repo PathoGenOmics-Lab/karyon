@@ -39,6 +39,7 @@
 //! [`Bgzf::fill`] says how much it filled, and [`bam`](super::bam) says what a
 //! BAM cut short is.
 
+use std::fmt;
 use std::io::{Read, Seek, SeekFrom};
 
 use super::{gzip, ReadError};
@@ -81,6 +82,18 @@ pub struct Bgzf<R> {
     at: usize,
     offset: u64,
     next: u64,
+}
+
+// By hand, so a reader that is not Debug itself, as a `Box<dyn Seekable>` is
+// not, still gives one: where it is in the file says more than the reader.
+impl<R> fmt::Debug for Bgzf<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Bgzf")
+            .field("offset", &self.offset)
+            .field("at", &self.at)
+            .field("next", &self.next)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<R: Read + Seek> Bgzf<R> {
