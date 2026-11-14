@@ -193,9 +193,41 @@ jobs:
             exit 1
           fi
 
-      # One archive per target, holding the binary and the three files a person
-      # needs to know what they have: what it does, what changed and what they
-      # are allowed to do with it.
+      # The completion scripts for bash, zsh and fish and the manual page, which
+      # the program writes itself from the tables its parser and its help are
+      # built from, so each archive carries the ones its own binary wrote. That
+      # binary runs here wherever `native` is true. The x86_64 macOS one does
+      # not run on the arm64 runner that cross-built it, so a build for the
+      # runner, from the same commit, writes them there: they are the same text
+      # on every platform, being the same tables.
+      - name: Build karyon for the runner, to write the completions
+        if: ${{ !matrix.native }}
+        run: cargo build --release --locked --bin karyon
+
+      # Through bash on Windows too, which is Git Bash there, so the same lines
+      # serve every runner and each file is byte for byte what the binary
+      # wrote: a carriage return slipped into the bash script would be read as
+      # part of every command in it.
+      - name: Write the completion scripts and the manual page
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.native }}" = "true" ]; then
+            binary="target/${{ matrix.rust_target }}/release/karyon${{ runner.os == 'Windows' && '.exe' || '' }}"
+          else
+            binary="target/release/karyon"
+          fi
+          mkdir -p generated/completions generated/man
+          "$binary" completions bash > generated/completions/karyon.bash
+          "$binary" completions zsh > generated/completions/_karyon
+          "$binary" completions fish > generated/completions/karyon.fish
+          "$binary" man > generated/man/karyon.1
+          wc -l generated/completions/* generated/man/*
+
+      # One archive per target, holding the binary, the three files a person
+      # needs to know what they have, what it does, what changed and what they
+      # are allowed to do with it, and the completion scripts and the manual
+      # page written above, in completions/ and man/.
       #
       # `github.ref_name` is the tag on a tag push and the branch name on a
       # manual run, so a dispatch from main produces `karyon_main_*`. That is
@@ -211,6 +243,7 @@ jobs:
           mkdir -p "$package_dir"
           cp "target/${{ matrix.rust_target }}/release/karyon" "$package_dir/karyon"
           cp README.md CHANGELOG.md LICENSE "$package_dir/"
+          cp -R generated/completions generated/man "$package_dir/"
           tar -C dist -czf "${package_dir}.tar.gz" "$(basename "$package_dir")"
 
       - name: Package (Windows)
@@ -221,6 +254,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
           Copy-Item "target/${{ matrix.rust_target }}/release/karyon.exe" "$packageDir/karyon.exe"
           Copy-Item README.md, CHANGELOG.md, LICENSE -Destination $packageDir
+          Copy-Item generated/completions, generated/man -Destination $packageDir -Recurse
           Compress-Archive -Path $packageDir -DestinationPath "$packageDir.zip" -Force
 
       # All five jobs point at the same tag. The action creates the release the
@@ -484,6 +518,11 @@ jobs:
           - `macos-aarch64` on Apple silicon, `macos-x86_64` on an Intel Mac.
           - `windows-x86_64` on Windows 10 or 11. It carries its own C
             runtime, so there is no Visual C++ redistributable to install.
+
+          Beside the binary are its completion scripts for bash, zsh and fish,
+          in `completions/`, and its manual page, in `man/`, both written by
+          karyon itself. The [installation page](https://pathogenomics-lab.github.io/karyon/getting-started/installation/#tab-completion-and-the-manual-page)
+          says where each one goes.
 
           On macOS the binary is not signed with an Apple Developer
           certificate, so the first run is refused. Clear the quarantine flag

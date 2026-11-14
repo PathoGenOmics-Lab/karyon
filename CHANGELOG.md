@@ -584,6 +584,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Each release archive carries the completion scripts for bash, zsh and fish,
+  in `completions/`, and the manual page, in `man/`, written by the binary it
+  holds as the release is built. The x86_64 macOS binary does not run on the
+  arm64 runner that cross-builds it, so a build for the runner, from the same
+  commit, writes them there; the text is the same on every platform. The
+  release notes and the installation page say where they are.
 - `karyon completions bash`, `zsh` or `fish` prints a script that completes
   karyon's command lines in that shell, and `karyon man` prints the help as a
   manual page in section 1. Both are written from the tables the parser and

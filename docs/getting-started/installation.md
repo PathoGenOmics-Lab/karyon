@@ -60,7 +60,8 @@ The program writes its own completion script for bash, zsh and fish, and its
 own manual page, from the tables its parser and its help are built from, so
 each matches the version that wrote it. A script completes the flags, the
 words a flag takes, as `--theme light`, and the names of files after a flag
-that reads one.
+that reads one. A release archive carries all four already written, the
+scripts in `completions/` and the page in `man/`.
 
 === "bash"
 
