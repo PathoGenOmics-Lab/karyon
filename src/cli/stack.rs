@@ -6691,9 +6691,10 @@ fn shortened(path: &str) -> &str {
 
 /// Opens what a command line names, the way a shell would.
 ///
-/// This is what the `karyon` binary hands to [`build`], and it is the only
-/// thing in the crate that reads a path. A caller with no filesystem, which is
-/// every caller in a browser, passes its own closure instead.
+/// This is how [`Disk`], which the `karyon` binary reads its files through,
+/// reads a file's text, and a caller of [`build`] can hand it over to read
+/// files as the binary does. A caller with no filesystem, which is every
+/// caller in a browser, passes its own closure instead.
 ///
 /// # Errors
 ///

@@ -8,6 +8,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The API reference carries karyon's logo and icon, the ones the guide's site
+  serves, since docs.rs builds it from the package and the package does not
+  carry the site. Its front page names the binary formats `read` takes a window
+  of at a time through their indexes, BAM, BCF, bigWig, bigBed, 2bit, `.hic`
+  and bgzipped text, where it said every format was lines of text; it names
+  `Tree::parse`, which reads Newick and NEXUS and keeps their annotations,
+  where it named `Tree::parse_newick`; and it names `cli::stack::Disk`, which
+  the program reads its files through, beside `open_from_disk` as what reads a
+  path, where it called `open_from_disk` the one function that does.
 - Every public type implements `Debug`, so a caller can print one in a test
   that failed or a line of a log: `Figure`, `Rings` and `Panels` show each
   track, ring or panel by its name rather than all they hold, `Map`,
